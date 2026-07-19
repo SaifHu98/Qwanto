@@ -5,7 +5,7 @@ Unified inference runtime that uses all your hardware — CPU, GPU, RAM, NVMe �
 </p>
 <p align="center"><em>The <strong>Brain</strong> page: all experts as a living cortex — colour = storage tier (Disk/RAM/VRAM), brightness = routing heat, white flash = routed this turn. Hover shows measured topic affinity.</em></p>
 
-# Qwanto (formerly Colibrì)
+# Qwanto (Powerd By Colibrì)
 
 > **Note:** Project name is **Qwanto**; the CLI binary remains **`coli`** for backward compatibility.
 
