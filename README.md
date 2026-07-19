@@ -1,7 +1,7 @@
 # Qwanto
 Unified inference runtime that uses all your hardware — CPU, GPU, RAM, NVMe — to run any model larger than memory.
 <p align="center">
-  <img src="docs/media/colibri-brain.png" width="900" alt="the Brain page — expert cortex visualization">
+  <img width="2816" height="1536" alt="Qwanto" src="https://github.com/user-attachments/assets/6c98e09d-12bb-4261-95da-f154b74f5235" />
 </p>
 <p align="center"><em>The <strong>Brain</strong> page: all experts as a living cortex — colour = storage tier (Disk/RAM/VRAM), brightness = routing heat, white flash = routed this turn. Hover shows measured topic affinity.</em></p>
 
