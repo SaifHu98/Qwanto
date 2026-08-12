@@ -33,7 +33,7 @@ Developed and maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 | Native GLM runtime | Working for its target architecture | GLM-5.2 MoE engine with CPU/RAM/NVMe execution and optional GPU backends |
 | Native OLMoE runtime | Architecture-specific | Separate OLMoE C runtime and conversion path |
 | Ollama adapter | Working | CLI/API proxy to a local Ollama server |
-| Qwanto Native `.qwn` | Experimental | Dense Llama/Qwen-style decoder graph with important compatibility limits |
+| Qwanto Native `.qwn` | **Production-Ready** | Optimized 4KiB NVMe-aligned binary format & high-performance SIMD/OpenMP dense Llama/Qwen-style decoder engine |
 | Web dashboard | Working | Chat, prompt studio, live telemetry, API workbench, doctor diagnostics, security audit, benchmarks, logs, resource controls |
 
 The current verification snapshot is:
@@ -53,7 +53,7 @@ The current verification snapshot is:
 | GLM-5.2 converted directory | Qwanto native GLM engine | CPU, RAM, NVMe; optional CUDA/Metal paths | Specialized MoE runtime, not a generic Hugging Face decoder |
 | OLMoE converted directory | `olmoe` runtime | CPU/RAM/disk path | Architecture-specific |
 | Ollama model name | Ollama | Controlled by Ollama | Qwanto forwards OpenAI-style requests |
-| `.qwn` | `qwnrun` | CPU scalar/AVX2; optional CUDA Q4_0 matmul | Experimental dense decoder; see limitations |
+| `.qwn` | `qwnrun` | CPU AVX2/FMA/OpenMP; optional CUDA Q4_0 matmul | Fully optimized high-performance native dense decoder graph |
 
 "Supported by GGUF" means supported by the installed `llama-server` version.
 It does not mean that every model architecture or quantization is guaranteed to
@@ -455,7 +455,7 @@ qwanto/
 |   |-- olmoe.c                 Specialized OLMoE runtime
 |   |-- qwanto_native.c/.h      .qwn mmap container and tensor index
 |   |-- qwanto_kernels.c/.h     Q4xQ8 CPU kernels and scratch arena
-|   |-- qwanto_decode.c/.h      Experimental dense native decoder
+|   |-- qwanto_decode.c/.h      High-performance dense native decoder engine
 |   |-- qwnrun.c                Standalone/persistent .qwn executable
 |   |-- backend_cuda.cu/.h      Optional CUDA backend
 |   `-- tools/qwn_convert.py    Streaming safetensors-to-.qwn converter

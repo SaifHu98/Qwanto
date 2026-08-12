@@ -84,7 +84,14 @@ static float bf16_to_float(uint16_t h) {
     float out; memcpy(&out, &bits, sizeof(out)); return out;
 }
 
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
+#if defined(_OPENMP)
+    #pragma omp parallel for schedule(static) if(M > 4)
+#endif
     for (int t = 0; t < M; t++) {
         const float *row = x + (size_t)t * K;
         int8_t *q = s->q8 + (size_t)t * s->padded_k;
@@ -165,11 +172,14 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     quantize_tokens(x, M, K, scratch);
     const uint8_t *raw = m->base + weights->byte_offset;
 
-    for (int t = 0; t < M; t++) {
-        const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
-        float x_scale = scratch->token_scales[t];
-        for (int n = 0; n < N; n++) {
-            const uint8_t *row = raw + (uint64_t)n * row_bytes;
+#if defined(_OPENMP)
+    #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+    for (int n = 0; n < N; n++) {
+        const uint8_t *row = raw + (uint64_t)n * row_bytes;
+        for (int t = 0; t < M; t++) {
+            const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
+            float x_scale = scratch->token_scales[t];
             float sum = 0.0f;
             for (int b = 0; b < blocks; b++) {
                 const uint8_t *block = row + (size_t)b * 18;
