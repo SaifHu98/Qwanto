@@ -99,7 +99,7 @@ static jval *j_parse_val(jparser *p) {
     if (c == '{') {
         if (++p->depth > J_MAX_DEPTH) { p->depth--; return j_new(J_NULL); }
         p->s++; jval *v = j_new(J_OBJ);
-        int cap = 8; v->keys = malloc(cap * sizeof(char*)); v->kids = malloc(cap * sizeof(jval*));
+        int cap = 8; v->keys = (char**)malloc(cap * sizeof(char*)); v->kids = (jval**)malloc(cap * sizeof(jval*));
         j_ws(p);
         if (*p->s == '}') { p->s++; p->depth--; return v; }
         for (;;) {
@@ -107,7 +107,7 @@ static jval *j_parse_val(jparser *p) {
             char *key = j_parse_str_raw(p);
             j_ws(p); if (*p->s == ':') p->s++;
             jval *val = j_parse_val(p);
-            if (v->len == cap) { cap *= 2; v->keys = realloc(v->keys, cap*sizeof(char*)); v->kids = realloc(v->kids, cap*sizeof(jval*)); }
+            if (v->len == cap) { cap *= 2; v->keys = (char**)realloc(v->keys, cap*sizeof(char*)); v->kids = (jval**)realloc(v->kids, cap*sizeof(jval*)); }
             v->keys[v->len] = key; v->kids[v->len] = val; v->len++;
             j_ws(p);
             if (*p->s == ',') { p->s++; continue; }
@@ -120,12 +120,12 @@ static jval *j_parse_val(jparser *p) {
     if (c == '[') {
         if (++p->depth > J_MAX_DEPTH) { p->depth--; return j_new(J_NULL); }
         p->s++; jval *v = j_new(J_ARR);
-        int cap = 8; v->kids = malloc(cap * sizeof(jval*));
+        int cap = 8; v->kids = (jval**)malloc(cap * sizeof(jval*));
         j_ws(p);
         if (*p->s == ']') { p->s++; p->depth--; return v; }
         for (;;) {
             jval *val = j_parse_val(p);
-            if (v->len == cap) { cap *= 2; v->kids = realloc(v->kids, cap*sizeof(jval*)); }
+            if (v->len == cap) { cap *= 2; v->kids = (jval**)realloc(v->kids, cap*sizeof(jval*)); }
             v->kids[v->len++] = val;
             j_ws(p);
             if (*p->s == ',') { p->s++; continue; }
@@ -151,8 +151,12 @@ static jval *json_parse(const char *text, char **arena_out) {
 }
 
 static jval *json_get(jval *o, const char *key) {
-    if (!o || o->t != J_OBJ) return NULL;
-    for (int i = 0; i < o->len; i++) if (strcmp(o->keys[i], key) == 0) return o->kids[i];
+    if (!o || o->t != J_OBJ || !key) return NULL;
+    char k0 = key[0];
+    for (int i = 0; i < o->len; i++) {
+        if (o->keys[i] && o->keys[i][0] == k0 && strcmp(o->keys[i], key) == 0)
+            return o->kids[i];
+    }
     return NULL;
 }
 

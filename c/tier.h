@@ -11,10 +11,11 @@ static int tier_pick_swap(const uint32_t *heat, int nexpert,
     if(!heat || !pinned || npin<1 || nexpert<1) return 0;
     int cold=0;
     for(int z=1;z<npin;z++) if(heat[pinned[z]]<heat[pinned[cold]]) cold=z;
+    uint8_t is_pinned[512] = {0};
+    for(int z=0; z<npin; z++) if(pinned[z] >= 0 && pinned[z] < 512) is_pinned[pinned[z]] = 1;
     int hot=-1; uint32_t fh=0;
     for(int e=0;e<nexpert;e++){
-        int resident=0;
-        for(int z=0;z<npin;z++) if(pinned[z]==e){ resident=1; break; }
+        int resident = (e < 512) ? is_pinned[e] : 0;
         if(!resident && heat[e]>fh){ fh=heat[e]; hot=e; }
     }
     if(hot<0) return 0;
@@ -40,9 +41,11 @@ static int tier_pick_lfru(const uint32_t *heat, const uint32_t *last, uint32_t c
     for(int z=1;z<npin;z++)
         if(tier_lfru_score(heat[pinned[z]],last[pinned[z]],clock)<
            tier_lfru_score(heat[pinned[cold]],last[pinned[cold]],clock)) cold=z;
+    uint8_t is_pinned[512] = {0};
+    for(int z=0; z<npin; z++) if(pinned[z] >= 0 && pinned[z] < 512) is_pinned[pinned[z]] = 1;
     int hot=-1; uint64_t hs=0;
     for(int e=0;e<nexpert;e++){
-        int resident=0; for(int z=0;z<npin;z++) if(pinned[z]==e){resident=1;break;}
+        int resident = (e < 512) ? is_pinned[e] : 0;
         uint64_t score=tier_lfru_score(heat[e],last[e],clock);
         if(!resident&&(hot<0||score>hs)){ hot=e; hs=score; }
     }

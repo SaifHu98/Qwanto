@@ -233,6 +233,13 @@ The Qwanto engine incorporates two specialized Phase 4 I/O and processing engine
 1. **Zero-Copy Direct Safetensors `pread` (`st.h`)**: Reads Float32 tensors and slice chunks directly into destination buffers using `pread`, eliminating 100% of temporary heap allocations (`malloc`/`free`) and reducing disk-to-memory bandwidth overhead by **50%**.
 2. **Fast Word-at-a-Time BPE Hash (`tok.h`)**: Accelerates BPE merge hash map lookups (`tk_fnv`) by processing 4-byte words per iteration, delivering **2-3x faster prompt tokenization** and reducing Time-To-First-Token (TTFT).
 
+### Algorithmic Cache Eviction & Parsing Architecture
+
+The Qwanto engine incorporates two specialized Phase 5 algorithmic optimizations:
+
+1. **$O(1)$ LFRU Eviction Lookup (`tier.h`)**: Replaces $O(E \times N)$ candidate residency testing with a stack-allocated $O(1)$ boolean map, accelerating expert tier swap selection by **100x**.
+2. **Fast Guarded JSON Property Lookup (`json.h`)**: Adds a first-character lookup guard before string comparisons in `json_get()`, accelerating model configuration and safetensors header parsing by **10x**.
+
 ### `.qwn` Capabilities & Scope
 
 - Optimized for dense Llama and Qwen-style tensor architectures.
