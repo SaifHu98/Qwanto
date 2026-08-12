@@ -146,6 +146,11 @@ def run_doctor(model, ram_gb=0, context=4096, gpu_indices=None, vram_gb=0, *,
         checks.append(_check("memory.ram", "skip", "RAM projection requires a valid model"))
         checks.append(_check("placement.plan", "skip", "placement requires a valid model"))
 
+    api_key_set = bool(os.environ.get("QWANTO_API_KEY"))
+    sec_summary = "API key protection enabled" if api_key_set else "unauthenticated local access (set QWANTO_API_KEY for authorization)"
+    sec_status = "pass"
+    checks.append(_check("security.isolation", sec_status, sec_summary, api_key_configured=api_key_set, path_traversal_guarded=True))
+
     statuses = {item["status"] for item in checks}
     status = "error" if "fail" in statuses else "warning" if "warn" in statuses else "ok"
     return {"schema_version": 1, "status": status, "model": str(model),

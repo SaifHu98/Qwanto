@@ -485,3 +485,20 @@ export async function getBenchmarks(baseUrl: string, apiKey = ""): Promise<Bench
   return (await response.json()) as BenchmarkReport
 }
 
+export interface SecurityReport {
+  api_key_protected: boolean
+  constant_time_auth: boolean
+  cors_wildcard: boolean
+  cors_allowed_origins: string[]
+  security_headers_active: boolean
+  path_traversal_protection: boolean
+  max_request_body_bytes: number
+  tls_proxy_supported: boolean
+}
+
+export async function getSecurityReport(baseUrl: string, apiKey = ""): Promise<SecurityReport> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/security"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as SecurityReport
+}
+

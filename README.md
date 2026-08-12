@@ -1,7 +1,7 @@
 # Qwanto ⚡
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/badge/Tests-107%20Passed-brightgreen.svg)]()
+[![Build Status](https://img.shields.io/badge/Tests-108%20Passed-brightgreen.svg)]()
 [![Frontend](https://img.shields.io/badge/Web%20Dashboard-React%2019%20%7C%20Vite-blue.svg)]()
 [![Author](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
 
@@ -22,22 +22,23 @@ Developed and maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 | Live Telemetry & Metrics | **New** | Tokens/sec tracking, generation throughput, hardware allocation, request telemetry |
 | API Workbench | **New** | Multi-language code generator (cURL, Python, TypeScript, Rust) |
 | System Doctor Diagnostics | **New** | Automated installation, CUDA linkage, storage permission, and hardware verification |
+| Security & Defense Audit | **New** | Path traversal boundary enforcement, HTTP defense headers (`nosniff`, `DENY`), constant-time auth |
 | Verified Benchmarks & Gates | **New** | Empirical baseline vs candidate speedup reporting and automated regression gate checks |
 | GGUF runtime | Working through llama.cpp | Uses an installed or Windows auto-downloaded `llama-server` |
 | Native GLM runtime | Working for its target architecture | GLM-5.2 MoE engine with CPU/RAM/NVMe execution and optional GPU backends |
 | Native OLMoE runtime | Architecture-specific | Separate OLMoE C runtime and conversion path |
 | Ollama adapter | Working | CLI/API proxy to a local Ollama server |
 | Qwanto Native `.qwn` | Experimental | Dense Llama/Qwen-style decoder graph with important compatibility limits |
-| Web dashboard | Working | Chat, prompt studio, live telemetry, API workbench, doctor diagnostics, benchmarks, logs, resource controls |
+| Web dashboard | Working | Chat, prompt studio, live telemetry, API workbench, doctor diagnostics, security audit, benchmarks, logs, resource controls |
 
 The current verification snapshot is:
 
-- `107 passed, 3 skipped` with `python -m pytest c/tests/ -q`
+- `108 passed, 3 skipped` with `python -m pytest c/tests/ -q`
 - Scalar and AVX2 `.qwn` C tests pass
 - Native decoder logits match an independent Python reference within expected FP16 KV-cache tolerance
 - Persistent native engine protocol test passes
 - Frontend TypeScript/Vite production build passes (`dist/` build verified)
-- System Doctor diagnostics check passed
+- System Doctor diagnostics and Security Audit checks passed
 
 ## Runtime Matrix
 

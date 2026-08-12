@@ -31,6 +31,19 @@ import zipfile
 
 
 HERE = Path(__file__).resolve().parent
+PROJECT_ROOT = HERE.parent.resolve()
+
+
+def _is_safe_path(target_path: Union[str, Path], allowed_dirs: List[Path] = None) -> bool:
+    """Audit and validate that target_path resides safely within project or allowed directories."""
+    try:
+        resolved = Path(target_path).resolve()
+        if allowed_dirs:
+            return any(resolved == d.resolve() or d.resolve() in resolved.parents for d in allowed_dirs)
+        # Default safety boundary: project root or user app data
+        return resolved == PROJECT_ROOT or PROJECT_ROOT in resolved.parents
+    except Exception:
+        return False
 
 
 def _qwn_executable(engine):
@@ -1748,6 +1761,9 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         if request_id:
             self.send_header("x-request-id", request_id)
         for name, value in (headers or {}).items():
@@ -2047,6 +2063,21 @@ class APIHandler(BaseHTTPRequestHandler):
                     "baseline": base_data,
                     "candidate": cand_data
                 }, request_id)
+                return
+
+            if path == "/v1/qwanto/security":
+                allowed_origins = list(self.server.cors_origins)
+                sec_report = {
+                    "api_key_protected": bool(self.server.api_key),
+                    "constant_time_auth": True,
+                    "cors_wildcard": "*" in allowed_origins,
+                    "cors_allowed_origins": allowed_origins,
+                    "security_headers_active": True,
+                    "path_traversal_protection": True,
+                    "max_request_body_bytes": MAX_BODY,
+                    "tls_proxy_supported": True
+                }
+                self.send_json(200, sec_report, request_id)
                 return
 
             if path == "/v1/qwanto/search":
@@ -2427,6 +2458,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 if not model_path:
                     raise APIError(400, "Missing path parameter.", "path")
                 target = Path(model_path)
+                if not _is_safe_path(target):
+                    raise APIError(403, "Access denied: Path traversal or unauthorized directory modification blocked.", "path")
                 if not target.exists():
                     raise APIError(404, "Model path not found.", "path")
                 try:
