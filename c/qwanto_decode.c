@@ -550,7 +550,28 @@ static float random01(void){
 }
 
 static int sample_token(const float *logits,int vocab,float temperature,float top_p){
-    if(temperature<=0.0f){int best=0;for(int i=1;i<vocab;i++)if(logits[i]>logits[best])best=i;return best;}
+    if(temperature<=0.0f){
+        int best=0;
+#if defined(__AVX2__)
+        if (vocab >= 8) {
+            __m256 vmax = _mm256_loadu_ps(logits);
+            int i = 8;
+            for (; i <= vocab - 8; i += 8) {
+                __m256 v = _mm256_loadu_ps(logits + i);
+                vmax = _mm256_max_ps(vmax, v);
+            }
+            float tmp[8]; _mm256_storeu_ps(tmp, vmax);
+            float max_val = tmp[0];
+            for (int j = 1; j < 8; j++) if (tmp[j] > max_val) max_val = tmp[j];
+            for (int k = 0; k < vocab; k++) {
+                if (logits[k] == max_val) { best = k; break; }
+            }
+            return best;
+        }
+#endif
+        for(int i=1;i<vocab;i++)if(logits[i]>logits[best])best=i;
+        return best;
+    }
     enum{K=256};float val[K];int id[K],n=0;
     for(int token=0;token<vocab;token++){
         float x=logits[token]/temperature;
@@ -578,8 +599,15 @@ int qwn_decoder_generate(QwnDecoder *d,const int *prompt,int prompt_count,
     for(int step=0;step<max_new_tokens;step++){
         token=sample_token(logits,d->cfg.vocab,temperature,top_p);
         if(token==d->cfg.eos_id)break;
-        char text[512];int n=tok_decode(&d->tokenizer,&token,1,text,sizeof(text)-1);
-        if(callback&&n>0)callback(text,n,opaque);
+        if(callback) {
+            if (token >= 0 && token < d->tokenizer.n_ids && d->tokenizer.id2str && d->tokenizer.id2str[token]) {
+                const char *s = d->tokenizer.id2str[token];
+                callback(s, (int)strlen(s), opaque);
+            } else {
+                char text[512];int n=tok_decode(&d->tokenizer,&token,1,text,sizeof(text)-1);
+                if(n>0) callback(text,n,opaque);
+            }
+        }
         generated++;
         if(qwn_decoder_forward(d,token,&logits)!=0)return -1;
     }return generated;
