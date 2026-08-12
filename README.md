@@ -163,8 +163,6 @@ python c/coli inspect ./model.qwn
 
 ### Native Decoder
 
-### Native Decoder
-
 The native decoder implements an optimized Llama/Qwen-style dense execution graph:
 
 - Byte-level BPE tokenizer using the tokenizer implementation in `c/tok.h`
