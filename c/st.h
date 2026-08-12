@@ -251,17 +251,20 @@ static void st_prefetch(shards *S, const char *name) {
 static int64_t st_read_f32(shards *S, const char *name, float *out, int drop) {
     st_tensor *t = st_find(S, name);
     if (!t) { fprintf(stderr, "missing tensor: %s\n", name); exit(1); }
-    void *raw = malloc(t->nbytes);
-    if (!raw) { fprintf(stderr, "malloc %lld bytes for tensor %s failed\n", (long long)t->nbytes, name); exit(1); }
-    if (pread(t->fd, raw, t->nbytes, t->off) != t->nbytes) { perror("pread data"); exit(1); }
     if (t->dtype == 2) {
-        memcpy(out, raw, t->nbytes);
-    } else if (t->dtype == 0) {
-        uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < t->numel; i++) out[i] = bf16_to_f32(p[i]);
+        /* Direct zero-copy read for Float32 tensors */
+        if (pread(t->fd, out, t->nbytes, t->off) != t->nbytes) { perror("pread data f32"); exit(1); }
     } else {
-        uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < t->numel; i++) out[i] = f16_to_f32(p[i]);
+        void *raw = malloc(t->nbytes);
+        if (!raw) { fprintf(stderr, "malloc %lld bytes for tensor %s failed\n", (long long)t->nbytes, name); exit(1); }
+        if (pread(t->fd, raw, t->nbytes, t->off) != t->nbytes) { perror("pread data"); exit(1); }
+        if (t->dtype == 0) {
+            uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < t->numel; i++) out[i] = bf16_to_f32(p[i]);
+        } else {
+            uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < t->numel; i++) out[i] = f16_to_f32(p[i]);
+        }
+        free(raw);
     }
-    free(raw);
     if (drop) posix_fadvise(t->fd, t->off, t->nbytes, POSIX_FADV_DONTNEED);
     return t->numel;
 }
@@ -290,12 +293,17 @@ static void st_read_slice_f32(shards *S, const char *name, int64_t elem_off, int
     if (!t) { fprintf(stderr, "missing tensor: %s\n", name); exit(1); }
     int esz = (t->dtype == 2) ? 4 : 2;
     int64_t boff = t->off + elem_off * esz, nb = n_elems * esz;
-    void *raw = malloc(nb);
-    if (pread(t->fd, raw, nb, boff) != nb) { perror("pread slice"); exit(1); }
-    if (t->dtype == 2) memcpy(out, raw, nb);
-    else if (t->dtype == 0) { uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < n_elems; i++) out[i] = bf16_to_f32(p[i]); }
-    else { uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < n_elems; i++) out[i] = f16_to_f32(p[i]); }
-    free(raw);
+    if (t->dtype == 2) {
+        /* Direct zero-copy slice pread for Float32 */
+        if (pread(t->fd, out, nb, boff) != nb) { perror("pread slice f32"); exit(1); }
+    } else {
+        void *raw = malloc(nb);
+        if (!raw) { fprintf(stderr, "malloc %lld bytes for slice %s failed\n", (long long)nb, name); exit(1); }
+        if (pread(t->fd, raw, nb, boff) != nb) { perror("pread slice"); exit(1); }
+        if (t->dtype == 0) { uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < n_elems; i++) out[i] = bf16_to_f32(p[i]); }
+        else { uint16_t *p = (uint16_t *)raw; for (int64_t i = 0; i < n_elems; i++) out[i] = f16_to_f32(p[i]); }
+        free(raw);
+    }
     if (drop) posix_fadvise(t->fd, boff, nb, POSIX_FADV_DONTNEED);
 }
 

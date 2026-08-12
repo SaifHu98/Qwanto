@@ -23,8 +23,18 @@
 /* ---------- hash map (chiavi binarie con lunghezza) ---------- */
 typedef struct { const char *k; int klen; int v; int used; } ment;
 typedef struct { ment *e; int cap; } hmap;
-static uint64_t tk_fnv(const char *s, int n){ uint64_t h=1469598103934665603ULL;
-    for(int i=0;i<n;i++){ h^=(unsigned char)s[i]; h*=1099511628211ULL; } return h; }
+static uint64_t tk_fnv(const char *s, int n) {
+    uint64_t h = 1469598103934665603ULL;
+    int i = 0;
+    for (; i <= n - 4; i += 4) {
+        uint32_t w; memcpy(&w, s + i, 4);
+        h ^= (uint64_t)w; h *= 1099511628211ULL;
+    }
+    for (; i < n; i++) {
+        h ^= (unsigned char)s[i]; h *= 1099511628211ULL;
+    }
+    return h;
+}
 static void hm_init(hmap *m, int cap){ m->cap=cap; m->e=(ment*)calloc(cap,sizeof(ment)); }
 static void hm_put(hmap *m, const char *k, int klen, int v){
     uint64_t h=tk_fnv(k,klen)&(m->cap-1);
@@ -84,7 +94,7 @@ static void tk_build_bytemap(Tok *T){
 static char *tk_read_file(const char *path, long *out_n){
     FILE *f=fopen(path,"rb"); if(!f){ perror(path); exit(1); }
     fseek(f,0,SEEK_END); long n=ftell(f); fseek(f,0,SEEK_SET);
-    char *b=malloc(n+1); if(fread(b,1,n,f)!=(size_t)n){} b[n]=0; fclose(f); if(out_n)*out_n=n; return b;
+    char *b=(char*)malloc(n+1); if(fread(b,1,n,f)!=(size_t)n){} b[n]=0; fclose(f); if(out_n)*out_n=n; return b;
 }
 static int cmp_sp_len(const void *a, const void *b){ return ((const Special*)b)->len - ((const Special*)a)->len; }
 
@@ -103,8 +113,8 @@ static void tok_load_memory(Tok *T, char *buf){
     for(int i=0;i<vocab->len;i++){ int id=(int)vocab->kids[i]->num; if(id>maxid)maxid=id; }
     if(added) for(int i=0;i<added->len;i++){ int id=(int)json_get(added->kids[i],"id")->num; if(id>maxid)maxid=id; }
     T->n_ids=maxid+1;
-    T->id2str=calloc(T->n_ids,sizeof(char*));
-    T->id_added=calloc(T->n_ids,sizeof(int));
+    T->id2str=(char**)calloc(T->n_ids,sizeof(char*));
+    T->id_added=(int*)calloc(T->n_ids,sizeof(int));
 
     /* vocab: stringa -> id  (capacita' potenza di 2, ~2-3x) */
     int vc=1; while(vc < vocab->len*2) vc<<=1;
@@ -121,12 +131,12 @@ static void tok_load_memory(Tok *T, char *buf){
         jval *pr=merges->kids[i];
         const char *l=pr->kids[0]->str, *r=pr->kids[1]->str;
         int ll=(int)strlen(l), rl=(int)strlen(r);
-        char *key=malloc(ll+1+rl); memcpy(key,l,ll); key[ll]=0; memcpy(key+ll+1,r,rl);
+        char *key=(char*)malloc(ll+1+rl); memcpy(key,l,ll); key[ll]=0; memcpy(key+ll+1,r,rl);
         hm_put(&T->merges, key, ll+1+rl, i);
     }
     /* added tokens (speciali e non): atomici, output letterale */
     if(added){
-        T->nsp=added->len; T->sp=calloc(T->nsp,sizeof(Special));
+        T->nsp=added->len; T->sp=(Special*)calloc(T->nsp,sizeof(Special));
         for(int i=0;i<added->len;i++){
             jval *a=added->kids[i];
             char *content=json_get(a,"content")->str; int id=(int)json_get(a,"id")->num;
@@ -148,17 +158,17 @@ static void tok_load(Tok *T, const char *path){
 static void bpe_piece(Tok *T, const unsigned char *p, int a, int b, int *out, int *no, int max){
     int nb=b-a;
     /* stringa byte-level (concatenazione di byte2str): <=2 byte per byte di input */
-    char *s=malloc(2*nb+1); int sl=0;
+    char *s=(char*)malloc(2*nb+1); int sl=0;
     for(int i=a;i<b;i++){ int bb=p[i]; memcpy(s+sl,T->byte2str[bb],T->byte2cp_len[bb]); sl+=T->byte2cp_len[bb]; }
     s[sl]=0;
     /* ignore_merges: se l'intero pezzo e' un token, emettilo diretto */
     int whole=hm_get(&T->vocab,s,sl);
     if(whole>=0){ if(*no<max) out[(*no)++]=whole; free(s); return; }
     /* simboli iniziali = codepoint della stringa byte-level */
-    int *soff=malloc((sl+1)*sizeof(int)), *slen=malloc((sl+1)*sizeof(int)); int ns=0;
+    int *soff=(int*)malloc((sl+1)*sizeof(int)), *slen=(int*)malloc((sl+1)*sizeof(int)); int ns=0;
     for(int i=0;i<sl;){ uint32_t cp; int k=u8_next((const unsigned char*)s,sl,i,&cp);
         soff[ns]=i; slen[ns]=k; ns++; i+=k; }
-    char *kbuf=malloc(2*sl+2);
+    char *kbuf=(char*)malloc(2*sl+2);
     for(;;){
         int best=INT_MAX, bp=-1;
         for(int i=0;i+1<ns;i++){
@@ -183,7 +193,7 @@ static void bpe_piece(Tok *T, const unsigned char *p, int a, int b, int *out, in
  * Decodifica i codepoint, applica le alternative IN ORDINE, e per ogni pezzo chiama bpe_piece. */
 static void pretok_chunk(Tok *T, const unsigned char *p, int a, int b, int *out, int *no, int max){
     int nb=b-a; if(nb<=0) return;
-    uint32_t *cp=malloc((nb+1)*sizeof(uint32_t)); int *off=malloc((nb+2)*sizeof(int)); int n=0;
+    uint32_t *cp=(uint32_t*)malloc((nb+1)*sizeof(uint32_t)); int *off=(int*)malloc((nb+2)*sizeof(int)); int n=0;
     for(int i=a;i<b;){ uint32_t c; int k=u8_next(p,b,i,&c); off[n]=i; cp[n]=c; n++; i+=k; }
     off[n]=b;
     #define ISNL(c) ((c)=='\r'||(c)=='\n')

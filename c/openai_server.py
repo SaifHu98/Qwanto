@@ -170,6 +170,8 @@ def _ensure_llama_server() -> str | None:
 _LLAMA_HELP_CACHE: collections.OrderedDict = collections.OrderedDict()
 _MAX_HELP_CACHE_SIZE = 32
 
+ALLOWED_KV_QUANTS = ("f16", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0")
+
 
 def _llama_help(exe) -> str:
     """`llama-server --help` output, cached — used to adapt flags to the
