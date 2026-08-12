@@ -2026,6 +2026,29 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_json(200, report, request_id)
                 return
 
+            if path == "/v1/qwanto/benchmarks":
+                base_file = HERE / "baseline.json"
+                cand_file = HERE / "candidate.json"
+                base_data = None
+                cand_data = None
+                if base_file.exists():
+                    try:
+                        with open(base_file, "r") as f:
+                            base_data = json.load(f)
+                    except Exception:
+                        pass
+                if cand_file.exists():
+                    try:
+                        with open(cand_file, "r") as f:
+                            cand_data = json.load(f)
+                    except Exception:
+                        pass
+                self.send_json(200, {
+                    "baseline": base_data,
+                    "candidate": cand_data
+                }, request_id)
+                return
+
             if path == "/v1/qwanto/search":
                 body = self.read_json()
                 query = body.get("query") if isinstance(body, dict) else None

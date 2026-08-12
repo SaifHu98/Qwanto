@@ -55,7 +55,7 @@ def _cache_put(key: str, ttl: int, value: Any) -> None:
 
 # ============================================================ web search
 
-_USER_AGENT = "Qwanto/1.0 (+https://github.com/JustVugg/qwanto)"
+_USER_AGENT = "Qwanto/1.0 (+https://github.com/SaifHu98/Qwanto)"
 
 
 def _http_get(url: str, *, timeout: float, headers: Optional[Dict[str, str]] = None) -> bytes:
@@ -315,7 +315,7 @@ def extract_attachment(name: str, data: bytes, mime: str) -> Dict[str, Any]:
         info["kind"] = "code" if by_extension.endswith((
             ".py", ".js", ".ts", ".tsx", ".jsx", ".c", ".cc", ".cpp", ".cxx",
             ".h", ".hpp", ".rs", ".go", ".java", ".kt", ".rb", ".php", ".sh",
-            ".ps1", ".bat") else "text"
+            ".ps1", ".bat")) else "text"
         info["text"] = _read_text_file(data)
         return info
     # Unknown binary: best-effort utf-8 peek.

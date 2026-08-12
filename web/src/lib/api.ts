@@ -462,3 +462,26 @@ export async function getDoctorReport(baseUrl: string, apiKey = ""): Promise<Doc
   return (await response.json()) as DoctorReport
 }
 
+export interface BenchmarkMetrics {
+  median_tok_s?: number
+  p90_tok_s?: number
+  p95_tok_s?: number
+  peak_rss_mb?: number
+  quantization?: string
+  context_size?: number
+  cache_state?: string
+  backend?: string
+  gates_passed?: Record<string, boolean>
+}
+
+export interface BenchmarkReport {
+  baseline?: BenchmarkMetrics | null
+  candidate?: BenchmarkMetrics | null
+}
+
+export async function getBenchmarks(baseUrl: string, apiKey = ""): Promise<BenchmarkReport> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/benchmarks"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as BenchmarkReport
+}
+

@@ -40,6 +40,7 @@ import {
   Sparkles,
   ShieldCheck,
   Code2,
+  BarChart3,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -50,6 +51,7 @@ import { PresetsView } from "./components/PresetsView"
 import { TelemetryView } from "./components/TelemetryView"
 import { DoctorView } from "./components/DoctorView"
 import { WorkbenchView } from "./components/WorkbenchView"
+import { BenchmarksView } from "./components/BenchmarksView"
 import type { SystemPreset } from "@/lib/api"
 import {
   getHealth,
@@ -137,9 +139,9 @@ export default function App() {
   const logRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
   const [systemInstruction, setSystemInstruction] = useState("")
-  const [view, setView] = useState<"chat" | "brain" | "models" | "logs" | "presets" | "telemetry" | "doctor" | "workbench">(() => {
+  const [view, setView] = useState<"chat" | "brain" | "models" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks">(() => {
     const saved = stored(localStorage, "qwanto.view", "chat")
-    return (["chat", "brain", "models", "logs", "presets", "telemetry", "doctor", "workbench"].includes(saved) ? saved : "chat") as any
+    return (["chat", "brain", "models", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks"].includes(saved) ? saved : "chat") as any
   })
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
@@ -703,6 +705,7 @@ export default function App() {
             <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}><MessageSquareText className="size-3.5" /> Chat</button>
             <button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><Sparkles className="size-3.5" /> Studio</button>
             <button className={view === "telemetry" ? "active" : ""} onClick={() => setView("telemetry")}><Activity className="size-3.5" /> Telemetry</button>
+            <button className={view === "benchmarks" ? "active" : ""} onClick={() => setView("benchmarks")}><BarChart3 className="size-3.5" /> Benchmarks</button>
             <button className={view === "workbench" ? "active" : ""} onClick={() => setView("workbench")}><Code2 className="size-3.5" /> Workbench</button>
             <button className={view === "doctor" ? "active" : ""} onClick={() => setView("doctor")}><ShieldCheck className="size-3.5" /> Doctor</button>
             <button className={view === "brain" ? "active" : ""} onClick={() => setView("brain")}><BrainCircuit className="size-3.5" /> Brain</button>
@@ -1069,6 +1072,8 @@ export default function App() {
           />
         ) : view === "telemetry" ? (
           <TelemetryView baseUrl={baseUrl} apiKey={apiKey} />
+        ) : view === "benchmarks" ? (
+          <BenchmarksView baseUrl={baseUrl} apiKey={apiKey} />
         ) : view === "workbench" ? (
           <WorkbenchView
             baseUrl={baseUrl}
