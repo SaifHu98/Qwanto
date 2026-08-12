@@ -114,7 +114,32 @@ static int required_tensors(QwnDecoder *d){
     return 0;
 }
 
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
+
 static void rmsnorm(float *out,const float *x,const float *w,int n,float eps){
+#if defined(__AVX2__)
+    if (n % 8 == 0) {
+        __m256 sum_vec = _mm256_setzero_ps();
+        for (int i = 0; i < n; i += 8) {
+            __m256 vx = _mm256_loadu_ps(&x[i]);
+            sum_vec = _mm256_fmadd_ps(vx, vx, sum_vec);
+        }
+        float tmp[8];
+        _mm256_storeu_ps(tmp, sum_vec);
+        float ss = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+        float inv = 1.0f / sqrtf((ss / (float)n) + eps);
+        __m256 inv_vec = _mm256_set1_ps(inv);
+        for (int i = 0; i < n; i += 8) {
+            __m256 vx = _mm256_loadu_ps(&x[i]);
+            __m256 vw = _mm256_loadu_ps(&w[i]);
+            __m256 res = _mm256_mul_ps(_mm256_mul_ps(vx, inv_vec), vw);
+            _mm256_storeu_ps(&out[i], res);
+        }
+        return;
+    }
+#endif
     double ss=0;for(int i=0;i<n;i++)ss+=(double)x[i]*x[i];
     float inv=1.0f/sqrtf((float)(ss/n)+eps);
     for(int i=0;i<n;i++)out[i]=x[i]*inv*w[i];

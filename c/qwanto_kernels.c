@@ -239,6 +239,38 @@ int qwn_matmul_f32(const QwnModel *m, const QwnTensorDesc *w,
     if (w->dtype == QWN_DT_Q4_0)
         return qwn_matmul_q4_0_f32(m,w,x,M,K,N,scratch,y);
     if (!scratch || K > scratch->padded_k) return -1;
+
+    if (w->dtype == QWN_DT_F32) {
+        const float *raw = (const float *)qwn_data(m, w);
+        if (!raw) return -1;
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+        for (int n = 0; n < N; n++) {
+            const float *row_p = raw + (size_t)n * K;
+            for (int token = 0; token < M; token++) {
+                const float *xr = x + (size_t)token * K;
+                float sum = 0.0f;
+#if defined(__AVX2__)
+                __m256 sum_vec = _mm256_setzero_ps();
+                int k = 0;
+                for (; k <= K - 8; k += 8) {
+                    __m256 vx = _mm256_loadu_ps(xr + k);
+                    __m256 vw = _mm256_loadu_ps(row_p + k);
+                    sum_vec = _mm256_fmadd_ps(vx, vw, sum_vec);
+                }
+                float tmp[8]; _mm256_storeu_ps(tmp, sum_vec);
+                sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+                for (; k < K; k++) sum += xr[k] * row_p[k];
+#else
+                for (int k = 0; k < K; k++) sum += xr[k] * row_p[k];
+#endif
+                y[(size_t)token * N + n] = sum;
+            }
+        }
+        return 0;
+    }
+
     float *row = scratch->row_f32;
     for (int n = 0; n < N; n++) {
         if (qwn_row_f32(m,w,n,row,K) != 0) return -1;
