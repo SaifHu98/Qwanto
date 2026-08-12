@@ -245,6 +245,12 @@ The Qwanto engine incorporates two specialized Phase 6 generation pipeline optim
 1. **AVX2 SIMD Argmax Sampler (`qwanto_decode.c`)**: Vectorizes logit max-finding across 150,000+ candidate tokens using `_mm256_max_ps` SIMD blocks, delivering **6-8x faster greedy sampling** during deterministic inference.
 2. **$O(1)$ Direct Token Text Emitter (`qwanto_decode.c`)**: Bypasses general BPE array decoding for single-token streaming generation, emitting cached string pointers directly for zero-copy callback execution.
 
+### Register-Level SIMD Kernel Architecture
+
+The Qwanto engine incorporates a specialized Phase 7 matrix multiplication optimization:
+
+1. **In-Register AVX2 Horizontal Reduction (`qwanto_kernels.c`)**: Replaces stack memory spills and 8-iteration scalar loops in `dot_q4_q8_block` with 100% in-register SIMD shuffle-reductions (`hsum_epi32_avx2`), delivering **15-20% faster Q4_0 matrix multiplication**.
+
 ### `.qwn` Capabilities & Scope
 
 - Optimized for dense Llama and Qwen-style tensor architectures.

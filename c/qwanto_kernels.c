@@ -159,6 +159,19 @@ static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
     }
 }
 
+#if defined(__AVX2__)
+static inline int32_t hsum_epi32_avx2(__m256i v) {
+    __m128i lo = _mm256_castsi256_si128(v);
+    __m128i hi = _mm256_extracti128_si256(v, 1);
+    __m128i sum128 = _mm_add_epi32(lo, hi);
+    __m128i tmp = _mm_shuffle_epi32(sum128, _MM_SHUFFLE(1, 0, 3, 2));
+    sum128 = _mm_add_epi32(sum128, tmp);
+    tmp = _mm_shuffle_epi32(sum128, _MM_SHUFFLE(2, 3, 0, 1));
+    sum128 = _mm_add_epi32(sum128, tmp);
+    return _mm_cvtsi128_si32(sum128);
+}
+#endif
+
 static int32_t dot_q4_q8_block(const uint8_t *packed, const int8_t *q8,
                                int valid) {
 #if defined(__AVX2__)
@@ -176,12 +189,7 @@ static int32_t dot_q4_q8_block(const uint8_t *packed, const int8_t *q8,
         const __m256i dot32 = _mm256_madd_epi16(pair_dot, ones16);
         const __m256i pair_sum = _mm256_maddubs_epi16(ones8, q8v);
         const __m256i sum32 = _mm256_madd_epi16(pair_sum, ones16);
-        int32_t dot_lane[8], sum_lane[8];
-        _mm256_storeu_si256((__m256i *)dot_lane, dot32);
-        _mm256_storeu_si256((__m256i *)sum_lane, sum32);
-        int32_t dot = 0, qsum = 0;
-        for (int i = 0; i < 8; i++) { dot += dot_lane[i]; qsum += sum_lane[i]; }
-        return dot - 8 * qsum;
+        return hsum_epi32_avx2(dot32) - 8 * hsum_epi32_avx2(sum32);
     }
 #endif
     int32_t sum = 0;
