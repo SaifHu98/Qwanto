@@ -1,11 +1,11 @@
 # Qwanto ⚡
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/badge/Tests-108%20Passed-brightgreen.svg)]()
+[![Build Status](https://img.shields.io/badge/Tests-109%20Passed-brightgreen.svg)]()
 [![Frontend](https://img.shields.io/badge/Web%20Dashboard-React%2019%20%7C%20Vite-blue.svg)]()
 [![Author](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
 
-Qwanto is a high-performance local inference gateway, specialized MoE C engine, and modern web workspace. It provides an OpenAI-compatible HTTP API, live telemetry metrics, prompt tuning studio, interactive API workbench, model manager, a native GLM-5.2/OLMoE execution path, GGUF integration via `llama-server`, and an experimental compact model format named Qwanto Native (`.qwn`).
+Qwanto is a high-performance local inference gateway, specialized MoE C engine, and modern web workspace. It provides an OpenAI-compatible HTTP API, live telemetry metrics, prompt tuning studio, interactive API workbench, model manager, a native GLM-5.2/OLMoE execution path, GGUF integration via `llama-server`, and an optimized, high-performance compact model format named Qwanto Native (`.qwn`).
 
 ### ⚡ Unified Inference Engine
 The Qwanto core engine acts as a **unified inference runtime that uses all your hardware — CPU, GPU, RAM, NVMe — to run any model larger than memory** at maximum performance. 
@@ -23,6 +23,7 @@ Developed and maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 | Area | Status | Scope |
 |------|--------|-------|
 | OpenAI-compatible gateway | Working | Chat/text completions, SSE streaming, model listing, API-key protection, CORS |
+| Zero-Latency Semantic Response Cache | **New** | In-memory LRU prompt hashing cache for instant 0ms responses on deterministic queries |
 | Prompt Studio & Tuning | **New** | Custom system prompts, temperature/top-p presets, 1-click studio templates |
 | Live Telemetry & Metrics | **New** | Tokens/sec tracking, generation throughput, hardware allocation, request telemetry |
 | API Workbench | **New** | Multi-language code generator (cURL, Python, TypeScript, Rust) |
@@ -38,7 +39,7 @@ Developed and maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 
 The current verification snapshot is:
 
-- `108 passed, 3 skipped` with `python -m pytest c/tests/ -q`
+- `109 passed, 3 skipped` with `python -m pytest c/tests/ -q`
 - Scalar and AVX2 `.qwn` C tests pass
 - Native decoder logits match an independent Python reference within expected FP16 KV-cache tolerance
 - Persistent native engine protocol test passes

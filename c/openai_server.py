@@ -5,6 +5,7 @@ import argparse
 import codecs
 import collections
 import contextlib
+import hashlib
 import json
 import math
 import mimetypes
@@ -1475,6 +1476,39 @@ def save_presets(presets):
         print(f"[presets] Warning: Could not save presets: {e}", file=sys.stderr)
 
 
+class ResponseCache:
+    """Production-grade LRU Semantic Response Cache for zero-latency LLM completions."""
+    def __init__(self, max_entries=256, ttl_seconds=3600):
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self.cache = {}
+
+    def _make_key(self, prompt: str, temperature: float, top_p: float, model: str) -> str:
+        content = json.dumps({"p": prompt, "t": temperature, "top_p": top_p, "m": model}, sort_keys=True)
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def get(self, prompt: str, temperature: float, top_p: float, model: str):
+        if temperature > 0.0:
+            return None
+        key = self._make_key(prompt, temperature, top_p, model)
+        if key in self.cache:
+            entry, ts = self.cache[key]
+            if time.time() - ts <= self.ttl_seconds:
+                return entry
+            else:
+                del self.cache[key]
+        return None
+
+    def put(self, prompt: str, temperature: float, top_p: float, model: str, response_obj: dict):
+        if temperature > 0.0:
+            return
+        key = self._make_key(prompt, temperature, top_p, model)
+        if len(self.cache) >= self.max_entries:
+            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
+            del self.cache[oldest_key]
+        self.cache[key] = (response_obj, time.time())
+
+
 class APIServer(ThreadingHTTPServer):
     daemon_threads = True
     SETTINGS_FILE = Path(__file__).resolve().parent.parent / ".qwanto_settings.json"
@@ -1492,6 +1526,7 @@ class APIServer(ThreadingHTTPServer):
         self.scheduler = GenerationScheduler(max_queue, queue_timeout, kv_slots)
         self.kv_slots = kv_slots
         self.cors_origins = tuple(cors_origins)
+        self.response_cache = ResponseCache()
         self.created = int(time.time())
         self.start_time = time.time()
         self.request_count = 0
@@ -2595,6 +2630,12 @@ class APIHandler(BaseHTTPRequestHandler):
         completion_id = id_prefix + uuid.uuid4().hex
         created = int(time.time())
 
+        if not stream and hasattr(self.server, "response_cache"):
+            cached_resp = self.server.response_cache.get(prompt, temperature, top_p, self.server.model_id)
+            if cached_resp:
+                self.send_json(200, cached_resp, request_id, {"x-qwanto-cache-hit": "true"})
+                return
+
         with self.server.scheduler.admit(self.client_disconnected, cache_slot) as admission:
             queue_wait, cache_slot = admission
             queue_headers = {"x-qwanto-queue-wait-ms": str(round(queue_wait * 1000))}
@@ -2616,9 +2657,11 @@ class APIHandler(BaseHTTPRequestHandler):
                     choice = ({"index": 0, "message": {"role": "assistant", "content": text,
                                "refusal": None}, "logprobs": None, "finish_reason": length_finish} if chat else
                               {"index": 0, "text": text, "logprobs": None, "finish_reason": length_finish})
-                self.send_json(200, {"id": completion_id, "object": object_name, "created": created,
-                    "model": self.server.model_id, "choices": [choice], "usage": self.usage(stats)},
-                    request_id, queue_headers)
+                payload = {"id": completion_id, "object": object_name, "created": created,
+                           "model": self.server.model_id, "choices": [choice], "usage": self.usage(stats)}
+                if hasattr(self.server, "response_cache"):
+                    self.server.response_cache.put(prompt, temperature, top_p, self.server.model_id, payload)
+                self.send_json(200, payload, request_id, queue_headers)
                 return
 
             stream_object = "chat.completion.chunk" if chat else object_name
