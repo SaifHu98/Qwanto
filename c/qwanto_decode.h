@@ -15,6 +15,15 @@ typedef struct {
     int tie_embeddings;
 } QwnConfig;
 
+/* Per-layer tensor descriptor cache — resolved once at load, zero lookup cost at runtime */
+typedef struct {
+    const QwnTensorDesc *q_proj, *k_proj, *v_proj, *o_proj;
+    const QwnTensorDesc *q_bias, *k_bias, *v_bias, *o_bias;
+    const QwnTensorDesc *q_norm, *k_norm;
+    const QwnTensorDesc *input_norm, *post_norm;
+    const QwnTensorDesc *gate_proj, *up_proj, *down_proj;
+} QwnLayerTensors;
+
 typedef struct {
     QwnModel model;
     QwnConfig cfg;
@@ -28,6 +37,10 @@ typedef struct {
     float *x, *xb, *q, *k, *v, *att, *ctx, *gate, *up, *hidden, *logits;
     float *norm_weights;
     int position;
+    QwnLayerTensors *layer_cache; /* resolved at load time */
+    const QwnTensorDesc *embed_weight;
+    const QwnTensorDesc *lm_head_weight;
+    const QwnTensorDesc *final_norm_weight;
 #ifdef COLI_CUDA
     int cuda_device;
     int cuda_enabled;

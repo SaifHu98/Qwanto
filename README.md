@@ -163,24 +163,25 @@ python c/coli inspect ./model.qwn
 
 ### Native Decoder
 
+### Native Decoder
+
 The native decoder implements an optimized Llama/Qwen-style dense execution graph:
 
 - Byte-level BPE tokenizer using the tokenizer implementation in `c/tok.h`
 - AVX2 vectorized RMSNorm with FMA sum reduction
+- **Zero-Lookup Tensor Descriptor Cache**: Resolves all 13 per-layer tensor descriptors (`q_proj`, `k_proj`, `v_proj`, `o_proj`, biases, norms, `gate`, `up`, `down`) once at load time into a direct struct array (`QwnLayerTensors`). Eliminates 512 `snprintf` format calls and string hash lookups per token across 32 layers.
 - **Precomputed RoPE Frequency Table**: Trigonometric frequencies (cos/sin) are computed once at model load time and stored in a lookup table. Every subsequent token applies RoPE using table lookups and AVX2 FMA instead of calling `powf`/`cosf`/`sinf` per dimension per head.
-- **Hardware F16C KV Cache Access**: The FP16 key/value cache is read using AVX2 `_mm256_cvtph_ps` hardware half-to-float conversion (F16C instruction set), replacing per-element scalar conversion in the attention inner loops. This accelerates both the Q·K dot product and the score·V accumulation.
-- Causal attention with GQA/MQA support, AVX2 FMA-accelerated dot products
-- Optional per-head Q/K RMSNorm used by Qwen3-style models
+- **Hardware F16C KV Cache Read/Write**: The FP16 key/value cache is read and written using AVX2 `_mm256_cvtph_ps` and `_mm256_cvtps_ph` hardware half-to-float instructions, eliminating all scalar bit-manipulation routines from the KV path.
+- **AVX2 Head RMSNorm & Softmax**: Per-head Q/K RMSNorm and softmax max-finding/scale passes are fully vectorized with AVX2 FMA and `_mm256_max_ps`.
 - **AVX2 Vectorized SwiGLU**: The SiLU activation in the MLP uses a fast rational sigmoid approximation (`x / (1 + |x|)`) computed entirely in AVX2 registers, eliminating all `expf` calls from the token hot path.
-- Tied or separate LM head
-- Greedy decoding and temperature sampling with nucleus filtering over the top 256 candidates
-- Persistent stdin/stdout engine protocol used by the HTTP gateway
-- In-memory zero-latency LRU Semantic Response Cache for instant 0ms responses on deterministic queries
-- **Layer-Ahead NVMe Prefetching**: On every token (not just the first), the engine issues OS-level prefetch hints (`PrefetchVirtualMemory` on Windows, `madvise(MADV_WILLNEED)` on Linux) for the next layer's 7 weight tensors, overlapping I/O with compute so file-backed weights are paged in before they are needed.
-- **4x Unrolled Q4_0 Matrix Multiplication**: The Q4_0 matmul kernel processes 4 output rows simultaneously, loading the quantized activation vector once from AVX registers and multiplying against 4 weight rows. This reduces memory bandwidth pressure by ~4x compared to row-at-a-time execution.
-- **AVX2-Accelerated Token Quantization**: The per-token Q8 quantization pass uses AVX2 `_mm256_andnot_ps` for vectorized abs-max finding and `_mm256_cvtps_epi32` + SSE pack instructions for float-to-int8 conversion, eliminating scalar `fabsf` and `lrintf` calls.
+- **AVX2 Vectorized Residual Additions**: Hidden state residual connections (`x += xb`) run via `_mm256_add_ps` SIMD blocks.
+- **Cached Win32 Prefetch Resolver**: Win32 `PrefetchVirtualMemory` kernel entry point is resolved once at initialization, eliminating repeated DLL symbol table lookups during layer-ahead I/O prefetching.
+- **Layer-Ahead NVMe Prefetching**: On every token, the engine issues OS-level prefetch hints for the next layer's 7 weight tensors via zero-cost cached descriptor pointers, overlapping I/O with compute.
+- **4x Unrolled Q4_0 Matrix Multiplication**: The Q4_0 matmul kernel processes 4 output rows simultaneously, loading the quantized activation vector once from AVX registers and multiplying against 4 weight rows.
+- **AVX2-Accelerated Token Quantization**: The per-token Q8 quantization pass uses AVX2 `_mm256_andnot_ps` for vectorized abs-max finding and `_mm256_cvtps_epi32` + SSE pack instructions for float-to-int8 conversion.
+- **F16C / AVX2 Row Decoding**: `qwn_row_f32` uses F16C hardware conversion for F16 tensors and `_mm256_slli_epi32` bit shifts for BF16 tensors.
 
-CPU inference uses SIMD AVX2/AVX-512 FMA vectorization with F16C hardware conversion, OpenMP multi-threaded block distribution across physical CPU cores, per-token Q8 activation quantization with zero-allocation persistent 64-byte aligned scratch arenas, precomputed trigonometric tables, and zero-latency prompt response caching. There is no `malloc` or `expf` in the token hot path.
+CPU inference uses SIMD AVX2/AVX-512 FMA vectorization with F16C hardware conversion, OpenMP multi-threaded block distribution across physical CPU cores, per-token Q8 activation quantization with zero-allocation persistent 64-byte aligned scratch arenas, precomputed trigonometric tables, cached layer descriptor arrays, and zero-latency prompt response caching. There is no `malloc`, `expf`, `snprintf`, or scalar bit-conversion in the token hot path.
 
 The native runtime also includes:
 
@@ -205,9 +206,9 @@ On this Windows workspace, `c/qwnrun.exe` was built with Clang as an AVX2/AVX-51
 
 The `.qwn` decoder pipeline is designed around three principles:
 
-1. **Zero-Overhead Compute**: No transcendental math (`expf`, `powf`, `cosf`, `sinf`) executes in the per-token forward pass. All trigonometric constants are precomputed; the SiLU activation uses a rational approximation.
-2. **Hardware-Native Data Paths**: FP16 KV cache values are converted to FP32 using the F16C instruction set (`vcvtph2ps`), which is a single-cycle instruction on modern CPUs. Q4_0 weight dequantization uses `vpshufb`-class byte manipulation.
-3. **Compute-I/O Overlap**: Every layer prefetches the next layer's weights from the memory-mapped file, ensuring NVMe-backed tensors are paged into RAM before the CPU needs them.
+1. **Zero-Overhead Compute**: No string formatting (`snprintf`), hash searches, or transcendental math (`expf`, `powf`, `cosf`, `sinf`) execute in the per-token forward pass. All tensor descriptors and trigonometric constants are resolved once at load time; the SiLU activation uses a rational approximation.
+2. **Hardware-Native Data Paths**: FP16 KV cache values are read and written using the F16C instruction set (`vcvtph2ps`/`vcvtps2ph`). Q4_0 weight dequantization uses `vpshufb`-class byte manipulation, and BF16 row decoding uses 16-bit vector bit shifts.
+3. **Compute-I/O Overlap**: Every layer prefetches the next layer's weights from the memory-mapped file using cached descriptor pointers, ensuring NVMe-backed tensors are paged into RAM before the CPU needs them.
 
 ### `.qwn` Capabilities & Scope
 

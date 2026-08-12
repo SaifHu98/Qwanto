@@ -359,7 +359,26 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
     }
     if (t->dtype == QWN_DT_F16 || t->dtype == QWN_DT_BF16) {
         const uint16_t *p = (const uint16_t *)raw + (size_t)row * width;
-        for (int i = 0; i < width; i++)
+        int i = 0;
+#if defined(__AVX2__)
+        if (t->dtype == QWN_DT_F16) {
+#if defined(__F16C__)
+            for (; i <= width - 8; i += 8) {
+                __m128i h8 = _mm_loadu_si128((const __m128i *)(p + i));
+                __m256 f8 = _mm256_cvtph_ps(h8);
+                _mm256_storeu_ps(out + i, f8);
+            }
+#endif
+        } else if (t->dtype == QWN_DT_BF16) {
+            for (; i <= width - 8; i += 8) {
+                __m128i h8 = _mm_loadu_si128((const __m128i *)(p + i));
+                __m256i u32 = _mm256_cvtepu16_epi32(h8);
+                __m256i f32bits = _mm256_slli_epi32(u32, 16);
+                _mm256_storeu_si256((__m256i *)(out + i), f32bits);
+            }
+        }
+#endif
+        for (; i < width; i++)
             out[i] = t->dtype == QWN_DT_F16 ? half_to_float(p[i]) : bf16_to_float(p[i]);
         return 0;
     }

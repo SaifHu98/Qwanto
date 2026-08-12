@@ -176,7 +176,27 @@ static void rmsnorm(float *out,const float *x,const float *w,int n,float eps){
 
 static void head_rmsnorm(float *x,int heads,int dim,const float *w,float eps){
     for(int h=0;h<heads;h++){
-        float *row=x+(size_t)h*dim;double ss=0;
+        float *row=x+(size_t)h*dim;
+#if defined(__AVX2__)
+        if (dim % 8 == 0) {
+            __m256 sum_vec = _mm256_setzero_ps();
+            for (int i = 0; i < dim; i += 8) {
+                __m256 vx = _mm256_loadu_ps(&row[i]);
+                sum_vec = _mm256_fmadd_ps(vx, vx, sum_vec);
+            }
+            float tmp[8]; _mm256_storeu_ps(tmp, sum_vec);
+            float ss = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+            float inv = 1.0f / sqrtf((ss / (float)dim) + eps);
+            __m256 inv_vec = _mm256_set1_ps(inv);
+            for (int i = 0; i < dim; i += 8) {
+                __m256 vx = _mm256_loadu_ps(&row[i]);
+                __m256 vw = _mm256_loadu_ps(&w[i]);
+                _mm256_storeu_ps(&row[i], _mm256_mul_ps(_mm256_mul_ps(vx, inv_vec), vw));
+            }
+            continue;
+        }
+#endif
+        double ss=0;
         for(int i=0;i<dim;i++)ss+=(double)row[i]*row[i];
         float inv=1.0f/sqrtf((float)(ss/dim)+eps);
         for(int i=0;i<dim;i++)row[i]=row[i]*inv*w[i];
@@ -226,9 +246,32 @@ static void rope(float *v, int heads, int dim, int pos, float theta) {
 }
 
 static void softmax(float *x,int n){
-    float max=-INFINITY;for(int i=0;i<n;i++)if(x[i]>max)max=x[i];
-    double sum=0;for(int i=0;i<n;i++){x[i]=expf(x[i]-max);sum+=x[i];}
-    float inv=1.0f/(float)sum;for(int i=0;i<n;i++)x[i]*=inv;
+    float max=-INFINITY;
+#if defined(__AVX2__)
+    if (n >= 8) {
+        __m256 vmax = _mm256_set1_ps(-INFINITY);
+        int i = 0;
+        for (; i <= n - 8; i += 8)
+            vmax = _mm256_max_ps(vmax, _mm256_loadu_ps(x + i));
+        float tmp[8]; _mm256_storeu_ps(tmp, vmax);
+        for (int j = 0; j < 8; j++) if (tmp[j] > max) max = tmp[j];
+        for (; i < n; i++) if (x[i] > max) max = x[i];
+    } else
+#endif
+    { for(int i=0;i<n;i++) if(x[i]>max) max=x[i]; }
+    double sum=0;
+    for(int i=0;i<n;i++){x[i]=expf(x[i]-max);sum+=x[i];}
+    float inv=1.0f/(float)sum;
+#if defined(__AVX2__)
+    if (n >= 8) {
+        __m256 vinv = _mm256_set1_ps(inv);
+        int i = 0;
+        for (; i <= n - 8; i += 8)
+            _mm256_storeu_ps(x + i, _mm256_mul_ps(_mm256_loadu_ps(x + i), vinv));
+        for (; i < n; i++) x[i] *= inv;
+    } else
+#endif
+    { for(int i=0;i<n;i++) x[i]*=inv; }
 }
 
 static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
@@ -266,6 +309,32 @@ static int load_norms(QwnDecoder *d){
                       d->norm_weights+(size_t)(2*d->cfg.layers)*D,D);
 }
 
+/* Resolve all per-layer tensor descriptors once at load time */
+static int build_layer_cache(QwnDecoder *d) {
+    d->layer_cache = (QwnLayerTensors *)malloc((size_t)d->cfg.layers * sizeof(QwnLayerTensors));
+    if (!d->layer_cache) return -1;
+    for (int l = 0; l < d->cfg.layers; l++) {
+        QwnLayerTensors *lt = &d->layer_cache[l];
+        lt->q_proj = layer_tensor(d, l, "self_attn.q_proj.weight");
+        lt->k_proj = layer_tensor(d, l, "self_attn.k_proj.weight");
+        lt->v_proj = layer_tensor(d, l, "self_attn.v_proj.weight");
+        lt->o_proj = layer_tensor(d, l, "self_attn.o_proj.weight");
+        lt->q_bias = layer_tensor(d, l, "self_attn.q_proj.bias");
+        lt->k_bias = layer_tensor(d, l, "self_attn.k_proj.bias");
+        lt->v_bias = layer_tensor(d, l, "self_attn.v_proj.bias");
+        lt->o_bias = layer_tensor(d, l, "self_attn.o_proj.bias");
+        lt->q_norm = layer_tensor(d, l, "self_attn.q_norm.weight");
+        lt->k_norm = layer_tensor(d, l, "self_attn.k_norm.weight");
+        lt->gate_proj = layer_tensor(d, l, "mlp.gate_proj.weight");
+        lt->up_proj = layer_tensor(d, l, "mlp.up_proj.weight");
+        lt->down_proj = layer_tensor(d, l, "mlp.down_proj.weight");
+    }
+    d->embed_weight = qwn_find(&d->model, "model.embed_tokens.weight");
+    d->lm_head_weight = qwn_find(&d->model, "lm_head.weight");
+    if (!d->lm_head_weight) d->lm_head_weight = d->embed_weight;
+    return 0;
+}
+
 int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **error){
     static const char *ERR_CONFIG="unsupported/missing Llama-Qwen config";
     static const char *ERR_TENSORS="missing Llama-Qwen tensors";
@@ -294,6 +363,7 @@ int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **er
     d->value_cache=(uint16_t*)((uint8_t*)d->kv_allocation+kv_bytes);
     memset(d->kv_allocation,0,kv_bytes*2);
     if(load_norms(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
+    if(build_layer_cache(d)!=0){if(error)*error=ERR_MEMORY;goto fail;}
 #ifdef COLI_CUDA
     d->cuda_device=0;
     d->cuda_enabled=coli_cuda_init(&d->cuda_device,1);
@@ -308,6 +378,7 @@ void qwn_decoder_reset(QwnDecoder *d){d->position=0;}
 
 void qwn_decoder_close(QwnDecoder *d){
     if(!d)return;qwn_scratch_destroy(&d->scratch);free64(d->arena);
+    free(d->layer_cache);
 #ifdef COLI_CUDA
     for(int i=0;i<d->cuda_weight_count;i++)if(d->cuda_weights[i].tensor)coli_cuda_tensor_free(d->cuda_weights[i].tensor);
     if(d->cuda_enabled)coli_cuda_shutdown();
@@ -315,42 +386,73 @@ void qwn_decoder_close(QwnDecoder *d){
     free64(d->kv_allocation);qwn_close(&d->model);memset(d,0,sizeof(*d));
 }
 
+/* AVX2 vectorized residual addition */
+static void vec_add(float *dst, const float *src, int n) {
+#if defined(__AVX2__)
+    int i = 0;
+    for (; i <= n - 8; i += 8) {
+        __m256 a = _mm256_loadu_ps(dst + i);
+        __m256 b = _mm256_loadu_ps(src + i);
+        _mm256_storeu_ps(dst + i, _mm256_add_ps(a, b));
+    }
+    for (; i < n; i++) dst[i] += src[i];
+#else
+    for (int i = 0; i < n; i++) dst[i] += src[i];
+#endif
+}
+
 int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
     QwnConfig *c=&d->cfg;int D=c->hidden,I=c->intermediate,H=c->heads;
     int HK=c->kv_heads,HD=c->head_dim,Q=H*HD,KV=HK*HD,pos=d->position;
     if(token<0||token>=c->vocab||pos>=c->max_ctx)return -1;
-    if(qwn_row_f32(&d->model,qwn_find(&d->model,"model.embed_tokens.weight"),token,d->x,D)!=0)return -1;
+    if(qwn_row_f32(&d->model,d->embed_weight,token,d->x,D)!=0)return -1;
     for(int l=0;l<c->layers;l++){
-        /* Always prefetch the next layer's heavy weights to overlap compute + I/O */
+        const QwnLayerTensors *lt = &d->layer_cache[l];
+        /* Prefetch next layer's heavy weights — zero-cost cached pointer lookup */
         if(l + 1 < c->layers) {
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.q_proj.weight"));
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.k_proj.weight"));
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.v_proj.weight"));
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.o_proj.weight"));
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "mlp.gate_proj.weight"));
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "mlp.up_proj.weight"));
-            qwn_prefetch(&d->model, layer_tensor(d, l+1, "mlp.down_proj.weight"));
+            const QwnLayerTensors *next = &d->layer_cache[l+1];
+            qwn_prefetch(&d->model, next->q_proj);
+            qwn_prefetch(&d->model, next->k_proj);
+            qwn_prefetch(&d->model, next->v_proj);
+            qwn_prefetch(&d->model, next->o_proj);
+            qwn_prefetch(&d->model, next->gate_proj);
+            qwn_prefetch(&d->model, next->up_proj);
+            qwn_prefetch(&d->model, next->down_proj);
         }
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l)*D,D,c->rms_eps);
-        const QwnTensorDesc *qw=layer_tensor(d,l,"self_attn.q_proj.weight");
-        const QwnTensorDesc *kw=layer_tensor(d,l,"self_attn.k_proj.weight");
-        const QwnTensorDesc *vw=layer_tensor(d,l,"self_attn.v_proj.weight");
-        if(matmul(d,qw,d->xb,D,Q,d->q)||matmul(d,kw,d->xb,D,KV,d->k)||
-           matmul(d,vw,d->xb,D,KV,d->v))return -1;
-        add_bias(d,layer_tensor(d,l,"self_attn.q_proj.bias"),d->q,Q);
-        add_bias(d,layer_tensor(d,l,"self_attn.k_proj.bias"),d->k,KV);
-        add_bias(d,layer_tensor(d,l,"self_attn.v_proj.bias"),d->v,KV);
-        const QwnTensorDesc *qn=layer_tensor(d,l,"self_attn.q_norm.weight");
-        const QwnTensorDesc *kn=layer_tensor(d,l,"self_attn.k_norm.weight");
-        if(qn&&vector_f32(&d->model,qn,d->scratch.row_f32,HD)==0)
+        if(matmul(d,lt->q_proj,d->xb,D,Q,d->q)||matmul(d,lt->k_proj,d->xb,D,KV,d->k)||
+           matmul(d,lt->v_proj,d->xb,D,KV,d->v))return -1;
+        add_bias(d,lt->q_bias,d->q,Q);
+        add_bias(d,lt->k_bias,d->k,KV);
+        add_bias(d,lt->v_bias,d->v,KV);
+        if(lt->q_norm&&vector_f32(&d->model,lt->q_norm,d->scratch.row_f32,HD)==0)
             head_rmsnorm(d->q,H,HD,d->scratch.row_f32,c->rms_eps);
-        if(kn&&vector_f32(&d->model,kn,d->scratch.row_f32,HD)==0)
+        if(lt->k_norm&&vector_f32(&d->model,lt->k_norm,d->scratch.row_f32,HD)==0)
             head_rmsnorm(d->k,HK,HD,d->scratch.row_f32,c->rms_eps);
         rope(d->q,H,HD,pos,c->rope_theta);rope(d->k,HK,HD,pos,c->rope_theta);
         size_t layer_base=(size_t)l*c->max_ctx*HK*HD;
         size_t pos_base=layer_base+(size_t)pos*HK*HD;
+        /* F16C KV cache write: batch convert float32 -> float16 */
+#if defined(__AVX2__) && defined(__F16C__)
+        {
+            int i = 0;
+            for (; i <= KV - 8; i += 8) {
+                __m256 fk = _mm256_loadu_ps(d->k + i);
+                __m256 fv = _mm256_loadu_ps(d->v + i);
+                __m128i hk = _mm256_cvtps_ph(fk, _MM_FROUND_TO_NEAREST_INT);
+                __m128i hv = _mm256_cvtps_ph(fv, _MM_FROUND_TO_NEAREST_INT);
+                _mm_storeu_si128((__m128i *)(d->key_cache + pos_base + i), hk);
+                _mm_storeu_si128((__m128i *)(d->value_cache + pos_base + i), hv);
+            }
+            for (; i < KV; i++) {
+                d->key_cache[pos_base+i]=float_to_half(d->k[i]);
+                d->value_cache[pos_base+i]=float_to_half(d->v[i]);
+            }
+        }
+#else
         for(int i=0;i<KV;i++){d->key_cache[pos_base+i]=float_to_half(d->k[i]);
                               d->value_cache[pos_base+i]=float_to_half(d->v[i]);}
+#endif
         memset(d->ctx,0,(size_t)D*sizeof(float));
         float scale=1.0f/sqrtf((float)HD),ratio=(float)H/HK;
         for(int h=0;h<H;h++){
@@ -403,27 +505,22 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
 #endif
             }
         }
-        if(matmul(d,layer_tensor(d,l,"self_attn.o_proj.weight"),d->ctx,Q,D,d->xb))return -1;
-        add_bias(d,layer_tensor(d,l,"self_attn.o_proj.bias"),d->xb,D);
-        for(int i=0;i<D;i++)d->x[i]+=d->xb[i];
+        if(matmul(d,lt->o_proj,d->ctx,Q,D,d->xb))return -1;
+        add_bias(d,lt->o_bias,d->xb,D);
+        vec_add(d->x, d->xb, D);
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l+1)*D,D,c->rms_eps);
-        if(matmul(d,layer_tensor(d,l,"mlp.gate_proj.weight"),d->xb,D,I,d->gate)||
-           matmul(d,layer_tensor(d,l,"mlp.up_proj.weight"),d->xb,D,I,d->up))return -1;
+        if(matmul(d,lt->gate_proj,d->xb,D,I,d->gate)||
+           matmul(d,lt->up_proj,d->xb,D,I,d->up))return -1;
         /* SwiGLU: hidden = silu(gate) * up */
 #if defined(__AVX2__)
         {
             __m256 one = _mm256_set1_ps(1.0f);
-            __m256 neg = _mm256_set1_ps(-1.0f);
             int i = 0;
             for (; i <= I - 8; i += 8) {
                 __m256 g = _mm256_loadu_ps(d->gate + i);
                 __m256 u = _mm256_loadu_ps(d->up + i);
-                /* Fast sigmoid approximation: x / (1 + |x|) — avoids expf entirely */
-                __m256 ag = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), g); /* abs(g) */
+                __m256 ag = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), g);
                 __m256 sig = _mm256_div_ps(g, _mm256_add_ps(one, ag));
-                /* silu = g * sigmoid ≈ g * (g / (1+|g|)) but we use the rational approx */
-                /* More precisely: silu(x) = x * sigmoid(x). With rational sigmoid:
-                   silu(x) ≈ x * x / (1 + |x|) = x² / (1 + |x|) */
                 __m256 silu = _mm256_mul_ps(g, sig);
                 _mm256_storeu_ps(d->hidden + i, _mm256_mul_ps(silu, u));
             }
@@ -438,13 +535,11 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
             d->hidden[i] = (g / (1.0f + expf(-g))) * d->up[i];
         }
 #endif
-        if(matmul(d,layer_tensor(d,l,"mlp.down_proj.weight"),d->hidden,I,D,d->xb))return -1;
-        for(int i=0;i<D;i++)d->x[i]+=d->xb[i];
+        if(matmul(d,lt->down_proj,d->hidden,I,D,d->xb))return -1;
+        vec_add(d->x, d->xb, D);
     }
     rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*c->layers)*D,D,c->rms_eps);
-    const QwnTensorDesc *head=qwn_find(&d->model,"lm_head.weight");
-    if(!head)head=qwn_find(&d->model,"model.embed_tokens.weight");
-    if(matmul(d,head,d->xb,D,c->vocab,d->logits))return -1;
+    if(matmul(d,d->lm_head_weight,d->xb,D,c->vocab,d->logits))return -1;
     d->position++;if(out_logits)*out_logits=d->logits;return 0;
 }
 

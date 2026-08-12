@@ -117,6 +117,7 @@ typedef struct QwnModel {
     uint64_t *overflow_offsets;
     QwnTensorDesc *overflow_descs;
     uint32_t  overflow_count;
+    uint64_t  inline_hashes[QWN_INLINE_MAX]; /* precomputed at open time */
 } QwnModel;
 
 enum { QWN_TIER_GPU = 0, QWN_TIER_RAM = 1, QWN_TIER_NVME = 2 };

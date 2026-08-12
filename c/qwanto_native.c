@@ -173,6 +173,7 @@ int qwn_open(const char *path, QwnModel *m, const char **err) {
             if (err) *err = ERR_ALIGN;
             return -1;
         }
+        m->inline_hashes[i] = qwn_hash_name(t->name);
     }
     if (m->hdr.n_tensors > m->hdr.inline_count) {
         /* Footer contains the absolute tail offset. */
@@ -258,7 +259,7 @@ const QwnTensorDesc *qwn_find(const QwnModel *m, const char *name) {
     uint64_t h = qwn_hash_name(name);
     /* Inline: linear scan of up to 64 entries is cache-friendly. */
     for (uint32_t i = 0; i < m->hdr.inline_count; i++) {
-        if (qwn_hash_name(m->hdr.inline_index[i].name) == h &&
+        if (m->inline_hashes[i] == h &&
             strcmp(m->hdr.inline_index[i].name, name) == 0) {
             return &m->hdr.inline_index[i];
         }
@@ -371,13 +372,18 @@ int qwn_prefetch(const QwnModel *m, const QwnTensorDesc *t) {
 #ifdef _WIN32
     typedef BOOL (WINAPI *prefetch_fn)(HANDLE, ULONG_PTR,
                                       PWIN32_MEMORY_RANGE_ENTRY, ULONG);
-    prefetch_fn fn = (prefetch_fn)GetProcAddress(GetModuleHandleA("kernel32.dll"),
-                                                 "PrefetchVirtualMemory");
-    if (!fn) return 0;
+    static prefetch_fn cached_fn = NULL;
+    static int resolved = 0;
+    if (!resolved) {
+        cached_fn = (prefetch_fn)GetProcAddress(GetModuleHandleA("kernel32.dll"),
+                                                "PrefetchVirtualMemory");
+        resolved = 1;
+    }
+    if (!cached_fn) return 0;
     WIN32_MEMORY_RANGE_ENTRY range;
     range.VirtualAddress = m->base + t->byte_offset;
     range.NumberOfBytes = (SIZE_T)t->byte_size;
-    return fn(GetCurrentProcess(), 1, &range, 0) ? 0 : -1;
+    return cached_fn(GetCurrentProcess(), 1, &range, 0) ? 0 : -1;
 #else
     return madvise(m->base + t->byte_offset, (size_t)t->byte_size,
                    MADV_WILLNEED) == 0 ? 0 : -1;
