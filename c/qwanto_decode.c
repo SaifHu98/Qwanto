@@ -258,6 +258,15 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
     if(token<0||token>=c->vocab||pos>=c->max_ctx)return -1;
     if(qwn_row_f32(&d->model,qwn_find(&d->model,"model.embed_tokens.weight"),token,d->x,D)!=0)return -1;
     for(int l=0;l<c->layers;l++){
+        if(l + 1 < c->layers && pos == 0) {
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.q_proj.weight"));
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.k_proj.weight"));
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.v_proj.weight"));
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.o_proj.weight"));
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "mlp.gate_proj.weight"));
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "mlp.up_proj.weight"));
+            qwn_prefetch(&d->model, layer_tensor(d, l+1, "mlp.down_proj.weight"));
+        }
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l)*D,D,c->rms_eps);
         const QwnTensorDesc *qw=layer_tensor(d,l,"self_attn.q_proj.weight");
         const QwnTensorDesc *kw=layer_tensor(d,l,"self_attn.k_proj.weight");

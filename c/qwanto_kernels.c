@@ -172,25 +172,114 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     quantize_tokens(x, M, K, scratch);
     const uint8_t *raw = m->base + weights->byte_offset;
 
-#if defined(_OPENMP)
-    #pragma omp parallel for schedule(static) if(N > 16)
+#if defined(__AVX2__)
+    const __m128i mask128 = _mm_set1_epi8(0x0f);
+    const __m256i ones16 = _mm256_set1_epi16(1);
+    const __m256i ones8 = _mm256_set1_epi8(1);
 #endif
-    for (int n = 0; n < N; n++) {
-        const uint8_t *row = raw + (uint64_t)n * row_bytes;
-        for (int t = 0; t < M; t++) {
-            const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
-            float x_scale = scratch->token_scales[t];
+
+    for (int t = 0; t < M; t++) {
+        const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
+        float x_scale = scratch->token_scales[t];
+        
+        int n = 0;
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+        for (n = 0; n <= N - 4; n += 4) {
+            const uint8_t *r0 = raw + (uint64_t)n * row_bytes;
+            const uint8_t *r1 = raw + (uint64_t)(n + 1) * row_bytes;
+            const uint8_t *r2 = raw + (uint64_t)(n + 2) * row_bytes;
+            const uint8_t *r3 = raw + (uint64_t)(n + 3) * row_bytes;
+            float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
+            for (int b = 0; b < blocks; b++) {
+                int valid = K - b * 32;
+                if (valid > 32) valid = 32;
+                const uint8_t *b0 = r0 + (size_t)b * 18;
+                const uint8_t *b1 = r1 + (size_t)b * 18;
+                const uint8_t *b2 = r2 + (size_t)b * 18;
+                const uint8_t *b3 = r3 + (size_t)b * 18;
+                uint16_t h0; memcpy(&h0, b0, 2); float ws0 = half_to_float(h0) * x_scale;
+                uint16_t h1; memcpy(&h1, b1, 2); float ws1 = half_to_float(h1) * x_scale;
+                uint16_t h2; memcpy(&h2, b2, 2); float ws2 = half_to_float(h2) * x_scale;
+                uint16_t h3; memcpy(&h3, b3, 2); float ws3 = half_to_float(h3) * x_scale;
+
+#if defined(__AVX2__)
+                if (valid == 32) {
+                    __m256i q8v = _mm256_loadu_si256((const __m256i *)(q8 + b * 32));
+                    
+                    // Row 0
+                    __m128i p = _mm_loadu_si128((const __m128i *)(b0 + 2));
+                    __m128i lo = _mm_and_si128(p, mask128);
+                    __m128i hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
+                    __m256i q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
+                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
+                    __m256i pdot = _mm256_maddubs_epi16(q4, q8v);
+                    __m256i psum = _mm256_maddubs_epi16(ones8, q8v);
+                    int32_t d0[8], s0[8];
+                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
+                    _mm256_storeu_si256((__m256i *)s0, _mm256_madd_epi16(psum, ones16));
+                    int32_t dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
+                    int32_t qsum = s0[0]+s0[1]+s0[2]+s0[3]+s0[4]+s0[5]+s0[6]+s0[7];
+                    sum0 += (float)(dot - 8 * qsum) * ws0;
+
+                    // Row 1
+                    p = _mm_loadu_si128((const __m128i *)(b1 + 2));
+                    lo = _mm_and_si128(p, mask128);
+                    hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
+                    q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
+                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
+                    pdot = _mm256_maddubs_epi16(q4, q8v);
+                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
+                    dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
+                    sum1 += (float)(dot - 8 * qsum) * ws1;
+                    
+                    // Row 2
+                    p = _mm_loadu_si128((const __m128i *)(b2 + 2));
+                    lo = _mm_and_si128(p, mask128);
+                    hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
+                    q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
+                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
+                    pdot = _mm256_maddubs_epi16(q4, q8v);
+                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
+                    dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
+                    sum2 += (float)(dot - 8 * qsum) * ws2;
+
+                    // Row 3
+                    p = _mm_loadu_si128((const __m128i *)(b3 + 2));
+                    lo = _mm_and_si128(p, mask128);
+                    hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
+                    q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
+                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
+                    pdot = _mm256_maddubs_epi16(q4, q8v);
+                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
+                    dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
+                    sum3 += (float)(dot - 8 * qsum) * ws3;
+                } else
+#endif
+                {
+                    sum0 += (float)dot_q4_q8_block(b0 + 2, q8 + b * 32, valid) * ws0;
+                    sum1 += (float)dot_q4_q8_block(b1 + 2, q8 + b * 32, valid) * ws1;
+                    sum2 += (float)dot_q4_q8_block(b2 + 2, q8 + b * 32, valid) * ws2;
+                    sum3 += (float)dot_q4_q8_block(b3 + 2, q8 + b * 32, valid) * ws3;
+                }
+            }
+            y[(size_t)t * N + n + 0] = sum0;
+            y[(size_t)t * N + n + 1] = sum1;
+            y[(size_t)t * N + n + 2] = sum2;
+            y[(size_t)t * N + n + 3] = sum3;
+        }
+        // Cleanup loop
+        for (; n < N; n++) {
+            const uint8_t *row = raw + (uint64_t)n * row_bytes;
             float sum = 0.0f;
             for (int b = 0; b < blocks; b++) {
                 const uint8_t *block = row + (size_t)b * 18;
-                uint16_t hs;
-                memcpy(&hs, block, sizeof(hs));
-                float w_scale = half_to_float(hs);
+                uint16_t hs; memcpy(&hs, block, sizeof(hs));
+                float ws = half_to_float(hs) * x_scale;
                 int valid = K - b * 32;
                 if (valid > 32) valid = 32;
-                sum += (float)dot_q4_q8_block(block + 2,
-                                             q8 + b * 32, valid) *
-                       (x_scale * w_scale);
+                sum += (float)dot_q4_q8_block(block + 2, q8 + b * 32, valid) * ws;
             }
             y[(size_t)t * N + n] = sum;
         }

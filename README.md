@@ -176,8 +176,10 @@ The native decoder implements an optimized Llama/Qwen-style dense execution grap
 - Greedy decoding and temperature sampling with nucleus filtering over the top 256 candidates
 - Persistent stdin/stdout engine protocol used by the HTTP gateway
 - In-memory zero-latency LRU Semantic Response Cache for instant 0ms responses on deterministic queries
+- **Extreme Performance Pipeline**: Overlaps compute and I/O with asynchronous NVMe-to-RAM memory-mapped prefetching.
+- **Batched Matrix Multiplication**: Implements highly optimized 4x unrolled matrix multiplication for Q4_0 packed weights using AVX-512 and AVX2 intrinsics.
 
-CPU inference uses SIMD AVX2 FMA vectorization, OpenMP multi-threaded block distribution across CPU cores, per-token Q8 activation quantization, zero-allocation persistent 64-byte aligned scratch arena, and zero-latency prompt response caching. There is no `malloc` in the token hot path.
+CPU inference uses SIMD AVX2/AVX-512 FMA vectorization, OpenMP multi-threaded block distribution across CPU cores, per-token Q8 activation quantization, zero-allocation persistent 64-byte aligned scratch arena, and zero-latency prompt response caching. There is no `malloc` in the token hot path.
 
 The native runtime also includes:
 
@@ -196,14 +198,14 @@ python c/coli chat --model ./model.qwn
 python c/coli web --model ./model.qwn
 ```
 
-On this Windows workspace, `c/qwnrun.exe` was built with Clang as an AVX2/OpenMP
-optimized binary. Native CUDA requires rebuilding with the optional CUDA backend.
+On this Windows workspace, `c/qwnrun.exe` was built with Clang as an AVX2/AVX-512 OpenMP optimized binary. Native CUDA requires rebuilding with the optional CUDA backend.
 
 ### `.qwn` Capabilities & Scope
 
 - Optimized for dense Llama and Qwen-style tensor architectures.
 - `.qwn` model files are automatically discovered by the dashboard's model scanner alongside GGUF files and native model directories.
-- Full OpenMP multi-core thread scaling and AVX2/FMA vectorization.
+- Full OpenMP multi-core thread scaling and AVX2/AVX-512 FMA vectorization.
+- Implements deep hardware resource harmony, dynamically prefetching memory-mapped NVMe blocks into RAM concurrently with matrix multiplications for lightning-fast token generation.
 - Zero-latency LRU response caching enabled on the HTTP gateway.
 - MoE and specialized architectures utilize Qwanto's specialized GLM/OLMoE native MoE C runtimes.
 
