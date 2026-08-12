@@ -32,10 +32,17 @@ typedef struct {
 } QwantoPrefetchJob;
 
 typedef struct {
+    st_tensor *tg;
+    st_tensor *tu;
+    st_tensor *td;
+} QwantoExpertTensors;
+
+typedef struct {
     ColiAioContext aio_ctx;
     QwantoPrefetchJob jobs[16];
     int max_jobs;
     int active_jobs;
+    QwantoExpertTensors expert_cache[64][128]; /* Cached tensor pointers per [layer][eid] */
 } QwantoPrefetcher;
 
 /**

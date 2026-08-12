@@ -8,22 +8,21 @@
 #endif
 
 void qwanto_route_lsh(const int8_t* activations, int hidden_dim, int n_experts, int top_k, int* expert_ids) {
-    // 1. Calculate a 32-bit sign signature from activations
+    // 1. Calculate a 32-bit sign signature from all activations across full hidden_dim
     uint32_t sig = 0;
 #if defined(__AVX2__)
-    if (hidden_dim >= 32) {
-        __m256i act_v = _mm256_loadu_si256((const __m256i*)activations);
-        sig = (uint32_t)_mm256_movemask_epi8(_mm256_cmpgt_epi8(act_v, _mm256_setzero_si256()));
-    } else {
-        for (int k = 0; k < 32 && k < hidden_dim; k++) {
-            if (activations[k] > 0) sig |= (1u << k);
-        }
+    int k = 0;
+    for (; k <= hidden_dim - 32; k += 32) {
+        __m256i act_v = _mm256_loadu_si256((const __m256i*)&activations[k]);
+        uint32_t mask = (uint32_t)_mm256_movemask_epi8(_mm256_cmpgt_epi8(act_v, _mm256_setzero_si256()));
+        sig ^= mask ^ (uint32_t)(k * 0x45d9f3b);
+    }
+    for (; k < hidden_dim; k++) {
+        if (activations[k] > 0) sig ^= (1u << (k & 31));
     }
 #else
-    for (int k = 0; k < 32 && k < hidden_dim; k++) {
-        if (activations[k] > 0) {
-            sig |= (1u << k);
-        }
+    for (int k = 0; k < hidden_dim; k++) {
+        if (activations[k] > 0) sig ^= (1u << (k & 31));
     }
 #endif
 
@@ -67,18 +66,34 @@ int qwanto_prefetcher_submit(QwantoPrefetcher* pf, shards* S, int layer, int eid
         return -1; // Queue full
     }
 
-    // Locate the tensors in the shards database
-    char name_g[256], name_u[256], name_d[256];
-    snprintf(name_g, sizeof(name_g), "model.layers.%d.mlp.experts.%d.gate_proj.weight", layer, eid);
-    snprintf(name_u, sizeof(name_u), "model.layers.%d.mlp.experts.%d.up_proj.weight", layer, eid);
-    snprintf(name_d, sizeof(name_d), "model.layers.%d.mlp.experts.%d.down_proj.weight", layer, eid);
-
-    st_tensor *tg = st_find(S, name_g);
-    st_tensor *tu = st_find(S, name_u);
-    st_tensor *td = st_find(S, name_d);
+    // Fast-path: check cached tensor pointers first to avoid snprintf and st_find
+    st_tensor *tg = NULL, *tu = NULL, *td = NULL;
+    if (layer >= 0 && layer < 64 && eid >= 0 && eid < 128) {
+        tg = pf->expert_cache[layer][eid].tg;
+        tu = pf->expert_cache[layer][eid].tu;
+        td = pf->expert_cache[layer][eid].td;
+    }
 
     if (!tg || !tu || !td) {
-        return -1; // Tensors not found
+        char name_g[256], name_u[256], name_d[256];
+        snprintf(name_g, sizeof(name_g), "model.layers.%d.mlp.experts.%d.gate_proj.weight", layer, eid);
+        snprintf(name_u, sizeof(name_u), "model.layers.%d.mlp.experts.%d.up_proj.weight", layer, eid);
+        snprintf(name_d, sizeof(name_d), "model.layers.%d.mlp.experts.%d.down_proj.weight", layer, eid);
+
+        tg = st_find(S, name_g);
+        tu = st_find(S, name_u);
+        td = st_find(S, name_d);
+
+        if (!tg || !tu || !td) {
+            return -1; // Tensors not found
+        }
+
+        // Cache resolved pointers for future tokens
+        if (layer >= 0 && layer < 64 && eid >= 0 && eid < 128) {
+            pf->expert_cache[layer][eid].tg = tg;
+            pf->expert_cache[layer][eid].tu = tu;
+            pf->expert_cache[layer][eid].td = td;
+        }
     }
 
     // Find the next free job slot

@@ -21,15 +21,15 @@ int coli_aio_submit_read(ColiAioContext *ctx, ColiAioRequest *req) {
         return -1; // Queue full
     }
 
-    HANDLE file_handle = (HANDLE)(intptr_t)_get_osfhandle(req->fd);
-    if (file_handle == INVALID_HANDLE_VALUE) {
-        return -1;
+    HANDLE file_handle = req->file_handle;
+    if (!file_handle || file_handle == INVALID_HANDLE_VALUE) {
+        file_handle = (HANDLE)(intptr_t)_get_osfhandle(req->fd);
+        if (file_handle == INVALID_HANDLE_VALUE) {
+            return -1;
+        }
+        req->file_handle = file_handle;
+        CreateIoCompletionPort(file_handle, ctx->iocp, (ULONG_PTR)req, 0);
     }
-    req->file_handle = file_handle;
-
-    // Associate the file handle with the IOCP if it hasn't been already.
-    // Note: This needs to happen once per file handle, but CreateIoCompletionPort is safe to call multiple times for the same handle.
-    CreateIoCompletionPort(file_handle, ctx->iocp, (ULONG_PTR)req, 0);
 
     memset(&req->overlapped, 0, sizeof(OVERLAPPED));
     req->overlapped.Offset = (DWORD)(req->offset & 0xFFFFFFFF);

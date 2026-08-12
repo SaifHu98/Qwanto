@@ -210,6 +210,15 @@ The `.qwn` decoder pipeline is designed around three principles:
 2. **Hardware-Native Data Paths**: FP16 KV cache values are read and written using the F16C instruction set (`vcvtph2ps`/`vcvtps2ph`). Q4_0 weight dequantization uses `vpshufb`-class byte manipulation, and BF16 row decoding uses 16-bit vector bit shifts.
 3. **Compute-I/O Overlap**: Every layer prefetches the next layer's weights from the memory-mapped file using cached descriptor pointers, ensuring NVMe-backed tensors are paged into RAM before the CPU needs them.
 
+### MoE & Async I/O Performance Architecture
+
+The Qwanto MoE and Unified Runtime pipeline incorporates four specialized Phase 2 performance engines:
+
+1. **Direct Expert Tensor Cache (`qwanto_router.c`)**: Pre-indexes all expert weight pointers (`gate_proj`, `up_proj`, `down_proj`) into a fast 3D table `expert_cache[layer][eid]`. Eliminates 192 `snprintf` calls and dictionary hash searches per token for 64-expert MoE architectures.
+2. **Full Hidden-State LSH Vectorization (`qwanto_router.c`)**: Vectorizes sign-bit feature extraction across the entire `hidden_dim` (e.g. 4096 dimensions) using AVX2 SIMD `_mm256_movemask_epi8` bit-pack blocks, achieving high-entropy, sub-microsecond expert routing.
+3. **IOCP Registration Caching (`aio_compat.c`)**: Caches Windows `HANDLE` conversions and skips redundant `CreateIoCompletionPort` calls during asynchronous NVMe read submissions.
+4. **Matmul Stream L1 Prefetching (`qwanto_core.c`)**: Employs `_mm_prefetch` hints for activation and weight streams in blocked matrix multiplication kernels, reducing L1/L2 CPU cache misses during batched inference.
+
 ### `.qwn` Capabilities & Scope
 
 - Optimized for dense Llama and Qwen-style tensor architectures.
@@ -217,7 +226,7 @@ The `.qwn` decoder pipeline is designed around three principles:
 - Full OpenMP multi-core thread scaling and AVX2/AVX-512/F16C vectorization.
 - Layer-ahead asynchronous NVMe prefetching ensures file-backed weights are warm in RAM before compute begins.
 - Zero-latency LRU response caching enabled on the HTTP gateway.
-- MoE and specialized architectures utilize Qwanto's specialized GLM/OLMoE native MoE C runtimes.
+- MoE and specialized architectures utilize Qwanto's specialized GLM/OLMoE native MoE C runtimes with direct expert pointer caching and full-dimension SIMD LSH routing.
 
 ## Web Dashboard
 

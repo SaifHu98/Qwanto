@@ -56,6 +56,10 @@ void qwanto_matmul_core_avx2(const int8_t* activations, const uint8_t* packed_we
         const uint8_t* w3 = &packed_weights[(i + 3) * (n / 2)];
 
         for (int j = 0; j < n; j += 32) {
+#if defined(__AVX2__)
+            _mm_prefetch((const char*)&activations[j + 64], _MM_HINT_T0);
+            _mm_prefetch((const char*)&w0[(j + 64) / 2], _MM_HINT_T0);
+#endif
             // Load 32 activations (32 bytes)
             __m256i act = _mm256_loadu_si256((const __m256i*)&activations[j]);
             __m256i act_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(act));
