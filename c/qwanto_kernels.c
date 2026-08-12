@@ -96,19 +96,65 @@ static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
         const float *row = x + (size_t)t * K;
         int8_t *q = s->q8 + (size_t)t * s->padded_k;
         float amax = 0.0f;
+#if defined(__AVX2__)
+        {
+            __m256 vmax = _mm256_setzero_ps();
+            __m256 sign_mask = _mm256_set1_ps(-0.0f);
+            int k = 0;
+            for (; k <= K - 8; k += 8) {
+                __m256 v = _mm256_loadu_ps(&row[k]);
+                __m256 av = _mm256_andnot_ps(sign_mask, v);
+                vmax = _mm256_max_ps(vmax, av);
+            }
+            float tmp[8]; _mm256_storeu_ps(tmp, vmax);
+            for (int i = 0; i < 8; i++) if (tmp[i] > amax) amax = tmp[i];
+            for (; k < K; k++) {
+                float a = fabsf(row[k]);
+                if (a > amax) amax = a;
+            }
+        }
+#else
         for (int k = 0; k < K; k++) {
             float a = fabsf(row[k]);
             if (a > amax) amax = a;
         }
+#endif
         float scale = amax > 0.0f ? amax / 127.0f : 1.0f;
         float inv = 1.0f / scale;
         s->token_scales[t] = scale;
+#if defined(__AVX2__)
+        {
+            __m256 vinv = _mm256_set1_ps(inv);
+            __m256 vhi = _mm256_set1_ps(127.0f);
+            __m256 vlo = _mm256_set1_ps(-127.0f);
+            int k = 0;
+            for (; k <= K - 8; k += 8) {
+                __m256 v = _mm256_mul_ps(_mm256_loadu_ps(&row[k]), vinv);
+                v = _mm256_min_ps(_mm256_max_ps(v, vlo), vhi);
+                __m256i vi = _mm256_cvtps_epi32(v);
+                /* Pack 8 int32 -> 8 int8 */
+                __m128i lo = _mm256_castsi256_si128(vi);
+                __m128i hi = _mm256_extracti128_si256(vi, 1);
+                __m128i packed16 = _mm_packs_epi32(lo, hi);
+                __m128i packed8  = _mm_packs_epi16(packed16, packed16);
+                /* Store 8 bytes */
+                *(int64_t *)(q + k) = _mm_cvtsi128_si64(packed8);
+            }
+            for (; k < K; k++) {
+                float v = row[k] * inv;
+                if (v > 127.0f) v = 127.0f;
+                if (v < -127.0f) v = -127.0f;
+                q[k] = (int8_t)lrintf(v);
+            }
+        }
+#else
         for (int k = 0; k < K; k++) {
             float v = row[k] * inv;
             if (v > 127.0f) v = 127.0f;
             if (v < -127.0f) v = -127.0f;
             q[k] = (int8_t)lrintf(v);
         }
+#endif
         memset(q + K, 0, (size_t)(s->padded_k - K));
     }
 }

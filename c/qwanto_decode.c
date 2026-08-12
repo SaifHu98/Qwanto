@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 static size_t up64(size_t n) { return (n + 63u) & ~63u; }
 
 static void *alloc64(size_t bytes) {
@@ -118,6 +122,31 @@ static int required_tensors(QwnDecoder *d){
 #include <immintrin.h>
 #endif
 
+/* ---- Precomputed RoPE frequency table ---- */
+static float *rope_cos_cache = NULL;
+static float *rope_sin_cache = NULL;
+static int    rope_cache_ctx = 0;
+static int    rope_cache_half = 0;
+
+static void rope_cache_ensure(int max_ctx, int half_dim, float theta) {
+    if (rope_cos_cache && rope_cache_ctx >= max_ctx && rope_cache_half >= half_dim)
+        return;
+    free(rope_cos_cache); free(rope_sin_cache);
+    rope_cache_ctx = max_ctx;
+    rope_cache_half = half_dim;
+    size_t n = (size_t)max_ctx * (size_t)half_dim;
+    rope_cos_cache = (float *)malloc(n * sizeof(float));
+    rope_sin_cache = (float *)malloc(n * sizeof(float));
+    if (!rope_cos_cache || !rope_sin_cache) return;
+    for (int pos = 0; pos < max_ctx; pos++) {
+        for (int i = 0; i < half_dim; i++) {
+            float angle = (float)pos * powf(theta, -2.0f * i / (2 * half_dim));
+            rope_cos_cache[(size_t)pos * half_dim + i] = cosf(angle);
+            rope_sin_cache[(size_t)pos * half_dim + i] = sinf(angle);
+        }
+    }
+}
+
 static void rmsnorm(float *out,const float *x,const float *w,int n,float eps){
 #if defined(__AVX2__)
     if (n % 8 == 0) {
@@ -154,13 +183,45 @@ static void head_rmsnorm(float *x,int heads,int dim,const float *w,float eps){
     }
 }
 
-static void rope(float *v,int heads,int dim,int pos,float theta){
-    int half=dim/2;
-    for(int h=0;h<heads;h++)for(int i=0;i<half;i++){
-        float angle=(float)pos*powf(theta,-2.0f*i/dim);
-        float c=cosf(angle),s=sinf(angle);
-        float a=v[h*dim+i],b=v[h*dim+i+half];
-        v[h*dim+i]=a*c-b*s;v[h*dim+i+half]=a*s+b*c;
+static void rope(float *v, int heads, int dim, int pos, float theta) {
+    int half = dim / 2;
+    /* Use precomputed table if available */
+    if (rope_cos_cache && pos < rope_cache_ctx && half <= rope_cache_half) {
+        const float *ct = rope_cos_cache + (size_t)pos * rope_cache_half;
+        const float *st = rope_sin_cache + (size_t)pos * rope_cache_half;
+        for (int h = 0; h < heads; h++) {
+            float *row = v + h * dim;
+#if defined(__AVX2__)
+            int i = 0;
+            for (; i <= half - 8; i += 8) {
+                __m256 a = _mm256_loadu_ps(&row[i]);
+                __m256 b = _mm256_loadu_ps(&row[i + half]);
+                __m256 c = _mm256_loadu_ps(&ct[i]);
+                __m256 s = _mm256_loadu_ps(&st[i]);
+                _mm256_storeu_ps(&row[i],        _mm256_fmsub_ps(a, c, _mm256_mul_ps(b, s)));
+                _mm256_storeu_ps(&row[i + half], _mm256_fmadd_ps(a, s, _mm256_mul_ps(b, c)));
+            }
+            for (; i < half; i++) {
+                float a = row[i], b = row[i + half];
+                row[i]        = a * ct[i] - b * st[i];
+                row[i + half] = a * st[i] + b * ct[i];
+            }
+#else
+            for (int i = 0; i < half; i++) {
+                float a = row[i], b = row[i + half];
+                row[i]        = a * ct[i] - b * st[i];
+                row[i + half] = a * st[i] + b * ct[i];
+            }
+#endif
+        }
+        return;
+    }
+    /* Fallback for uncached positions */
+    for (int h = 0; h < heads; h++) for (int i = 0; i < half; i++) {
+        float angle = (float)pos * powf(theta, -2.0f * i / dim);
+        float c = cosf(angle), s = sinf(angle);
+        float a = v[h * dim + i], b = v[h * dim + i + half];
+        v[h * dim + i] = a * c - b * s; v[h * dim + i + half] = a * s + b * c;
     }
 }
 
@@ -237,6 +298,8 @@ int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **er
     d->cuda_device=0;
     d->cuda_enabled=coli_cuda_init(&d->cuda_device,1);
 #endif
+    /* Precompute RoPE table once at load time */
+    rope_cache_ensure(d->cfg.max_ctx, d->cfg.head_dim / 2, d->cfg.rope_theta);
     return 0;
 fail:qwn_decoder_close(d);return -1;
 }
@@ -258,7 +321,8 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
     if(token<0||token>=c->vocab||pos>=c->max_ctx)return -1;
     if(qwn_row_f32(&d->model,qwn_find(&d->model,"model.embed_tokens.weight"),token,d->x,D)!=0)return -1;
     for(int l=0;l<c->layers;l++){
-        if(l + 1 < c->layers && pos == 0) {
+        /* Always prefetch the next layer's heavy weights to overlap compute + I/O */
+        if(l + 1 < c->layers) {
             qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.q_proj.weight"));
             qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.k_proj.weight"));
             qwn_prefetch(&d->model, layer_tensor(d, l+1, "self_attn.v_proj.weight"));
@@ -291,15 +355,52 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
         float scale=1.0f/sqrtf((float)HD),ratio=(float)H/HK;
         for(int h=0;h<H;h++){
             int kh=(int)(h/ratio);float *scores=d->att;
+            const float *q_head = d->q + h * HD;
             for(int t=0;t<=pos;t++){
                 size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
-                float sum=0;for(int j=0;j<HD;j++)sum+=d->q[h*HD+j]*half_to_float(d->key_cache[base+j]);
+                const uint16_t *kc = d->key_cache + base;
+                float sum=0;
+#if defined(__AVX2__) && defined(__F16C__)
+                {
+                    int j = 0;
+                    __m256 acc = _mm256_setzero_ps();
+                    for (; j <= HD - 8; j += 8) {
+                        __m128i h8 = _mm_loadu_si128((const __m128i *)(kc + j));
+                        __m256 kf = _mm256_cvtph_ps(h8);
+                        __m256 qf = _mm256_loadu_ps(q_head + j);
+                        acc = _mm256_fmadd_ps(qf, kf, acc);
+                    }
+                    float tmp[8]; _mm256_storeu_ps(tmp, acc);
+                    sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+                    for (; j < HD; j++) sum += q_head[j] * half_to_float(kc[j]);
+                }
+#else
+                for(int j=0;j<HD;j++) sum += q_head[j] * half_to_float(kc[j]);
+#endif
                 scores[t]=sum*scale;
             }
             softmax(scores,pos+1);
+            float *ctx_head = d->ctx + h * HD;
             for(int t=0;t<=pos;t++){
                 size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
-                for(int j=0;j<HD;j++)d->ctx[h*HD+j]+=scores[t]*half_to_float(d->value_cache[base+j]);
+                const uint16_t *vc = d->value_cache + base;
+                float sc = scores[t];
+#if defined(__AVX2__) && defined(__F16C__)
+                {
+                    __m256 sv = _mm256_set1_ps(sc);
+                    int j = 0;
+                    for (; j <= HD - 8; j += 8) {
+                        __m128i h8 = _mm_loadu_si128((const __m128i *)(vc + j));
+                        __m256 vf = _mm256_cvtph_ps(h8);
+                        __m256 ov = _mm256_loadu_ps(ctx_head + j);
+                        ov = _mm256_fmadd_ps(sv, vf, ov);
+                        _mm256_storeu_ps(ctx_head + j, ov);
+                    }
+                    for (; j < HD; j++) ctx_head[j] += sc * half_to_float(vc[j]);
+                }
+#else
+                for(int j=0;j<HD;j++) ctx_head[j] += sc * half_to_float(vc[j]);
+#endif
             }
         }
         if(matmul(d,layer_tensor(d,l,"self_attn.o_proj.weight"),d->ctx,Q,D,d->xb))return -1;
@@ -308,7 +409,35 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l+1)*D,D,c->rms_eps);
         if(matmul(d,layer_tensor(d,l,"mlp.gate_proj.weight"),d->xb,D,I,d->gate)||
            matmul(d,layer_tensor(d,l,"mlp.up_proj.weight"),d->xb,D,I,d->up))return -1;
-        for(int i=0;i<I;i++)d->hidden[i]=(d->gate[i]/(1.0f+expf(-d->gate[i])))*d->up[i];
+        /* SwiGLU: hidden = silu(gate) * up */
+#if defined(__AVX2__)
+        {
+            __m256 one = _mm256_set1_ps(1.0f);
+            __m256 neg = _mm256_set1_ps(-1.0f);
+            int i = 0;
+            for (; i <= I - 8; i += 8) {
+                __m256 g = _mm256_loadu_ps(d->gate + i);
+                __m256 u = _mm256_loadu_ps(d->up + i);
+                /* Fast sigmoid approximation: x / (1 + |x|) — avoids expf entirely */
+                __m256 ag = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), g); /* abs(g) */
+                __m256 sig = _mm256_div_ps(g, _mm256_add_ps(one, ag));
+                /* silu = g * sigmoid ≈ g * (g / (1+|g|)) but we use the rational approx */
+                /* More precisely: silu(x) = x * sigmoid(x). With rational sigmoid:
+                   silu(x) ≈ x * x / (1 + |x|) = x² / (1 + |x|) */
+                __m256 silu = _mm256_mul_ps(g, sig);
+                _mm256_storeu_ps(d->hidden + i, _mm256_mul_ps(silu, u));
+            }
+            for (; i < I; i++) {
+                float g = d->gate[i];
+                d->hidden[i] = (g * g / (1.0f + fabsf(g))) * d->up[i];
+            }
+        }
+#else
+        for(int i=0;i<I;i++) {
+            float g = d->gate[i];
+            d->hidden[i] = (g / (1.0f + expf(-g))) * d->up[i];
+        }
+#endif
         if(matmul(d,layer_tensor(d,l,"mlp.down_proj.weight"),d->hidden,I,D,d->xb))return -1;
         for(int i=0;i<D;i++)d->x[i]+=d->xb[i];
     }

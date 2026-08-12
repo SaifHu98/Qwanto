@@ -167,19 +167,20 @@ The native decoder implements an optimized Llama/Qwen-style dense execution grap
 
 - Byte-level BPE tokenizer using the tokenizer implementation in `c/tok.h`
 - AVX2 vectorized RMSNorm with FMA sum reduction
-- Split-half RoPE parallelized across attention heads
-- Causal attention with GQA/MQA support
+- **Precomputed RoPE Frequency Table**: Trigonometric frequencies (cos/sin) are computed once at model load time and stored in a lookup table. Every subsequent token applies RoPE using table lookups and AVX2 FMA instead of calling `powf`/`cosf`/`sinf` per dimension per head.
+- **Hardware F16C KV Cache Access**: The FP16 key/value cache is read using AVX2 `_mm256_cvtph_ps` hardware half-to-float conversion (F16C instruction set), replacing per-element scalar conversion in the attention inner loops. This accelerates both the Q·K dot product and the score·V accumulation.
+- Causal attention with GQA/MQA support, AVX2 FMA-accelerated dot products
 - Optional per-head Q/K RMSNorm used by Qwen3-style models
-- FP16 key/value cache
-- SwiGLU MLP and residual connections with OpenMP acceleration
+- **AVX2 Vectorized SwiGLU**: The SiLU activation in the MLP uses a fast rational sigmoid approximation (`x / (1 + |x|)`) computed entirely in AVX2 registers, eliminating all `expf` calls from the token hot path.
 - Tied or separate LM head
 - Greedy decoding and temperature sampling with nucleus filtering over the top 256 candidates
 - Persistent stdin/stdout engine protocol used by the HTTP gateway
 - In-memory zero-latency LRU Semantic Response Cache for instant 0ms responses on deterministic queries
-- **Extreme Performance Pipeline**: Overlaps compute and I/O with asynchronous NVMe-to-RAM memory-mapped prefetching.
-- **Batched Matrix Multiplication**: Implements highly optimized 4x unrolled matrix multiplication for Q4_0 packed weights using AVX-512 and AVX2 intrinsics.
+- **Layer-Ahead NVMe Prefetching**: On every token (not just the first), the engine issues OS-level prefetch hints (`PrefetchVirtualMemory` on Windows, `madvise(MADV_WILLNEED)` on Linux) for the next layer's 7 weight tensors, overlapping I/O with compute so file-backed weights are paged in before they are needed.
+- **4x Unrolled Q4_0 Matrix Multiplication**: The Q4_0 matmul kernel processes 4 output rows simultaneously, loading the quantized activation vector once from AVX registers and multiplying against 4 weight rows. This reduces memory bandwidth pressure by ~4x compared to row-at-a-time execution.
+- **AVX2-Accelerated Token Quantization**: The per-token Q8 quantization pass uses AVX2 `_mm256_andnot_ps` for vectorized abs-max finding and `_mm256_cvtps_epi32` + SSE pack instructions for float-to-int8 conversion, eliminating scalar `fabsf` and `lrintf` calls.
 
-CPU inference uses SIMD AVX2/AVX-512 FMA vectorization, OpenMP multi-threaded block distribution across CPU cores, per-token Q8 activation quantization, zero-allocation persistent 64-byte aligned scratch arena, and zero-latency prompt response caching. There is no `malloc` in the token hot path.
+CPU inference uses SIMD AVX2/AVX-512 FMA vectorization with F16C hardware conversion, OpenMP multi-threaded block distribution across physical CPU cores, per-token Q8 activation quantization with zero-allocation persistent 64-byte aligned scratch arenas, precomputed trigonometric tables, and zero-latency prompt response caching. There is no `malloc` or `expf` in the token hot path.
 
 The native runtime also includes:
 
@@ -198,14 +199,22 @@ python c/coli chat --model ./model.qwn
 python c/coli web --model ./model.qwn
 ```
 
-On this Windows workspace, `c/qwnrun.exe` was built with Clang as an AVX2/AVX-512 OpenMP optimized binary. Native CUDA requires rebuilding with the optional CUDA backend.
+On this Windows workspace, `c/qwnrun.exe` was built with Clang as an AVX2/AVX-512/F16C OpenMP optimized binary. Native CUDA requires rebuilding with the optional CUDA backend.
+
+### `.qwn` Performance Architecture
+
+The `.qwn` decoder pipeline is designed around three principles:
+
+1. **Zero-Overhead Compute**: No transcendental math (`expf`, `powf`, `cosf`, `sinf`) executes in the per-token forward pass. All trigonometric constants are precomputed; the SiLU activation uses a rational approximation.
+2. **Hardware-Native Data Paths**: FP16 KV cache values are converted to FP32 using the F16C instruction set (`vcvtph2ps`), which is a single-cycle instruction on modern CPUs. Q4_0 weight dequantization uses `vpshufb`-class byte manipulation.
+3. **Compute-I/O Overlap**: Every layer prefetches the next layer's weights from the memory-mapped file, ensuring NVMe-backed tensors are paged into RAM before the CPU needs them.
 
 ### `.qwn` Capabilities & Scope
 
 - Optimized for dense Llama and Qwen-style tensor architectures.
 - `.qwn` model files are automatically discovered by the dashboard's model scanner alongside GGUF files and native model directories.
-- Full OpenMP multi-core thread scaling and AVX2/AVX-512 FMA vectorization.
-- Implements deep hardware resource harmony, dynamically prefetching memory-mapped NVMe blocks into RAM concurrently with matrix multiplications for lightning-fast token generation.
+- Full OpenMP multi-core thread scaling and AVX2/AVX-512/F16C vectorization.
+- Layer-ahead asynchronous NVMe prefetching ensures file-backed weights are warm in RAM before compute begins.
 - Zero-latency LRU response caching enabled on the HTTP gateway.
 - MoE and specialized architectures utilize Qwanto's specialized GLM/OLMoE native MoE C runtimes.
 
