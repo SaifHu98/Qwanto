@@ -28,12 +28,10 @@ static inline void buffer_pool_init(EBufferPool *pool, int count, size_t slab_ca
     pool->default_fslab_cap = fslab_cap;
     
     for (int i = 0; i < pool->count; i++) {
-        posix_memalign((void**)&pool->entries[i].slab, 16384, slab_cap);
+        pool->entries[i].slab = NULL;
         pool->entries[i].slab_cap = slab_cap;
-        
-        posix_memalign((void**)&pool->entries[i].fslab, 16384, fslab_cap);
+        pool->entries[i].fslab = NULL;
         pool->entries[i].fslab_cap = fslab_cap;
-        
         pool->entries[i].in_use = 0;
     }
 }
@@ -42,6 +40,13 @@ static inline int buffer_pool_lease(EBufferPool *pool, uint8_t **slab_out, size_
     for (int i = 0; i < pool->count; i++) {
         // Atomic compare and swap to lease lock-free
         if (__atomic_compare_exchange_n(&pool->entries[i].in_use, &(int){0}, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            // Lazy allocation: allocate memory only on first lease
+            if (!pool->entries[i].slab && pool->entries[i].slab_cap > 0) {
+                posix_memalign((void**)&pool->entries[i].slab, 16384, pool->entries[i].slab_cap);
+            }
+            if (!pool->entries[i].fslab && pool->entries[i].fslab_cap > 0) {
+                posix_memalign((void**)&pool->entries[i].fslab, 16384, pool->entries[i].fslab_cap);
+            }
             *slab_out = pool->entries[i].slab;
             *slab_cap_out = pool->entries[i].slab_cap;
             *fslab_out = pool->entries[i].fslab;

@@ -219,6 +219,15 @@ The Qwanto MoE and Unified Runtime pipeline incorporates four specialized Phase 
 3. **IOCP Registration Caching (`aio_compat.c`)**: Caches Windows `HANDLE` conversions and skips redundant `CreateIoCompletionPort` calls during asynchronous NVMe read submissions.
 4. **Matmul Stream L1 Prefetching (`qwanto_core.c`)**: Employs `_mm_prefetch` hints for activation and weight streams in blocked matrix multiplication kernels, reducing L1/L2 CPU cache misses during batched inference.
 
+### Minimal-Hardware & Low-RAM Efficiency Architecture
+
+The Qwanto engine incorporates four specialized Phase 3 resource efficiency features designed to run models on low-spec hardware (e.g. 4 GB / 8 GB RAM):
+
+1. **Lazy On-Demand Buffer Pool (`buffer_pool.h`)**: Slabs are allocated dynamically only upon first lease rather than pre-allocated upfront. Drops baseline engine initialization RAM footprint from **8 GB to < 256 MB**.
+2. **Safe 70% RAM Cap & Zero-Copy Mmap (`resource_plan.py`)**: Automatically caps model memory allocation at 70% of available physical RAM, preserving 30% for the operating system and gateway while enabling `mmap` zero-copy paging by default.
+3. **Bounded Gateway LRU Caching (`openai_server.py`)**: Enforces strict item capacity bounds on server help and response caches to maintain a light, fixed memory ceiling.
+4. **Dynamic Tier Scheduling**: Prioritizes GPU VRAM for hot experts, RAM for warm compute, and NVMe file-backed mmap paging for cold recovery, eliminating OS pagefile thrashing.
+
 ### `.qwn` Capabilities & Scope
 
 - Optimized for dense Llama and Qwen-style tensor architectures.

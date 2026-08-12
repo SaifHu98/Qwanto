@@ -167,9 +167,8 @@ def _ensure_llama_server() -> str | None:
         return None
 
 
-_LLAMA_HELP_CACHE: dict = {}
-
-ALLOWED_KV_QUANTS = ("f16", "q8_0", "q5_1", "q5_0", "q4_1", "q4_0")
+_LLAMA_HELP_CACHE: collections.OrderedDict = collections.OrderedDict()
+_MAX_HELP_CACHE_SIZE = 32
 
 
 def _llama_help(exe) -> str:
@@ -177,12 +176,15 @@ def _llama_help(exe) -> str:
     installed llama.cpp version (e.g. -fa boolean vs -fa on|off|auto)."""
     exe = str(exe)
     if exe in _LLAMA_HELP_CACHE:
+        _LLAMA_HELP_CACHE.move_to_end(exe)
         return _LLAMA_HELP_CACHE[exe]
     try:
         out = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=15)
         text = (out.stdout or "") + (out.stderr or "")
     except Exception:
         text = ""
+    if len(_LLAMA_HELP_CACHE) >= _MAX_HELP_CACHE_SIZE:
+        _LLAMA_HELP_CACHE.popitem(last=False)
     _LLAMA_HELP_CACHE[exe] = text
     return text
 

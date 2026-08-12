@@ -230,7 +230,7 @@ def build_plan(model, ram_gb=0, context=4096, gpu_indices=None, vram_gb=0,
         wanted = set(gpu_indices)
         gpus = [gpu for gpu in gpus if gpu["index"] in wanted]
 
-    ram_budget = int(ram_gb * GB) if ram_gb > 0 else int(available_memory * 0.88)
+    ram_budget = int(ram_gb * GB) if ram_gb > 0 else int(available_memory * 0.70)
     # Aggressive clamping for 4GB systems to leave OS headroom and force VRAM/Disk
     total_physical_mem = 4 * GB # Fallback assumption
     try:
@@ -247,13 +247,13 @@ def build_plan(model, ram_gb=0, context=4096, gpu_indices=None, vram_gb=0,
         act_reserve = int(0.2 * GB)
         mmap_enabled = True
     else:
-        mmap_enabled = os.environ.get("QWANTO_MMAP", os.environ.get("COLI_MMAP")) == "1" or (ram_budget < 12 * GB)
+        mmap_enabled = os.environ.get("QWANTO_MMAP", os.environ.get("COLI_MMAP", "1")) != "0"
         if ram_budget <= 6 * GB:
-            pc_reserve = int(0.5 * GB)
-            act_reserve = int(0.4 * GB)
+            pc_reserve = int(0.4 * GB)
+            act_reserve = int(0.3 * GB)
         else:
-            pc_reserve = int(2.5 * GB)
-            act_reserve = int(1.2 * GB)
+            pc_reserve = int(1.2 * GB)
+            act_reserve = int(0.8 * GB)
     typical = info["typical_expert_bytes"]
     layers = int(cfg.get("num_hidden_layers") or 0) + 1
     kv_bytes = layers * context * (int(cfg.get("kv_lora_rank") or 0) +
