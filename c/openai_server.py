@@ -1396,6 +1396,71 @@ class DownloadManager:
 
 download_manager = DownloadManager()
 
+DEFAULT_PRESETS = [
+    {
+        "id": "balanced",
+        "name": "Balanced Assistant",
+        "system_prompt": "You are a helpful, respectful, and honest assistant.",
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "description": "General purpose conversational assistant with balanced creativity and accuracy."
+    },
+    {
+        "id": "code_expert",
+        "name": "Code Expert",
+        "system_prompt": "You are an elite full-stack engineer and software architect. Write clean, production-ready, highly efficient, well-tested code.",
+        "temperature": 0.1,
+        "top_p": 0.95,
+        "description": "Optimized for high-precision code generation, refactoring, and bug fixes."
+    },
+    {
+        "id": "researcher",
+        "name": "Deep Research & Analysis",
+        "system_prompt": "You are a rigorous research analyst. Evaluate questions step-by-step, consider edge cases, and present structured conclusions.",
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "description": "Structured analytical reasoning with step-by-step evaluation."
+    },
+    {
+        "id": "creative",
+        "name": "Creative Writer",
+        "system_prompt": "You are an imaginative creative writer and master wordsmith. Express ideas dynamically with rich language.",
+        "temperature": 0.95,
+        "top_p": 0.95,
+        "description": "High creativity and expressive narrative generation."
+    },
+    {
+        "id": "concise",
+        "name": "Ultra-Concise",
+        "system_prompt": "Be direct, factual, and extremely concise. Avoid intro and exit pleasantries.",
+        "temperature": 0.4,
+        "top_p": 0.8,
+        "description": "Short, point-blank responses without conversational fluff."
+    }
+]
+
+
+def load_presets():
+    presets_file = Path(__file__).resolve().parent.parent / ".qwanto_presets.json"
+    if presets_file.exists():
+        try:
+            with open(presets_file, "r", encoding="utf-8") as f:
+                custom = json.load(f)
+                if isinstance(custom, list) and len(custom) > 0:
+                    return custom
+        except Exception:
+            pass
+    return list(DEFAULT_PRESETS)
+
+
+def save_presets(presets):
+    presets_file = Path(__file__).resolve().parent.parent / ".qwanto_presets.json"
+    try:
+        with open(presets_file, "w", encoding="utf-8") as f:
+            json.dump(presets, f, indent=2)
+    except Exception as e:
+        print(f"[presets] Warning: Could not save presets: {e}", file=sys.stderr)
+
 
 class APIServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -1415,6 +1480,10 @@ class APIServer(ThreadingHTTPServer):
         self.kv_slots = kv_slots
         self.cors_origins = tuple(cors_origins)
         self.created = int(time.time())
+        self.start_time = time.time()
+        self.request_count = 0
+        self.total_tokens_generated = 0
+        self.request_history = collections.deque(maxlen=20)
         
         self.engine_executable = None
         self.env = None
@@ -1918,6 +1987,45 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_json(200, download_manager.get_status(), request_id)
                 return
 
+            if path == "/v1/qwanto/presets":
+                self.send_json(200, {"presets": load_presets()}, request_id)
+                return
+
+            if path == "/v1/qwanto/telemetry":
+                uptime = time.time() - getattr(self.server, "start_time", time.time())
+                mins, secs = divmod(int(uptime), 60)
+                hrs, mins = divmod(mins, 60)
+                uptime_fmt = f"{hrs}h {mins}m {secs}s" if hrs else f"{mins}m {secs}s"
+                from resource_plan import memory_available, discover_gpus, physical_cpu_count
+                gpus = discover_gpus()
+                avail_mem = memory_available()
+                telemetry = {
+                    "request_count": getattr(self.server, "request_count", 0),
+                    "total_tokens_generated": getattr(self.server, "total_tokens_generated", 0),
+                    "uptime_seconds": round(uptime, 1),
+                    "uptime_formatted": uptime_fmt,
+                    "active_backend": self.server.backend or "none",
+                    "model_id": self.server.model_id or "none",
+                    "model_path": getattr(self.server, "model_path", ""),
+                    "hardware": {
+                        "cpu_cores": physical_cpu_count(),
+                        "ram_available_gb": round(avail_mem / 1e9, 2),
+                        "gpus_detected": len(gpus),
+                        "gpu_names": [g["name"] for g in gpus] if gpus else []
+                    },
+                    "recent_requests": list(getattr(self.server, "request_history", []))
+                }
+                self.send_json(200, telemetry, request_id)
+                return
+
+            if path == "/v1/qwanto/doctor":
+                from doctor import run_doctor
+                m_path = getattr(self.server, "model_path", None) or str(Path(__file__).resolve().parent.parent)
+                eng_path = _qwn_executable(Path(__file__).resolve().parent / "qwnrun")
+                report = run_doctor(model=m_path, engine_path=str(eng_path))
+                self.send_json(200, report, request_id)
+                return
+
             if path == "/v1/qwanto/search":
                 body = self.read_json()
                 query = body.get("query") if isinstance(body, dict) else None
@@ -2150,6 +2258,42 @@ class APIHandler(BaseHTTPRequestHandler):
             path = urlsplit(self.path).path
             print(f"[api] POST {path} (backend={self.server.backend}, model_id={self.server.model_id})", file=sys.stderr)
             
+            if path == "/v1/qwanto/presets":
+                body = self.read_json()
+                if not isinstance(body, dict):
+                    raise APIError(400, "Body must be a JSON object.")
+                preset_id = body.get("id") or str(uuid.uuid4())[:8]
+                new_preset = {
+                    "id": preset_id,
+                    "name": body.get("name") or "Custom Preset",
+                    "system_prompt": body.get("system_prompt") or "",
+                    "temperature": float(body.get("temperature", 0.7)),
+                    "top_p": float(body.get("top_p", 0.9)),
+                    "description": body.get("description") or "Custom user preset."
+                }
+                presets = load_presets()
+                updated = False
+                for i, p in enumerate(presets):
+                    if p.get("id") == preset_id:
+                        presets[i] = new_preset
+                        updated = True
+                        break
+                if not updated:
+                    presets.append(new_preset)
+                save_presets(presets)
+                self.send_json(200, {"status": "success", "preset": new_preset, "presets": presets}, request_id)
+                return
+
+            if path == "/v1/qwanto/presets/delete":
+                body = self.read_json()
+                preset_id = body.get("id") if isinstance(body, dict) else None
+                if not preset_id:
+                    raise APIError(400, "Missing preset id.", "id")
+                presets = [p for p in load_presets() if p.get("id") != preset_id]
+                save_presets(presets)
+                self.send_json(200, {"status": "success", "presets": presets}, request_id)
+                return
+
             if path == "/v1/qwanto/load":
                 body = self.read_json()
                 model_path = body.get("model_path")

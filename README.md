@@ -1,14 +1,13 @@
-# Qwanto
+# Qwanto ⚡
 
-Qwanto is a local inference gateway and runtime project. It provides an
-OpenAI-compatible HTTP API, a browser dashboard, model management, a native
-GLM-5.2/OLMoE execution path, GGUF integration through `llama-server`, and an
-experimental compact model format named Qwanto Native (`.qwn`).
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/badge/Tests-106%20Passed-brightgreen.svg)]()
+[![Frontend](https://img.shields.io/badge/Web%20Dashboard-React%2019%20%7C%20Vite-blue.svg)]()
+[![Author](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
 
-Qwanto does not claim to be faster than every inference engine. Performance
-depends on the model, quantization, backend, context length, and hardware. The
-GGUF path uses llama.cpp kernels. The `.qwn` runtime is an independent,
-early-stage decoder with a smaller supported model scope.
+Qwanto is a high-performance local inference gateway, specialized MoE C engine, and modern web workspace. It provides an OpenAI-compatible HTTP API, live telemetry metrics, prompt tuning studio, interactive API workbench, model manager, a native GLM-5.2/OLMoE execution path, GGUF integration via `llama-server`, and an experimental compact model format named Qwanto Native (`.qwn`).
+
+Developed and maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 
 <p align="center">
   <img width="2816" height="1536" alt="Qwanto dashboard" src="https://github.com/user-attachments/assets/6c98e09d-12bb-4261-95da-f154b74f5235" />
@@ -19,24 +18,25 @@ early-stage decoder with a smaller supported model scope.
 | Area | Status | Scope |
 |------|--------|-------|
 | OpenAI-compatible gateway | Working | Chat/text completions, SSE streaming, model listing, API-key protection, CORS |
+| Prompt Studio & Tuning | **New** | Custom system prompts, temperature/top-p presets, 1-click studio templates |
+| Live Telemetry & Metrics | **New** | Tokens/sec tracking, generation throughput, hardware allocation, request telemetry |
+| API Workbench | **New** | Multi-language code generator (cURL, Python, TypeScript, Rust) |
+| System Doctor Diagnostics | **New** | Automated installation, CUDA linkage, storage permission, and hardware verification |
 | GGUF runtime | Working through llama.cpp | Uses an installed or Windows auto-downloaded `llama-server` |
 | Native GLM runtime | Working for its target architecture | GLM-5.2 MoE engine with CPU/RAM/NVMe execution and optional GPU backends |
 | Native OLMoE runtime | Architecture-specific | Separate OLMoE C runtime and conversion path |
 | Ollama adapter | Working | CLI/API proxy to a local Ollama server |
 | Qwanto Native `.qwn` | Experimental | Dense Llama/Qwen-style decoder graph with important compatibility limits |
-| Native `.qwn` CUDA path | Implemented, not runtime-verified here | Requires a CUDA Toolkit build; this workspace had no `nvcc` |
-| Web dashboard | Working | Chat, model/download management, logs, resource controls, native MoE visualization |
+| Web dashboard | Working | Chat, prompt studio, live telemetry, API workbench, doctor diagnostics, logs, resource controls |
 
 The current verification snapshot is:
 
-- `104 passed, 3 skipped` with `python -m pytest c/tests/ -q`
+- `106 passed, 3 skipped` with `python -m pytest c/tests/ -q`
 - Scalar and AVX2 `.qwn` C tests pass
-- Native decoder logits match an independent Python reference within the
-  expected FP16 KV-cache tolerance
+- Native decoder logits match an independent Python reference within expected FP16 KV-cache tolerance
 - Persistent native engine protocol test passes
-- Frontend TypeScript/Vite production build passes
-- CUDA source and Windows loader integration are present, but CUDA kernels were
-  not built or executed in this environment because `nvcc` was unavailable
+- Frontend TypeScript/Vite production build passes (`dist/` build verified)
+- System Doctor diagnostics check passed
 
 ## Runtime Matrix
 

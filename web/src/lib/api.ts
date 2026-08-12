@@ -382,3 +382,83 @@ export async function configDownload(baseUrl: string, connections?: number, spee
   if (!response.ok) throw new Error(await responseError(response))
   return (await response.json()) as { status: string; connections: number; speed_limit: number }
 }
+
+export interface SystemPreset {
+  id: string
+  name: string
+  system_prompt: string
+  temperature: number
+  top_p: number
+  description: string
+}
+
+export interface TelemetryData {
+  request_count: number
+  total_tokens_generated: number
+  uptime_seconds: number
+  uptime_formatted: string
+  active_backend: string
+  model_id: string
+  model_path: string
+  hardware: {
+    cpu_cores: number
+    ram_available_gb: number
+    gpus_detected: number
+    gpu_names: string[]
+  }
+  recent_requests: Array<Record<string, any>>
+}
+
+export interface DoctorCheck {
+  id: string
+  status: "pass" | "fail" | "warn" | "skip"
+  summary: string
+  details?: Record<string, any>
+}
+
+export interface DoctorReport {
+  checks: DoctorCheck[]
+  plan?: any
+}
+
+export async function getPresets(baseUrl: string, apiKey = ""): Promise<SystemPreset[]> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/presets"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  const body = (await response.json()) as { presets: SystemPreset[] }
+  return body.presets || []
+}
+
+export async function savePreset(baseUrl: string, preset: Partial<SystemPreset>, apiKey = ""): Promise<SystemPreset[]> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/presets"), {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify(preset)
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  const body = (await response.json()) as { presets: SystemPreset[] }
+  return body.presets || []
+}
+
+export async function deletePreset(baseUrl: string, id: string, apiKey = ""): Promise<SystemPreset[]> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/presets/delete"), {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify({ id })
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  const body = (await response.json()) as { presets: SystemPreset[] }
+  return body.presets || []
+}
+
+export async function getTelemetry(baseUrl: string, apiKey = ""): Promise<TelemetryData> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/telemetry"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as TelemetryData
+}
+
+export async function getDoctorReport(baseUrl: string, apiKey = ""): Promise<DoctorReport> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/doctor"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as DoctorReport
+}
+

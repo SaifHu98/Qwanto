@@ -77,6 +77,8 @@ c/tests/test_uring
 *.o
 *.gguf
 *.dll
+.qwanto_presets.json
 Edit
+
 
 

@@ -37,12 +37,20 @@ import {
   Image,
   File,
   X,
+  Sparkles,
+  ShieldCheck,
+  Code2,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { PresetsView } from "./components/PresetsView"
+import { TelemetryView } from "./components/TelemetryView"
+import { DoctorView } from "./components/DoctorView"
+import { WorkbenchView } from "./components/WorkbenchView"
+import type { SystemPreset } from "@/lib/api"
 import {
   getHealth,
   listModels,
@@ -128,9 +136,10 @@ export default function App() {
   const [logs, setLogs] = useState<Array<{time: string, type: "error" | "warn" | "info", message: string}>>([])
   const logRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
-  const [view, setView] = useState<"chat" | "brain" | "models" | "logs">(() => {
+  const [systemInstruction, setSystemInstruction] = useState("")
+  const [view, setView] = useState<"chat" | "brain" | "models" | "logs" | "presets" | "telemetry" | "doctor" | "workbench">(() => {
     const saved = stored(localStorage, "qwanto.view", "chat")
-    return (["chat", "brain", "models", "logs"].includes(saved) ? saved : "chat") as "chat" | "brain" | "models" | "logs"
+    return (["chat", "brain", "models", "logs", "presets", "telemetry", "doctor", "workbench"].includes(saved) ? saved : "chat") as any
   })
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
@@ -692,6 +701,10 @@ export default function App() {
           <div><span className="eyebrow">ACTIVE MODEL</span><strong>{model}</strong></div>
           <div className="view-tabs">
             <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}><MessageSquareText className="size-3.5" /> Chat</button>
+            <button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><Sparkles className="size-3.5" /> Studio</button>
+            <button className={view === "telemetry" ? "active" : ""} onClick={() => setView("telemetry")}><Activity className="size-3.5" /> Telemetry</button>
+            <button className={view === "workbench" ? "active" : ""} onClick={() => setView("workbench")}><Code2 className="size-3.5" /> Workbench</button>
+            <button className={view === "doctor" ? "active" : ""} onClick={() => setView("doctor")}><ShieldCheck className="size-3.5" /> Doctor</button>
             <button className={view === "brain" ? "active" : ""} onClick={() => setView("brain")}><BrainCircuit className="size-3.5" /> Brain</button>
             <button className={view === "models" ? "active" : ""} onClick={() => setView("models")}><Server className="size-3.5" /> Models</button>
             <button className={view === "logs" ? "active" : ""} onClick={() => setView("logs")}><Database className="size-3.5" /> Logs {logs.length > 0 && <span className="logs-badge">{logs.filter(l => l.type === "error").length || logs.length}</span>}</button>
@@ -1044,6 +1057,28 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : view === "presets" ? (
+          <PresetsView
+            baseUrl={baseUrl}
+            apiKey={apiKey}
+            onApplyPreset={(preset: SystemPreset) => {
+              if (preset.system_prompt) setSystemInstruction(preset.system_prompt)
+              setTemperature(preset.temperature)
+              addLog("info", `Applied preset: ${preset.name} (temp=${preset.temperature}, top_p=${preset.top_p})`)
+            }}
+          />
+        ) : view === "telemetry" ? (
+          <TelemetryView baseUrl={baseUrl} apiKey={apiKey} />
+        ) : view === "workbench" ? (
+          <WorkbenchView
+            baseUrl={baseUrl}
+            model={model}
+            apiKey={apiKey}
+            temperature={temperature}
+            maxTokens={maxTokens}
+          />
+        ) : view === "doctor" ? (
+          <DoctorView baseUrl={baseUrl} apiKey={apiKey} />
         ) : view === "brain" ? (
           <Brain baseUrl={baseUrl} apiKey={apiKey} connected={connected} />
         ) : view === "logs" ? (
