@@ -3,14 +3,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
+
 void qwanto_route_lsh(const int8_t* activations, int hidden_dim, int n_experts, int top_k, int* expert_ids) {
     // 1. Calculate a 32-bit sign signature from activations
     uint32_t sig = 0;
+#if defined(__AVX2__)
+    if (hidden_dim >= 32) {
+        __m256i act_v = _mm256_loadu_si256((const __m256i*)activations);
+        sig = (uint32_t)_mm256_movemask_epi8(_mm256_cmpgt_epi8(act_v, _mm256_setzero_si256()));
+    } else {
+        for (int k = 0; k < 32 && k < hidden_dim; k++) {
+            if (activations[k] > 0) sig |= (1u << k);
+        }
+    }
+#else
     for (int k = 0; k < 32 && k < hidden_dim; k++) {
         if (activations[k] > 0) {
             sig |= (1u << k);
         }
     }
+#endif
 
     // 2. Generate top_k unique expert IDs
     for (int kk = 0; kk < top_k; kk++) {
