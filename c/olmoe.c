@@ -1,4 +1,9 @@
-/* Motore di inferenza OLMoE in C puro, con EXPERT-STREAMING dal disco.
+/*
+ * Qwanto OLMoE Engine
+ * Based on the Colibri unified inference runtime (https://github.com/JustVugg/colibri).
+ * A unified inference engine that utilizes CPU, GPU, RAM, and NVMe to run models larger than memory.
+ * 
+ * Motore di inferenza OLMoE in C puro, con EXPERT-STREAMING dal disco.
  * Porting del motore Python (engine.py). Obiettivo Stadio A: produrre gli STESSI
  * token id del riferimento (ref.json) -> valida il core prima di scalare a GLM-5.2.
  *

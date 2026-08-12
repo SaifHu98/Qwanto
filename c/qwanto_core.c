@@ -1,3 +1,9 @@
+/*
+ * Qwanto Core Engine
+ * 
+ * Based on the Colibri unified inference runtime (https://github.com/JustVugg/colibri).
+ * A unified inference engine that utilizes CPU, GPU, RAM, and NVMe to run models larger than memory.
+ */
 #include "qwanto_core.h"
 #include <string.h>
 

@@ -7,6 +7,11 @@
 
 Qwanto is a high-performance local inference gateway, specialized MoE C engine, and modern web workspace. It provides an OpenAI-compatible HTTP API, live telemetry metrics, prompt tuning studio, interactive API workbench, model manager, a native GLM-5.2/OLMoE execution path, GGUF integration via `llama-server`, and an experimental compact model format named Qwanto Native (`.qwn`).
 
+### ⚡ Unified Inference Engine
+The Qwanto core engine acts as a **unified inference runtime that uses all your hardware — CPU, GPU, RAM, NVMe — to run any model larger than memory** at maximum performance. 
+
+> **Acknowledgements:** The core unified multi-tier memory execution architecture of the Qwanto engine is proudly based on the exceptional [Colibri](https://github.com/JustVugg/colibri) project created by **JustVugg**.
+
 Developed and maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 
 <p align="center">

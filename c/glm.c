@@ -1,4 +1,9 @@
-/* محرك GLM-5.2 (بنية glm_moe_dsa) بلغة C الخالصة.
+/*
+ * Qwanto GLM-5.2 Engine
+ * Based on the Colibri unified inference runtime (https://github.com/JustVugg/colibri).
+ * A unified inference engine that utilizes CPU, GPU, RAM, and NVMe to run models larger than memory.
+ * 
+ * محرك GLM-5.2 (بنية glm_moe_dsa) بلغة C الخالصة.
  * المرحلة ب (التحول الحالي): محاكاة مطابقة لعملية الـ forward في transformers (modeling_glm_moe_dsa.py):
  *   - انتباه MLA (q/kv-LoRA، RoPE متداخل جزئيًا)
  *   - موجه sigmoid + noaux_tc (n_group=1) مع routed_scaling_factor
