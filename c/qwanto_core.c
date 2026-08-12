@@ -294,6 +294,10 @@ void qwanto_matmul_core_avx512(const int8_t* activations, const uint8_t* packed_
 #endif
 }
 
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 void qwanto_matmul_blocked(const int8_t* activations, const uint8_t* packed_weights, int32_t* outputs, 
                            int m_tokens, int n_out, int k_in) {
     // Clear outputs initially
@@ -312,10 +316,12 @@ void qwanto_matmul_blocked(const int8_t* activations, const uint8_t* packed_weig
     for (int kk = 0; kk < k_in; kk += BLOCK_K) {
         int k_len = (kk + BLOCK_K > k_in) ? (k_in - kk) : BLOCK_K;
         
+#if defined(_OPENMP)
+        #pragma omp parallel for collapse(2) schedule(static) if(n_out > 32)
+#endif
         for (int ii = 0; ii < n_out; ii += BLOCK_M) {
-            int m_len = (ii + BLOCK_M > n_out) ? (n_out - ii) : BLOCK_M;
-            
             for (int t = 0; t < m_tokens; t++) {
+                int m_len = (ii + BLOCK_M > n_out) ? (n_out - ii) : BLOCK_M;
                 const int8_t* act_ptr = &activations[t * k_in + kk];
                 const uint8_t* w_ptr = &packed_weights[ii * (k_in / 2) + (kk / 2)];
                 int32_t* out_ptr = &outputs[t * n_out + ii];
