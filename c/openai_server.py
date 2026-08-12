@@ -2017,11 +2017,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 for p in parent_paths:
                     try:
                         for entry in p.iterdir():
-                            if entry.is_file() and entry.name.endswith(".gguf"):
+                            if entry.is_file() and (entry.name.endswith(".gguf") or entry.name.endswith(".qwn")):
                                 models.append({
                                     "name": entry.name,
                                     "path": str(entry),
-                                    "type": "gguf"
+                                    "type": "qwn" if entry.name.endswith(".qwn") else "gguf"
                                 })
                             elif entry.is_dir():
                                 if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") for f in entry.iterdir()):

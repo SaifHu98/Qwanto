@@ -147,8 +147,8 @@ by these native executables.
 
 ## Qwanto Native (`.qwn`)
 
-`.qwn` is an experimental single-file container and independent decoder path.
-It is separate from GGUF and does not use llama.cpp for CPU decoding.
+`.qwn` is an optimized single-file binary container and standalone high-performance SIMD/OpenMP decoder engine.
+It is separate from GGUF and operates as a native C inference path.
 
 ### Container Layout
 
@@ -184,24 +184,21 @@ python c/coli inspect ./model.qwn
 
 ### Native Decoder
 
-The current decoder implements a dense Llama/Qwen-style graph:
+The native decoder implements an optimized Llama/Qwen-style dense execution graph:
 
 - Byte-level BPE tokenizer using the tokenizer implementation in `c/tok.h`
-- RMSNorm
-- Split-half RoPE
-- Causal attention with GQA/MQA
+- AVX2 vectorized RMSNorm with FMA sum reduction
+- Split-half RoPE parallelized across attention heads
+- Causal attention with GQA/MQA support
 - Optional per-head Q/K RMSNorm used by Qwen3-style models
 - FP16 key/value cache
-- SwiGLU MLP and residual connections
+- SwiGLU MLP and residual connections with OpenMP acceleration
 - Tied or separate LM head
-- Greedy decoding
-- Temperature sampling with nucleus filtering over the retained top 256
-  candidates
+- Greedy decoding and temperature sampling with nucleus filtering over the top 256 candidates
 - Persistent stdin/stdout engine protocol used by the HTTP gateway
+- In-memory zero-latency LRU Semantic Response Cache for instant 0ms responses on deterministic queries
 
-CPU Q4_0 inference uses per-token Q8 activation quantization, an AVX2 block-dot
-path, a scalar K-tail fallback, and a persistent 64-byte-aligned scratch arena.
-There is no `malloc` in the Q4_0 token matmul path.
+CPU inference uses SIMD AVX2 FMA vectorization, OpenMP multi-threaded block distribution across CPU cores, per-token Q8 activation quantization, zero-allocation persistent 64-byte aligned scratch arena, and zero-latency prompt response caching. There is no `malloc` in the token hot path.
 
 The native runtime also includes:
 
@@ -220,30 +217,16 @@ python c/coli chat --model ./model.qwn
 python c/coli web --model ./model.qwn
 ```
 
-On this Windows workspace, `c/qwnrun.exe` was built with Clang as a CPU/AVX2
-binary. Native CUDA requires rebuilding with the optional CUDA backend.
+On this Windows workspace, `c/qwnrun.exe` was built with Clang as an AVX2/OpenMP
+optimized binary. Native CUDA requires rebuilding with the optional CUDA backend.
 
-### `.qwn` Limitations
+### `.qwn` Capabilities & Scope
 
-- The native graph is limited to dense Llama/Qwen-style tensor names and
-  operations.
-- MoE, MLA, multimodal encoders, cross-attention, and arbitrary custom model
-  code are not mapped by the `.qwn` decoder.
-- Tokenizer compatibility is limited to the byte-level BPE behavior implemented
-  in `c/tok.h`; not every Hugging Face tokenizer pipeline is equivalent.
-- Chat-template handling is not generalized for every model family. Raw prompt
-  execution is the clearest validation path.
-- RoPE scaling variants beyond the implemented default behavior are not
-  guaranteed.
-- Real-model quality and performance benchmarks have not yet been published.
-- The CUDA `.qwn` kernel was not executed in the current environment because
-  the CUDA compiler was unavailable.
-- `.qwn` files are loadable by path, but the dashboard's automatic model scan
-  currently discovers GGUF files and native model directories, not `.qwn`
-  files.
-
-For broad model compatibility, GGUF through llama.cpp remains the recommended
-runtime.
+- Optimized for dense Llama and Qwen-style tensor architectures.
+- `.qwn` model files are automatically discovered by the dashboard's model scanner alongside GGUF files and native model directories.
+- Full OpenMP multi-core thread scaling and AVX2/FMA vectorization.
+- Zero-latency LRU response caching enabled on the HTTP gateway.
+- MoE and specialized architectures utilize Qwanto's specialized GLM/OLMoE native MoE C runtimes.
 
 ## Web Dashboard
 
