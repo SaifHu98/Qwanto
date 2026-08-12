@@ -1,0 +1,328 @@
+#include "qwanto_decode.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static size_t up64(size_t n) { return (n + 63u) & ~63u; }
+
+static void *alloc64(size_t bytes) {
+#ifdef _WIN32
+    return _aligned_malloc(up64(bytes), 64);
+#else
+    void *p = NULL; return posix_memalign(&p, 64, up64(bytes)) == 0 ? p : NULL;
+#endif
+}
+static void free64(void *p) {
+#ifdef _WIN32
+    _aligned_free(p);
+#else
+    free(p);
+#endif
+}
+
+static float half_to_float(uint16_t h) {
+    uint32_t sign=(h>>15)&1, exp=(h>>10)&31, mant=h&1023, bits;
+    if(exp==0) bits=sign<<31;
+    else if(exp==31) bits=(sign<<31)|0x7f800000u|(mant<<13);
+    else bits=(sign<<31)|((exp+112)<<23)|(mant<<13);
+    float f; memcpy(&f,&bits,4); return f;
+}
+
+static uint16_t float_to_half(float f) {
+    uint32_t b; memcpy(&b,&f,4);
+    uint32_t sign=b>>31, exp=(b>>23)&255, mant=b&0x7fffff;
+    if(exp==255) return (uint16_t)((sign<<15)|0x7c00|!!mant);
+    int e=(int)exp-127+15;
+    if(e<=0) return (uint16_t)(sign<<15);
+    if(e>=31) return (uint16_t)((sign<<15)|0x7c00);
+    return (uint16_t)((sign<<15)|((uint32_t)e<<10)|(mant>>13));
+}
+
+static int cfg_int(jval *root, const char *name, int fallback) {
+    jval *v=json_get(root,name); return v ? (int)v->num : fallback;
+}
+static float cfg_float(jval *root, const char *name, float fallback) {
+    jval *v=json_get(root,name); return v ? (float)v->num : fallback;
+}
+
+static int load_config(QwnDecoder *d) {
+    const QwnTensorDesc *t=qwn_find(&d->model,"__qwn.config");
+    if(!t || t->dtype!=QWN_DT_BYTES || t->numel<2) return -1;
+    char *json=(char*)malloc((size_t)t->numel+1); if(!json)return -1;
+    memcpy(json,qwn_data(&d->model,t),(size_t)t->numel); json[t->numel]=0;
+    char *arena=NULL; jval *root=json_parse(json,&arena); if(!root){free(json);return -1;}
+    QwnConfig *c=&d->cfg;
+    c->hidden=cfg_int(root,"hidden_size",0);
+    c->intermediate=cfg_int(root,"intermediate_size",0);
+    c->layers=cfg_int(root,"num_hidden_layers",0);
+    c->heads=cfg_int(root,"num_attention_heads",0);
+    c->kv_heads=cfg_int(root,"num_key_value_heads",c->heads);
+    c->head_dim=cfg_int(root,"head_dim",c->heads?c->hidden/c->heads:0);
+    c->vocab=cfg_int(root,"vocab_size",0);
+    c->max_ctx=cfg_int(root,"max_position_embeddings",4096);
+    c->bos_id=cfg_int(root,"bos_token_id",-1);
+    c->eos_id=cfg_int(root,"eos_token_id",-1);
+    c->rms_eps=cfg_float(root,"rms_norm_eps",1e-6f);
+    c->rope_theta=cfg_float(root,"rope_theta",10000.0f);
+    c->tie_embeddings=cfg_int(root,"tie_word_embeddings",0);
+    free(json);
+    return c->hidden>0&&c->intermediate>0&&c->layers>0&&c->heads>0&&
+           c->kv_heads>0&&c->head_dim>0&&c->vocab>0 ? 0:-1;
+}
+
+static int load_tokenizer(QwnDecoder *d) {
+    const QwnTensorDesc *t=qwn_find(&d->model,"__qwn.tokenizer");
+    if(!t || t->dtype!=QWN_DT_BYTES || t->numel<2)return -1;
+    char *json=(char*)malloc((size_t)t->numel+1); if(!json)return -1;
+    memcpy(json,qwn_data(&d->model,t),(size_t)t->numel);json[t->numel]=0;
+    tok_load_memory(&d->tokenizer,json);
+    return 0;
+}
+
+static int vector_f32(const QwnModel *m,const QwnTensorDesc *t,float *out,int n){
+    if(!t||t->n_dims!=1||t->shape[0]!=(uint64_t)n)return -1;
+    const uint8_t *p=(const uint8_t*)qwn_data(m,t);if(!p)return -1;
+    if(t->dtype==QWN_DT_F32){memcpy(out,p,(size_t)n*4);return 0;}
+    if(t->dtype==QWN_DT_F16||t->dtype==QWN_DT_BF16){
+        const uint16_t *h=(const uint16_t*)p;
+        for(int i=0;i<n;i++){
+            if(t->dtype==QWN_DT_F16)out[i]=half_to_float(h[i]);
+            else{uint32_t b=(uint32_t)h[i]<<16;memcpy(&out[i],&b,4);}
+        }return 0;
+    }return -1;
+}
+
+static const QwnTensorDesc *layer_tensor(const QwnDecoder *d,int layer,const char *suffix){
+    char name[128];snprintf(name,sizeof(name),"model.layers.%d.%s",layer,suffix);
+    return qwn_find(&d->model,name);
+}
+
+static int required_tensors(QwnDecoder *d){
+    if(!qwn_find(&d->model,"model.embed_tokens.weight")||
+       !qwn_find(&d->model,"model.norm.weight"))return -1;
+    for(int l=0;l<d->cfg.layers;l++){
+        const char *names[]={"input_layernorm.weight","self_attn.q_proj.weight",
+            "self_attn.k_proj.weight","self_attn.v_proj.weight","self_attn.o_proj.weight",
+            "post_attention_layernorm.weight","mlp.gate_proj.weight",
+            "mlp.up_proj.weight","mlp.down_proj.weight"};
+        for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++)
+            if(!layer_tensor(d,l,names[i]))return -1;
+    }
+    if(!qwn_find(&d->model,"lm_head.weight") && !d->cfg.tie_embeddings)return -1;
+    return 0;
+}
+
+static void rmsnorm(float *out,const float *x,const float *w,int n,float eps){
+    double ss=0;for(int i=0;i<n;i++)ss+=(double)x[i]*x[i];
+    float inv=1.0f/sqrtf((float)(ss/n)+eps);
+    for(int i=0;i<n;i++)out[i]=x[i]*inv*w[i];
+}
+
+static void head_rmsnorm(float *x,int heads,int dim,const float *w,float eps){
+    for(int h=0;h<heads;h++){
+        float *row=x+(size_t)h*dim;double ss=0;
+        for(int i=0;i<dim;i++)ss+=(double)row[i]*row[i];
+        float inv=1.0f/sqrtf((float)(ss/dim)+eps);
+        for(int i=0;i<dim;i++)row[i]=row[i]*inv*w[i];
+    }
+}
+
+static void rope(float *v,int heads,int dim,int pos,float theta){
+    int half=dim/2;
+    for(int h=0;h<heads;h++)for(int i=0;i<half;i++){
+        float angle=(float)pos*powf(theta,-2.0f*i/dim);
+        float c=cosf(angle),s=sinf(angle);
+        float a=v[h*dim+i],b=v[h*dim+i+half];
+        v[h*dim+i]=a*c-b*s;v[h*dim+i+half]=a*s+b*c;
+    }
+}
+
+static void softmax(float *x,int n){
+    float max=-INFINITY;for(int i=0;i<n;i++)if(x[i]>max)max=x[i];
+    double sum=0;for(int i=0;i<n;i++){x[i]=expf(x[i]-max);sum+=x[i];}
+    float inv=1.0f/(float)sum;for(int i=0;i<n;i++)x[i]*=inv;
+}
+
+static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
+                  int in,int out,float *y){
+#ifdef COLI_CUDA
+    if(d->cuda_enabled && w && w->dtype==QWN_DT_Q4_0){
+        int slot=-1;
+        for(int i=0;i<d->cuda_weight_count;i++)if(d->cuda_weights[i].desc==w){slot=i;break;}
+        if(slot<0 && d->cuda_weight_count<(int)(sizeof(d->cuda_weights)/sizeof(d->cuda_weights[0])))
+            slot=d->cuda_weight_count++;
+        if(slot>=0){
+            if(d->cuda_weights[slot].desc==NULL)d->cuda_weights[slot].desc=w;
+            if(coli_cuda_qwn_matmul(&d->cuda_weights[slot].tensor,y,x,qwn_data(&d->model,w),1,in,out,d->cuda_device))return 0;
+            d->cuda_enabled=0; /* broken CUDA path falls back for the session */
+        }
+    }
+#endif
+    return qwn_matmul_f32(&d->model,w,x,1,in,out,&d->scratch,y);
+}
+
+static void add_bias(const QwnDecoder *d,const QwnTensorDesc *b,float *x,int n){
+    if(!b)return;float *tmp=d->scratch.row_f32;
+    if(vector_f32(&d->model,b,tmp,n)==0)for(int i=0;i<n;i++)x[i]+=tmp[i];
+}
+
+static int load_norms(QwnDecoder *d){
+    int D=d->cfg.hidden;
+    for(int l=0;l<d->cfg.layers;l++){
+        if(vector_f32(&d->model,layer_tensor(d,l,"input_layernorm.weight"),
+                      d->norm_weights+(size_t)(2*l)*D,D)!=0)return -1;
+        if(vector_f32(&d->model,layer_tensor(d,l,"post_attention_layernorm.weight"),
+                      d->norm_weights+(size_t)(2*l+1)*D,D)!=0)return -1;
+    }
+    return vector_f32(&d->model,qwn_find(&d->model,"model.norm.weight"),
+                      d->norm_weights+(size_t)(2*d->cfg.layers)*D,D);
+}
+
+int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **error){
+    static const char *ERR_CONFIG="unsupported/missing Llama-Qwen config";
+    static const char *ERR_TENSORS="missing Llama-Qwen tensors";
+    static const char *ERR_MEMORY="native decoder allocation failed";
+    memset(d,0,sizeof(*d));if(error)*error=NULL;
+    if(qwn_open(path,&d->model,error)!=0)return -1;
+    if(load_config(d)!=0||load_tokenizer(d)!=0){if(error)*error=ERR_CONFIG;goto fail;}
+    if(ctx_size>0&&ctx_size<d->cfg.max_ctx)d->cfg.max_ctx=ctx_size;
+    if(required_tensors(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
+    int D=d->cfg.hidden,I=d->cfg.intermediate,Hd=d->cfg.head_dim;
+    int Q=d->cfg.heads*Hd,KV=d->cfg.kv_heads*Hd,V=d->cfg.vocab;
+    int max_dim=D>I?D:I;if(Q>max_dim)max_dim=Q;if(V>max_dim)max_dim=V;
+    if(qwn_scratch_init(&d->scratch,1,max_dim)!=0){if(error)*error=ERR_MEMORY;goto fail;}
+    size_t floats=(size_t)D*5+(size_t)Q+(size_t)KV*2+(size_t)d->cfg.max_ctx+
+                  (size_t)I*3+(size_t)V+(size_t)(2*d->cfg.layers+1)*D;
+    d->arena_bytes=up64(floats*sizeof(float));d->arena=alloc64(d->arena_bytes);
+    if(!d->arena){if(error)*error=ERR_MEMORY;goto fail;}
+    float *p=(float*)d->arena;
+    d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
+    d->ctx=p;p+=D;d->att=p;p+=d->cfg.max_ctx;d->gate=p;p+=I;
+    d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
+    size_t kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*d->cfg.kv_heads*Hd;
+    size_t kv_bytes=up64(kv_elems*sizeof(uint16_t));
+    d->kv_allocation=alloc64(kv_bytes*2);if(!d->kv_allocation){if(error)*error=ERR_MEMORY;goto fail;}
+    d->key_cache=(uint16_t*)d->kv_allocation;
+    d->value_cache=(uint16_t*)((uint8_t*)d->kv_allocation+kv_bytes);
+    memset(d->kv_allocation,0,kv_bytes*2);
+    if(load_norms(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
+#ifdef COLI_CUDA
+    d->cuda_device=0;
+    d->cuda_enabled=coli_cuda_init(&d->cuda_device,1);
+#endif
+    return 0;
+fail:qwn_decoder_close(d);return -1;
+}
+
+void qwn_decoder_reset(QwnDecoder *d){d->position=0;}
+
+void qwn_decoder_close(QwnDecoder *d){
+    if(!d)return;qwn_scratch_destroy(&d->scratch);free64(d->arena);
+#ifdef COLI_CUDA
+    for(int i=0;i<d->cuda_weight_count;i++)if(d->cuda_weights[i].tensor)coli_cuda_tensor_free(d->cuda_weights[i].tensor);
+    if(d->cuda_enabled)coli_cuda_shutdown();
+#endif
+    free64(d->kv_allocation);qwn_close(&d->model);memset(d,0,sizeof(*d));
+}
+
+int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
+    QwnConfig *c=&d->cfg;int D=c->hidden,I=c->intermediate,H=c->heads;
+    int HK=c->kv_heads,HD=c->head_dim,Q=H*HD,KV=HK*HD,pos=d->position;
+    if(token<0||token>=c->vocab||pos>=c->max_ctx)return -1;
+    if(qwn_row_f32(&d->model,qwn_find(&d->model,"model.embed_tokens.weight"),token,d->x,D)!=0)return -1;
+    for(int l=0;l<c->layers;l++){
+        rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l)*D,D,c->rms_eps);
+        const QwnTensorDesc *qw=layer_tensor(d,l,"self_attn.q_proj.weight");
+        const QwnTensorDesc *kw=layer_tensor(d,l,"self_attn.k_proj.weight");
+        const QwnTensorDesc *vw=layer_tensor(d,l,"self_attn.v_proj.weight");
+        if(matmul(d,qw,d->xb,D,Q,d->q)||matmul(d,kw,d->xb,D,KV,d->k)||
+           matmul(d,vw,d->xb,D,KV,d->v))return -1;
+        add_bias(d,layer_tensor(d,l,"self_attn.q_proj.bias"),d->q,Q);
+        add_bias(d,layer_tensor(d,l,"self_attn.k_proj.bias"),d->k,KV);
+        add_bias(d,layer_tensor(d,l,"self_attn.v_proj.bias"),d->v,KV);
+        const QwnTensorDesc *qn=layer_tensor(d,l,"self_attn.q_norm.weight");
+        const QwnTensorDesc *kn=layer_tensor(d,l,"self_attn.k_norm.weight");
+        if(qn&&vector_f32(&d->model,qn,d->scratch.row_f32,HD)==0)
+            head_rmsnorm(d->q,H,HD,d->scratch.row_f32,c->rms_eps);
+        if(kn&&vector_f32(&d->model,kn,d->scratch.row_f32,HD)==0)
+            head_rmsnorm(d->k,HK,HD,d->scratch.row_f32,c->rms_eps);
+        rope(d->q,H,HD,pos,c->rope_theta);rope(d->k,HK,HD,pos,c->rope_theta);
+        size_t layer_base=(size_t)l*c->max_ctx*HK*HD;
+        size_t pos_base=layer_base+(size_t)pos*HK*HD;
+        for(int i=0;i<KV;i++){d->key_cache[pos_base+i]=float_to_half(d->k[i]);
+                              d->value_cache[pos_base+i]=float_to_half(d->v[i]);}
+        memset(d->ctx,0,(size_t)D*sizeof(float));
+        float scale=1.0f/sqrtf((float)HD),ratio=(float)H/HK;
+        for(int h=0;h<H;h++){
+            int kh=(int)(h/ratio);float *scores=d->att;
+            for(int t=0;t<=pos;t++){
+                size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
+                float sum=0;for(int j=0;j<HD;j++)sum+=d->q[h*HD+j]*half_to_float(d->key_cache[base+j]);
+                scores[t]=sum*scale;
+            }
+            softmax(scores,pos+1);
+            for(int t=0;t<=pos;t++){
+                size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
+                for(int j=0;j<HD;j++)d->ctx[h*HD+j]+=scores[t]*half_to_float(d->value_cache[base+j]);
+            }
+        }
+        if(matmul(d,layer_tensor(d,l,"self_attn.o_proj.weight"),d->ctx,Q,D,d->xb))return -1;
+        add_bias(d,layer_tensor(d,l,"self_attn.o_proj.bias"),d->xb,D);
+        for(int i=0;i<D;i++)d->x[i]+=d->xb[i];
+        rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l+1)*D,D,c->rms_eps);
+        if(matmul(d,layer_tensor(d,l,"mlp.gate_proj.weight"),d->xb,D,I,d->gate)||
+           matmul(d,layer_tensor(d,l,"mlp.up_proj.weight"),d->xb,D,I,d->up))return -1;
+        for(int i=0;i<I;i++)d->hidden[i]=(d->gate[i]/(1.0f+expf(-d->gate[i])))*d->up[i];
+        if(matmul(d,layer_tensor(d,l,"mlp.down_proj.weight"),d->hidden,I,D,d->xb))return -1;
+        for(int i=0;i<D;i++)d->x[i]+=d->xb[i];
+    }
+    rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*c->layers)*D,D,c->rms_eps);
+    const QwnTensorDesc *head=qwn_find(&d->model,"lm_head.weight");
+    if(!head)head=qwn_find(&d->model,"model.embed_tokens.weight");
+    if(matmul(d,head,d->xb,D,c->vocab,d->logits))return -1;
+    d->position++;if(out_logits)*out_logits=d->logits;return 0;
+}
+
+static uint64_t sample_rng=0x9e3779b97f4a7c15ULL;
+static float random01(void){
+    sample_rng^=sample_rng>>12;sample_rng^=sample_rng<<25;sample_rng^=sample_rng>>27;
+    return (float)((sample_rng*2685821657736338717ULL)>>40)*(1.0f/16777216.0f);
+}
+
+static int sample_token(const float *logits,int vocab,float temperature,float top_p){
+    if(temperature<=0.0f){int best=0;for(int i=1;i<vocab;i++)if(logits[i]>logits[best])best=i;return best;}
+    enum{K=256};float val[K];int id[K],n=0;
+    for(int token=0;token<vocab;token++){
+        float x=logits[token]/temperature;
+        int pos;
+        if(n<K)pos=n++;
+        else{if(x<=val[K-1])continue;pos=K-1;}
+        while(pos>0&&x>val[pos-1]){if(pos<K){val[pos]=val[pos-1];id[pos]=id[pos-1];}pos--;}
+        val[pos]=x;id[pos]=token;
+    }
+    float peak=val[0],sum=0.0f;for(int i=0;i<n;i++){val[i]=expf(val[i]-peak);sum+=val[i];}
+    if(top_p<=0.0f||top_p>1.0f)top_p=1.0f;
+    float cutoff=sum*top_p,cumulative=0.0f;int keep=n;
+    for(int i=0;i<n;i++){cumulative+=val[i];if(cumulative>=cutoff){keep=i+1;break;}}
+    float kept=0.0f;for(int i=0;i<keep;i++)kept+=val[i];
+    float target=random01()*kept;for(int i=0;i<keep;i++){target-=val[i];if(target<=0)return id[i];}
+    return id[keep-1];
+}
+
+int qwn_decoder_generate(QwnDecoder *d,const int *prompt,int prompt_count,
+                         int max_new_tokens,float temperature,float top_p,
+                         void(*callback)(const char*,int,void*),void *opaque){
+    const float *logits=NULL;int token=-1;
+    for(int i=0;i<prompt_count;i++)if(qwn_decoder_forward(d,prompt[i],&logits)!=0)return -1;
+    int generated=0;
+    for(int step=0;step<max_new_tokens;step++){
+        token=sample_token(logits,d->cfg.vocab,temperature,top_p);
+        if(token==d->cfg.eos_id)break;
+        char text[512];int n=tok_decode(&d->tokenizer,&token,1,text,sizeof(text)-1);
+        if(callback&&n>0)callback(text,n,opaque);
+        generated++;
+        if(qwn_decoder_forward(d,token,&logits)!=0)return -1;
+    }return generated;
+}

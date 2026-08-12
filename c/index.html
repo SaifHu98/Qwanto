@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colibri Universal Backend</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; }
+        .container { max-width: 600px; margin: 0 auto; background: #1e293b; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        h1 { margin-top: 0; color: #38bdf8; }
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        select, input, button { width: 100%; padding: 0.75rem; border-radius: 4px; border: 1px solid #475569; background: #334155; color: white; font-size: 1rem; }
+        button { background: #0ea5e9; font-weight: bold; cursor: pointer; border: none; transition: background 0.2s; }
+        button:hover { background: #0284c7; }
+        .status { margin-top: 1rem; padding: 1rem; border-radius: 4px; display: none; }
+        .status.success { background: #064e3b; color: #34d399; display: block; }
+        .status.error { background: #7f1d1d; color: #fca5a5; display: block; }
+        pre { background: #0f172a; padding: 1rem; overflow-x: auto; font-size: 0.875rem; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Backend Selector UI</h1>
+        <p>This UI interrogates the <code>/v1/models</code> endpoint exposed by the Universal Backend Layer to fetch available capabilities.</p>
+        
+        <div class="form-group">
+            <label for="backend-select">Available Models (Discovered via API)</label>
+            <select id="backend-select">
+                <option value="">Loading models...</option>
+            </select>
+        </div>
+
+        <button onclick="checkHealth()">Test Connection</button>
+
+        <div id="status" class="status"></div>
+        
+        <h3 style="margin-top:2rem;">Capabilities JSON</h3>
+        <pre id="json-view">{}</pre>
+    </div>
+
+    <script>
+        const endpoint = "http://127.0.0.1:8000/v1/models";
+        let modelsCache = [];
+
+        async function fetchModels() {
+            try {
+                const res = await fetch(endpoint);
+                const data = await res.json();
+                
+                const select = document.getElementById("backend-select");
+                select.innerHTML = "";
+                modelsCache = data.data;
+
+                if (modelsCache.length === 0) {
+                    select.innerHTML = "<option>No models found</option>";
+                    return;
+                }
+
+                modelsCache.forEach(model => {
+                    const opt = document.createElement("option");
+                    opt.value = model.id;
+                    opt.textContent = `${model.id} (${model.owned_by || 'unknown'})`;
+                    select.appendChild(opt);
+                });
+
+                updateCapabilities();
+                select.addEventListener("change", updateCapabilities);
+            } catch (err) {
+                showStatus("error", "Failed to connect to API gateway at " + endpoint);
+            }
+        }
+
+        function updateCapabilities() {
+            const select = document.getElementById("backend-select");
+            const model = modelsCache.find(m => m.id === select.value);
+            if (model) {
+                document.getElementById("json-view").textContent = JSON.stringify(model, null, 2);
+            }
+        }
+
+        async function checkHealth() {
+            const status = document.getElementById("status");
+            try {
+                const res = await fetch("http://127.0.0.1:8000/health");
+                if (res.ok) {
+                    showStatus("success", "Gateway is connected and routing successfully!");
+                } else {
+                    showStatus("error", `Backend returned HTTP ${res.status}`);
+                }
+            } catch (err) {
+                showStatus("error", "Gateway unreachable.");
+            }
+        }
+
+        function showStatus(type, msg) {
+            const el = document.getElementById("status");
+            el.className = `status ${type}`;
+            el.textContent = msg;
+        }
+
+        window.onload = fetchModels;
+    </script>
+</body>
+</html>
