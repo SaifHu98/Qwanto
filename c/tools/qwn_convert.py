@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import importlib
 import json
 import os
@@ -223,17 +224,19 @@ def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("wb") as out:
         out.write(header)
-        for tensor in layout:
-            out.seek(tensor["byte_offset"])
-            if tensor["payload"] is not None:
-                out.write(tensor["payload"])
-            else:
-                before = out.tell()
-                tensor["write_payload"](out)
-                if out.tell() - before != tensor["payload_size"]:
-                    raise ValueError(f"stream writer size mismatch for {tensor['name']}")
-            out.write(b"\0" * (tensor["byte_size"] - tensor["payload_size"]))
+        out.seek(file_size - 1)
+        out.write(b"\0")  # sparse file extension
 
+        # Write inline payload tensors
+        for tensor in layout:
+            if tensor["payload"] is not None:
+                out.seek(tensor["byte_offset"])
+                out.write(tensor["payload"])
+                pad = tensor["byte_size"] - tensor["payload_size"]
+                if pad > 0:
+                    out.write(b"\0" * pad)
+
+        # Write tail block and index
         out.seek(tail_offset)
         out.write(struct.pack(TAIL_FMT, len(overflow), DESC_SIZE,
                               desc_offset, index_offset, 0))
@@ -247,6 +250,22 @@ def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
             out.write(struct.pack("<QQ", name_hash, descriptor_offset))
         out.write(struct.pack("<Q", tail_offset))
         out.truncate(file_size)
+
+    # Process large streaming tensors in parallel across CPU cores
+    streaming_tensors = [t for t in layout if t["write_payload"] is not None]
+    if streaming_tensors:
+        def _stream_worker(tensor):
+            with target.open("r+b") as thread_out:
+                thread_out.seek(tensor["byte_offset"])
+                tensor["write_payload"](thread_out)
+                pad = tensor["byte_size"] - tensor["payload_size"]
+                if pad > 0:
+                    thread_out.write(b"\0" * pad)
+
+        max_workers = min(8, os.cpu_count() or 4)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            list(pool.map(_stream_worker, streaming_tensors))
+
     return file_size
 
 
