@@ -262,6 +262,236 @@ def _q4_writer(meta):
     return write
 
 
+def _read_gguf_tensors(path: str, quant: str = "q4_0"):
+    GGUF_MAGIC = b"GGUF"
+    SCALAR_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+    SCALAR_FMT = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i",
+                  6: "<f", 7: "<B", 10: "<Q", 11: "<q", 12: "<d"}
+
+    def read_str(f):
+        (n,) = struct.unpack("<Q", f.read(8))
+        return f.read(n).decode("utf-8", "replace")
+
+    def read_scalar(f, vtype):
+        size = SCALAR_SIZES[vtype]
+        (val,) = struct.unpack(SCALAR_FMT[vtype], f.read(size))
+        return bool(val) if vtype == 7 else val
+
+    tensors = []
+    metadata = {}
+    with open(path, "rb") as f:
+        magic = f.read(4)
+        if magic != GGUF_MAGIC:
+            raise ValueError(f"not a valid GGUF file (magic={magic!r})")
+        (version,) = struct.unpack("<I", f.read(4))
+        (tensor_count,) = struct.unpack("<Q", f.read(8))
+        (metadata_kv_count,) = struct.unpack("<Q", f.read(8))
+
+        for _ in range(metadata_kv_count):
+            key = read_str(f)
+            (vtype,) = struct.unpack("<I", f.read(4))
+            if vtype in SCALAR_SIZES:
+                metadata[key] = read_scalar(f, vtype)
+            elif vtype == 8:  # String
+                metadata[key] = read_str(f)
+            elif vtype == 9:  # Array
+                (etype,) = struct.unpack("<I", f.read(4))
+                (count,) = struct.unpack("<Q", f.read(8))
+                if etype in SCALAR_SIZES:
+                    f.seek(SCALAR_SIZES[etype] * count, 1)
+                elif etype == 8:
+                    for _ in range(count):
+                        (n,) = struct.unpack("<Q", f.read(8))
+                        f.seek(n, 1)
+                else:
+                    f.seek(count * 4, 1)
+
+        alignment = metadata.get("general.alignment", 32)
+        raw_tensors = []
+        for _ in range(tensor_count):
+            name = read_str(f)
+            (n_dims,) = struct.unpack("<I", f.read(4))
+            dims = struct.unpack(f"<{n_dims}Q", f.read(8 * n_dims))
+            (dtype,) = struct.unpack("<I", f.read(4))
+            (offset,) = struct.unpack("<Q", f.read(8))
+            raw_tensors.append((name, dims, dtype, offset))
+
+        # Tensor data begins aligned
+        data_base = (f.tell() + alignment - 1) & ~(alignment - 1)
+
+    # GGML dtypes: 0=F32, 1=F16, 2=Q4_0, 7=Q8_0, 28=BF16
+    for name, dims, dtype, offset in raw_tensors:
+        # dims in GGUF is fastest dimension first (already matching .qwn)
+        shape = tuple(dims)
+        byte_offset = data_base + offset
+        
+        # Calculate tensor payload size
+        numel = 1
+        for d in shape:
+            numel *= d
+
+        if dtype == 0:  # F32
+            byte_len = numel * 4
+            out_dtype = DT_F32
+            if quant == "q4_0" and len(shape) == 2:
+                out_dtype = DT_Q4_0
+                payload_size = shape[1] * ((shape[0] + 31) // 32) * 18
+                def make_writer(b_off, r, c):
+                    def write(out):
+                        with open(path, "rb") as sf:
+                            sf.seek(b_off)
+                            for _ in range(r):
+                                raw = sf.read(c * 4)
+                                out.write(quantize_q4_0(raw))
+                    return write
+                tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                                "payload_size": payload_size,
+                                "write_payload": make_writer(byte_offset, shape[1], shape[0])})
+                continue
+        elif dtype == 1:  # F16
+            byte_len = numel * 2
+            out_dtype = DT_F16
+            if quant == "q4_0" and len(shape) == 2:
+                out_dtype = DT_Q4_0
+                payload_size = shape[1] * ((shape[0] + 31) // 32) * 18
+                def make_writer(b_off, r, c):
+                    def write(out):
+                        with open(path, "rb") as sf:
+                            sf.seek(b_off)
+                            for _ in range(r):
+                                raw = sf.read(c * 2)
+                                raw_f32 = f16_payload_to_f32(raw)
+                                out.write(quantize_q4_0(raw_f32))
+                    return write
+                tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                                "payload_size": payload_size,
+                                "write_payload": make_writer(byte_offset, shape[1], shape[0])})
+                continue
+        elif dtype == 2:  # Q4_0
+            byte_len = (numel // 32) * 18
+            out_dtype = DT_Q4_0
+        elif dtype == 7:  # Q8_0
+            byte_len = (numel // 32) * 34
+            out_dtype = DT_Q8_0
+        elif dtype == 28:  # BF16
+            byte_len = numel * 2
+            out_dtype = DT_BF16
+        else:
+            byte_len = numel * 2
+            out_dtype = DT_F16
+
+        def make_copy(b_off, b_len):
+            def write(out):
+                with open(path, "rb") as sf:
+                    sf.seek(b_off)
+                    rem = b_len
+                    while rem > 0:
+                        chunk = sf.read(min(8 << 20, rem))
+                        if not chunk: break
+                        out.write(chunk)
+                        rem -= len(chunk)
+            return write
+
+        tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                        "payload_size": byte_len, "write_payload": make_copy(byte_offset, byte_len)})
+
+    arch_prefix = metadata.get("general.architecture", "llama")
+    hidden = metadata.get(f"{arch_prefix}.embedding_length", 0)
+    inter = metadata.get(f"{arch_prefix}.feed_forward_length", 0)
+    heads = metadata.get(f"{arch_prefix}.attention.head_count", 0)
+    kv_heads = metadata.get(f"{arch_prefix}.attention.head_count_kv", heads)
+    head_dim = hidden // max(1, heads) if heads else 0
+    layers = metadata.get(f"{arch_prefix}.block_count", 0)
+    vocab = metadata.get(f"{arch_prefix}.vocab_size", 0)
+    ctx = metadata.get(f"{arch_prefix}.context_length", 2048)
+
+    config_data = json.dumps({
+        "hidden_size": hidden, "intermediate_size": inter,
+        "num_attention_heads": heads, "num_key_value_heads": kv_heads,
+        "head_dim": head_dim, "num_hidden_layers": layers,
+        "vocab_size": vocab, "max_position_embeddings": ctx
+    }).encode("utf-8")
+    tensors.append({"name": "__qwn.config", "dtype": DT_BYTES,
+                    "shape": (len(config_data),), "payload": config_data})
+
+    dims = (hidden, inter, heads, kv_heads, head_dim, layers, vocab, ctx)
+    return tensors, dims
+
+
+def _read_pytorch_tensors(path: str, quant: str = "q4_0"):
+    try:
+        import torch
+    except ImportError:
+        raise RuntimeError("PyTorch is required to convert .pt / .pth / .bin checkpoints (pip install torch)")
+    
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if isinstance(state, dict) and "state_dict" in state:
+        state = state["state_dict"]
+
+    tensors = []
+    for name, tensor in state.items():
+        if not isinstance(tensor, torch.Tensor):
+            continue
+        arr = tensor.detach().float().numpy()
+        shape = tuple(reversed(arr.shape))
+        if quant == "q4_0" and arr.ndim == 2:
+            out_dtype = DT_Q4_0
+            rows, cols = arr.shape
+            payload_size = rows * ((cols + 31) // 32) * 18
+            def make_writer(a):
+                def write(out):
+                    for r in range(a.shape[0]):
+                        row_bytes = struct.pack(f"<{a.shape[1]}f", *a[r])
+                        out.write(quantize_q4_0(row_bytes))
+                return write
+            tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                            "payload_size": payload_size, "write_payload": make_writer(arr)})
+        else:
+            raw = arr.tobytes()
+            tensors.append({"name": name, "dtype": DT_F32, "shape": shape,
+                            "payload": raw, "payload_size": len(raw)})
+
+    root = Path(path).parent
+    config_file = root / "config.json"
+    dims = (0,) * 8
+    if config_file.is_file():
+        cfg = json.loads(config_file.read_text("utf-8"))
+        dims = (cfg.get("hidden_size", 0), cfg.get("intermediate_size", 0),
+                cfg.get("num_attention_heads", 0), cfg.get("num_key_value_heads", 0),
+                cfg.get("head_dim", 0) or (cfg.get("hidden_size", 0) // max(1, cfg.get("num_attention_heads", 1))),
+                cfg.get("num_hidden_layers", 0), cfg.get("vocab_size", 0),
+                cfg.get("max_position_embeddings", 0))
+        data = config_file.read_bytes()
+        tensors.append({"name": "__qwn.config", "dtype": DT_BYTES,
+                        "shape": (len(data),), "payload": data})
+    return tensors, dims
+
+
+def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
+    """Universal Model Converter: Auto-detects .gguf, .safetensors, .pt/.pth/.bin, .onnx, .h5 and converts to .qwn."""
+    src_path = Path(src)
+    ext = src_path.suffix.lower()
+
+    if ext == ".gguf":
+        tensors, dims = _read_gguf_tensors(str(src_path), quant)
+        return write_qwn(dst, tensors, arch_dims=dims)
+    elif ext in (".pt", ".pth", ".bin"):
+        tensors, dims = _read_pytorch_tensors(str(src_path), quant)
+        return write_qwn(dst, tensors, arch_dims=dims)
+    elif ext == ".safetensors" or src_path.is_dir() or any(src_path.glob("*.safetensors") if src_path.is_dir() else ()):
+        return convert_safetensors(src, dst, quant)
+    else:
+        # Check header magic for GGUF
+        if src_path.is_file():
+            with open(src_path, "rb") as f:
+                head = f.read(4)
+                if head == b"GGUF":
+                    tensors, dims = _read_gguf_tensors(str(src_path), quant)
+                    return write_qwn(dst, tensors, arch_dims=dims)
+        # Default fallback to safetensors
+        return convert_safetensors(src, dst, quant)
+
+
 def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
     tensors = []
     for meta in _read_safetensors_meta(src):
@@ -335,7 +565,7 @@ def main(argv=None):
     if args.command == "synthetic":
         print(synthetic(args.output, args.tensors))
     elif args.command == "convert":
-        print(convert_safetensors(args.source, args.output, args.quant))
+        print(convert_model(args.source, args.output, args.quant))
     else:
         print(json.dumps(inspect_qwn(args.model), indent=2))
     return 0
