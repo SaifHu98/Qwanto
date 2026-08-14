@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -175,6 +179,9 @@ static void rmsnorm(float *out,const float *x,const float *w,int n,float eps){
 }
 
 static void head_rmsnorm(float *x,int heads,int dim,const float *w,float eps){
+#if defined(_OPENMP)
+    #pragma omp parallel for schedule(static) if(heads > 1)
+#endif
     for(int h=0;h<heads;h++){
         float *row=x+(size_t)h*dim;
 #if defined(__AVX2__)
@@ -209,6 +216,9 @@ static void rope(float *v, int heads, int dim, int pos, float theta) {
     if (rope_cos_cache && pos < rope_cache_ctx && half <= rope_cache_half) {
         const float *ct = rope_cos_cache + (size_t)pos * rope_cache_half;
         const float *st = rope_sin_cache + (size_t)pos * rope_cache_half;
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(heads > 1)
+#endif
         for (int h = 0; h < heads; h++) {
             float *row = v + h * dim;
 #if defined(__AVX2__)
@@ -348,13 +358,13 @@ int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **er
     int Q=d->cfg.heads*Hd,KV=d->cfg.kv_heads*Hd,V=d->cfg.vocab;
     int max_dim=D>I?D:I;if(Q>max_dim)max_dim=Q;if(V>max_dim)max_dim=V;
     if(qwn_scratch_init(&d->scratch,1,max_dim)!=0){if(error)*error=ERR_MEMORY;goto fail;}
-    size_t floats=(size_t)D*5+(size_t)Q+(size_t)KV*2+(size_t)d->cfg.max_ctx+
+    size_t floats=(size_t)D*5+(size_t)Q+(size_t)KV*2+(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx+
                   (size_t)I*3+(size_t)V+(size_t)(2*d->cfg.layers+1)*D;
     d->arena_bytes=up64(floats*sizeof(float));d->arena=alloc64(d->arena_bytes);
     if(!d->arena){if(error)*error=ERR_MEMORY;goto fail;}
     float *p=(float*)d->arena;
     d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
-    d->ctx=p;p+=D;d->att=p;p+=d->cfg.max_ctx;d->gate=p;p+=I;
+    d->ctx=p;p+=D;d->att=p;p+=(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx;d->gate=p;p+=I;
     d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
     size_t kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*d->cfg.kv_heads*Hd;
     size_t kv_bytes=up64(kv_elems*sizeof(uint16_t));
@@ -455,8 +465,12 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
 #endif
         memset(d->ctx,0,(size_t)D*sizeof(float));
         float scale=1.0f/sqrtf((float)HD),ratio=(float)H/HK;
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(H > 1)
+#endif
         for(int h=0;h<H;h++){
-            int kh=(int)(h/ratio);float *scores=d->att;
+            int kh=(int)(h/ratio);
+            float *scores=d->att + (size_t)h * (size_t)d->cfg.max_ctx;
             const float *q_head = d->q + h * HD;
             for(int t=0;t<=pos;t++){
                 size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
