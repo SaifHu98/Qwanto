@@ -59,6 +59,7 @@ extern "C" {
 #define QWN_DT_VSQ         6
 #define QWN_DT_VSQ_ULTRA   7
 #define QWN_DT_HYPER_VSQ   8
+#define QWN_DT_HYPER_VSQ2  9
 
 #if defined(_MSC_VER)
 #define QWN_PACKED
@@ -70,8 +71,8 @@ extern "C" {
 /* Qwanto Vector-Superblock Quantization (64 elements / 36 bytes) */
 typedef struct QWN_PACKED {
     uint16_t d_base;              /* FP16 base scale */
-    uint8_t  d_sub0;              /* Sub-block 0 scale multiplier */
-    uint8_t  d_sub1;              /* Sub-block 1 scale multiplier */
+    uint8_t  d_sub0;              /* 4-bit/8-bit sub-block scale 0 */
+    uint8_t  d_sub1;              /* 4-bit/8-bit sub-block scale 1 */
     uint8_t  qs[32];              /* 64 x 4-bit nibbles (bias 8) */
 } QwnBlockVSQ;
 
@@ -79,7 +80,7 @@ typedef struct QWN_PACKED {
 typedef struct QWN_PACKED {
     uint16_t d_base;              /* FP16 base scale */
     uint16_t m_base;              /* FP16 zero-point offset */
-    uint8_t  d_subs[2];           /* 4 x 4-bit sub-quadrant scale multipliers */
+    uint8_t  d_subs[2];           /* 4 x 4-bit sub-quadrant scales */
     uint8_t  qs[64];              /* 128 x 4-bit nibbles (bias 8) */
 } QwnBlockVSQUltra;
 
@@ -91,6 +92,15 @@ typedef struct QWN_PACKED {
     uint16_t sparse_mask;         /* 16-bit outlier/sparsity mask */
     uint8_t  qs[128];             /* 256 x 4-bit nibbles (bias 8) */
 } QwnBlockHyperVSQ;
+
+/* Qwanto Super-Sub-2-bit Hyper-Vector Superblock Quantization (256 elements / 74 bytes = 2.31 bpw) */
+typedef struct QWN_PACKED {
+    uint16_t d_base;              /* FP16 base scale */
+    uint16_t m_base;              /* FP16 zero-point offset */
+    uint8_t  d_subs[4];           /* 8 x 4-bit sub-octant scale multipliers */
+    uint16_t sparse_mask;         /* 16-bit outlier/sparsity mask */
+    uint8_t  qs[64];              /* 256 x 2-bit quaternary weights (4 per byte) */
+} QwnBlockHyperVSQ2;
 
 typedef struct QWN_PACKED {
     char     name[64];

@@ -263,18 +263,19 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
         return 0;
     }
 
-    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ && weights->dtype != QWN_DT_VSQ_ULTRA && weights->dtype != QWN_DT_HYPER_VSQ) || weights->n_dims != 2 ||
+    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ && weights->dtype != QWN_DT_VSQ_ULTRA && weights->dtype != QWN_DT_HYPER_VSQ && weights->dtype != QWN_DT_HYPER_VSQ2) || weights->n_dims != 2 ||
         weights->shape[0] != (uint64_t)K || weights->shape[1] != (uint64_t)N)
         return -1;
     if ((weights->byte_offset & 63ULL) != 0 || M > scratch->max_tokens ||
         ((K + 255) & ~255) > scratch->padded_k)
         return -1;
 
+    const int is_hyper2 = (weights->dtype == QWN_DT_HYPER_VSQ2);
     const int is_hyper = (weights->dtype == QWN_DT_HYPER_VSQ);
     const int is_vsq_ultra = (weights->dtype == QWN_DT_VSQ_ULTRA);
     const int is_vsq = (weights->dtype == QWN_DT_VSQ);
-    const int block_elems = is_hyper ? 256 : (is_vsq_ultra ? 128 : (is_vsq ? 64 : 32));
-    const int block_bytes = is_hyper ? 138 : (is_vsq_ultra ? 70 : (is_vsq ? 36 : 18));
+    const int block_elems = (is_hyper || is_hyper2) ? 256 : (is_vsq_ultra ? 128 : (is_vsq ? 64 : 32));
+    const int block_bytes = is_hyper2 ? 74 : (is_hyper ? 138 : (is_vsq_ultra ? 70 : (is_vsq ? 36 : 18)));
     const int blocks = (K + block_elems - 1) / block_elems;
     const uint64_t row_bytes = (uint64_t)blocks * (uint64_t)block_bytes;
     const uint64_t raw_bytes = row_bytes * (uint64_t)N;
@@ -495,6 +496,38 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                     uint8_t byte = q_oct[i >> 1];
                     int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
                     out[base_idx + i] = q * sq + offset;
+                }
+            }
+        }
+        return 0;
+    }
+    if (t->dtype == QWN_DT_HYPER_VSQ2) {
+        int blocks = (width + 255) / 256;
+        const uint8_t *p = raw + (size_t)row * blocks * 74;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = p + b * 74;
+            uint16_t hs, hm;
+            memcpy(&hs, blk, 2);
+            memcpy(&hm, blk + 2, 2);
+            float base = half_to_float(hs);
+            float offset = half_to_float(hm);
+            const uint8_t *sub_bytes = blk + 4;
+            float s[8];
+            for (int oct = 0; oct < 8; oct++) {
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                s[oct] = base * ((float)s_val * (1.0f / 8.0f));
+            }
+            const uint8_t *qs = blk + 10;
+            for (int oct = 0; oct < 8; oct++) {
+                const uint8_t *q_oct = qs + oct * 8;
+                float sq = s[oct];
+                int base_idx = b * 256 + oct * 32;
+                for (int i = 0; i < 32 && base_idx + i < width; i++) {
+                    uint8_t byte = q_oct[i >> 2];
+                    int shift = (i & 3) * 2;
+                    int q = ((byte >> shift) & 3) - 1;
+                    out[base_idx + i] = (float)q * sq + offset;
                 }
             }
         }

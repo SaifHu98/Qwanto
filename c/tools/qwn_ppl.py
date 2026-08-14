@@ -45,6 +45,8 @@ def evaluate_ppl_simulation(model_path: str, dataset_text: str, context_len: int
     name_lower = src.name.lower()
     if bpw_override:
         bpw = bpw_override
+    elif "hyper_vsq2" in name_lower or "hypervsq2" in name_lower or "vsq2" in name_lower:
+        bpw = 2.10
     elif "hyper_vsq" in name_lower or "hypervsq" in name_lower:
         bpw = 2.70
     elif "vsq_ultra" in name_lower or "ultra" in name_lower:

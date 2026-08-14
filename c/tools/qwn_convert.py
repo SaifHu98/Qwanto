@@ -22,10 +22,11 @@ HEADER_PREFIX_SIZE = struct.calcsize(HEADER_PREFIX_FMT)  # 112
 TAIL_FMT = "<IIQQQ"
 TAIL_SIZE = struct.calcsize(TAIL_FMT)  # 32
 
-DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ, DT_VSQ_ULTRA, DT_HYPER_VSQ = range(9)
+DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ, DT_VSQ_ULTRA, DT_HYPER_VSQ, DT_HYPER_VSQ2 = range(10)
 DT_NAME = {DT_F32: "F32", DT_F16: "F16", DT_Q4_0: "Q4_0",
            DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES",
-           DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA", DT_HYPER_VSQ: "HYPER_VSQ"}
+           DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA", DT_HYPER_VSQ: "HYPER_VSQ",
+           DT_HYPER_VSQ2: "HYPER_VSQ2"}
 
 
 def align(n: int, a: int = ALIGN) -> int:
@@ -341,8 +342,116 @@ def quantize_hyper_vsq_rows(src: bytes, rows: int, cols: int) -> bytes:
     return quantize_vsq_ultra_rows(src, rows, cols)
 
 
+def quantize_hyper_vsq2_rows(src: bytes, rows: int, cols: int) -> bytes:
+    """Quantize matrix rows using Super-Sub-2-bit Hyper-Vector Superblock (256 elements / 74 bytes = 2.31 bpw)."""
+    if len(src) != rows * cols * 4:
+        raise ValueError("matrix payload/shape mismatch")
+    np = _get_numpy()
+    if np is not None:
+        arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
+        blocks_per_row = (cols + 255) // 256
+        if cols < blocks_per_row * 256:
+            padded = np.zeros((rows, blocks_per_row * 256), dtype=np.float32)
+            padded[:, :cols] = arr
+            arr = padded
+        total_blocks = rows * blocks_per_row
+        superblocks = arr.reshape(total_blocks, 256)
+        
+        mins = np.min(superblocks, axis=1)
+        maxs = np.max(superblocks, axis=1)
+        m_base = ((mins + maxs) * 0.5).astype(np.float16)
+        m_base_f32 = m_base.astype(np.float32)[:, None]
+        centered = superblocks - m_base_f32
+        
+        octs = [centered[:, i*32:(i+1)*32] for i in range(8)]
+        amaxs = [np.max(np.abs(oct_data), axis=1) for oct_data in octs]
+        
+        base_amax = amaxs[0]
+        for a in amaxs[1:]:
+            base_amax = np.maximum(base_amax, a)
+            
+        base_scale = np.where(base_amax > 0, base_amax / 2.0, 1.0).astype(np.float16)
+        base_scale_f32 = base_scale.astype(np.float32)
+        base_denom = np.where(base_scale_f32 > 0, base_scale_f32, 1.0)
+        
+        sub_scales = [np.clip(np.round((a / (base_denom * 2.0)) * 8.0), 1, 8).astype(np.uint8) for a in amaxs]
+        
+        d_subs = np.empty((total_blocks, 4), dtype=np.uint8)
+        d_subs[:, 0] = (sub_scales[0] & 0x0F) | ((sub_scales[1] & 0x0F) << 4)
+        d_subs[:, 1] = (sub_scales[2] & 0x0F) | ((sub_scales[3] & 0x0F) << 4)
+        d_subs[:, 2] = (sub_scales[4] & 0x0F) | ((sub_scales[5] & 0x0F) << 4)
+        d_subs[:, 3] = (sub_scales[6] & 0x0F) | ((sub_scales[7] & 0x0F) << 4)
+        
+        packed_octs = []
+        for i in range(8):
+            eff_s = (base_denom * (sub_scales[i].astype(np.float32) / 8.0))[:, None]
+            eff_s = np.where(eff_s > 0, eff_s, 1.0)
+            q = np.clip(np.round(octs[i] / eff_s), -1, 2).astype(np.int8) + 1  # 0..3 (2-bit quaternary)
+            b0 = q[:, 0::4] & 3
+            b1 = (q[:, 1::4] & 3) << 2
+            b2 = (q[:, 2::4] & 3) << 4
+            b3 = (q[:, 3::4] & 3) << 6
+            packed = (b0 | b1 | b2 | b3).astype(np.uint8)
+            packed_octs.append(packed)
+            
+        out_buf = np.empty((total_blocks, 74), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(base_scale.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 2:4] = np.frombuffer(m_base.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 4:8] = d_subs
+        out_buf[:, 8:10] = 0
+        for i in range(8):
+            out_buf[:, 10 + i*8:10 + (i+1)*8] = packed_octs[i]
+        return out_buf.tobytes()
+
+    # Pure Python fallback
+    blocks_per_row = (cols + 255) // 256
+    out = bytearray()
+    for r in range(rows):
+        row_floats = struct.unpack(f"{cols}f", src[r * cols * 4 : (r + 1) * cols * 4])
+        for b in range(blocks_per_row):
+            blk_floats = list(row_floats[b * 256 : min(cols, (b + 1) * 256)])
+            if len(blk_floats) < 256:
+                blk_floats.extend([0.0] * (256 - len(blk_floats)))
+            
+            min_v, max_v = min(blk_floats), max(blk_floats)
+            m_base = (min_v + max_v) * 0.5
+            centered = [x - m_base for x in blk_floats]
+            
+            oct_scales = []
+            for oct_idx in range(8):
+                oct_data = centered[oct_idx * 32 : (oct_idx + 1) * 32]
+                amax = max(abs(x) for x in oct_data)
+                oct_scales.append(amax)
+            
+            base_amax = max(max(oct_scales), 1e-6)
+            d_base = base_amax / 2.0
+            
+            sub_mults = [max(1, min(8, int(round((s / (d_base * 2.0)) * 8.0)))) for s in oct_scales]
+            
+            out.extend(struct.pack("<ee", d_base, m_base))
+            out.append((sub_mults[0] & 0x0F) | ((sub_mults[1] & 0x0F) << 4))
+            out.append((sub_mults[2] & 0x0F) | ((sub_mults[3] & 0x0F) << 4))
+            out.append((sub_mults[4] & 0x0F) | ((sub_mults[5] & 0x0F) << 4))
+            out.append((sub_mults[6] & 0x0F) | ((sub_mults[7] & 0x0F) << 4))
+            out.extend(b"\x00\x00")
+            
+            for oct_idx in range(8):
+                oct_data = centered[oct_idx * 32 : (oct_idx + 1) * 32]
+                eff_s = d_base * (sub_mults[oct_idx] / 8.0)
+                if eff_s <= 0: eff_s = 1.0
+                for w_idx in range(0, 32, 4):
+                    q0 = max(0, min(3, int(round(oct_data[w_idx] / eff_s)) + 1))
+                    q1 = max(0, min(3, int(round(oct_data[w_idx + 1] / eff_s)) + 1))
+                    q2 = max(0, min(3, int(round(oct_data[w_idx + 2] / eff_s)) + 1))
+                    q3 = max(0, min(3, int(round(oct_data[w_idx + 3] / eff_s)) + 1))
+                    out.append(q0 | (q1 << 2) | (q2 << 4) | (q3 << 6))
+    return bytes(out)
+
+
 def quantize_matrix_rows(raw_f32: bytes, rows: int, cols: int, quant_mode: str) -> bytes:
-    if quant_mode == "hyper_vsq":
+    if quant_mode == "hyper_vsq2":
+        return quantize_hyper_vsq2_rows(raw_f32, rows, cols)
+    elif quant_mode == "hyper_vsq":
         return quantize_hyper_vsq_rows(raw_f32, rows, cols)
     elif quant_mode == "vsq_ultra":
         return quantize_vsq_ultra_rows(raw_f32, rows, cols)
@@ -352,7 +461,9 @@ def quantize_matrix_rows(raw_f32: bytes, rows: int, cols: int, quant_mode: str) 
 
 
 def _get_quant_dtype_and_size(quant: str, rows: int, cols: int):
-    if quant == "hyper_vsq":
+    if quant == "hyper_vsq2":
+        return DT_HYPER_VSQ2, rows * ((cols + 255) // 256) * 74
+    elif quant == "hyper_vsq":
         return DT_HYPER_VSQ, rows * ((cols + 255) // 256) * 138
     elif quant == "vsq_ultra":
         return DT_VSQ_ULTRA, rows * ((cols + 127) // 128) * 70
