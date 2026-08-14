@@ -36,6 +36,13 @@ def fnv1a64(name: str) -> int:
     return h
 
 
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
+
 def f32_to_f16(value: float) -> int:
     try:
         return struct.unpack("<H", struct.pack("<e", value))[0]
@@ -46,24 +53,54 @@ def f32_to_f16(value: float) -> int:
 def quantize_q4_0(src: bytes) -> bytes:
     if len(src) % 4:
         raise ValueError("F32 payload is not element-aligned")
-    values = struct.unpack(f"<{len(src) // 4}f", src)
-    out = bytearray()
-    for start in range(0, len(values), 32):
-        block = list(values[start:start + 32])
-        block.extend([0.0] * (32 - len(block)))
-        amax = max(abs(v) for v in block)
-        scale = amax / 7.0 if amax else 1.0
-        out += struct.pack("<H", f32_to_f16(scale))
-        for i in range(16):
-            q0 = max(-8, min(7, round(block[2 * i] / scale)))
-            q1 = max(-8, min(7, round(block[2 * i + 1] / scale)))
-            out.append(((q0 + 8) & 15) | (((q1 + 8) & 15) << 4))
-    return bytes(out)
+    n_floats = len(src) // 4
+    if not n_floats:
+        return b""
+    if _HAS_NUMPY:
+        arr = np.frombuffer(src, dtype=np.float32)
+        n_blocks = (n_floats + 31) // 32
+        if arr.size < n_blocks * 32:
+            padded = np.zeros(n_blocks * 32, dtype=np.float32)
+            padded[:arr.size] = arr
+            arr = padded
+        blocks = arr.reshape(n_blocks, 32)
+        amax = np.max(np.abs(blocks), axis=1)
+        scales = np.where(amax > 0, amax / 7.0, 1.0).astype(np.float16)
+        scale_denom = np.where(scales > 0, scales, 1.0)[:, None]
+        q = np.clip(np.round(blocks / scale_denom), -8, 7).astype(np.int8) + 8
+        lo = q[:, 0::2] & 0x0F
+        hi = q[:, 1::2] & 0x0F
+        packed = (lo | (hi << 4)).astype(np.uint8)
+        
+        # Interleave scale (2B) + packed (16B) = 18B per block
+        out = bytearray(n_blocks * 18)
+        scale_bytes = scales.tobytes()
+        packed_bytes = packed.tobytes()
+        for b in range(n_blocks):
+            out[b * 18 : b * 18 + 2] = scale_bytes[b * 2 : (b + 1) * 2]
+            out[b * 18 + 2 : (b + 1) * 18] = packed_bytes[b * 16 : (b + 1) * 16]
+        return bytes(out)
+    else:
+        values = struct.unpack(f"<{n_floats}f", src)
+        out = bytearray()
+        for start in range(0, len(values), 32):
+            block = list(values[start:start + 32])
+            block.extend([0.0] * (32 - len(block)))
+            amax = max(abs(v) for v in block)
+            scale = amax / 7.0 if amax else 1.0
+            out += struct.pack("<H", f32_to_f16(scale))
+            for i in range(16):
+                q0 = max(-8, min(7, round(block[2 * i] / scale)))
+                q1 = max(-8, min(7, round(block[2 * i + 1] / scale)))
+                out.append(((q0 + 8) & 15) | (((q1 + 8) & 15) << 4))
+        return bytes(out)
 
 
 def f16_payload_to_f32(src: bytes) -> bytes:
     if len(src) % 2:
         raise ValueError("F16 payload is not element-aligned")
+    if _HAS_NUMPY:
+        return np.frombuffer(src, dtype=np.float16).astype(np.float32).tobytes()
     values = struct.unpack(f"<{len(src) // 2}e", src)
     return struct.pack(f"<{len(values)}f", *values)
 
@@ -79,6 +116,12 @@ def quantize_q4_0_rows(src: bytes, rows: int, cols: int) -> bytes:
     """Quantize each matrix row independently; every K-tail gets zero padding."""
     if len(src) != rows * cols * 4:
         raise ValueError("matrix payload/shape mismatch")
+    if _HAS_NUMPY:
+        arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
+        out = bytearray()
+        for r in range(rows):
+            out += quantize_q4_0(arr[r].tobytes())
+        return bytes(out)
     values = struct.unpack(f"<{rows * cols}f", src)
     out = bytearray()
     for row in range(rows):
