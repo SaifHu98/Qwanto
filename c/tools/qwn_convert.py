@@ -681,10 +681,12 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         19: (256, 110), # IQ3_S
         20: (256, 136), # IQ4_XS
         21: (256, 144), # IQ4_NL
-        28: (1, 2),     # BF16
+        28: (1, 2),     # BF16 (legacy)
+        29: (1, 2),     # BF16
+        30: (1, 2),     # BF16 (GGML_TYPE_BF16 modern standard)
     }
 
-    # GGML dtypes: 0=F32, 1=F16, 2=Q4_0, 7/8=Q8_0, 28=BF16, 10..15=K-Quants, 16..21=IQ-Quants
+    # GGML dtypes: 0=F32, 1=F16, 2=Q4_0, 7/8=Q8_0, 28/29/30=BF16, 10..15=K-Quants, 16..21=IQ-Quants
     for name, dims, dtype, offset in raw_tensors:
         # dims in GGUF is fastest dimension first (already matching .qwn)
         shape = tuple(dims)
@@ -739,7 +741,7 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 "payload_size": payload_size,
                                 "write_payload": make_writer(byte_offset, rows, cols, quant)})
                 continue
-        elif dtype == 28:  # BF16
+        elif dtype in (28, 29, 30):  # BF16
             out_dtype = DT_BF16
             if quant in ("hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
                 out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])

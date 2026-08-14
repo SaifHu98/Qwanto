@@ -3,4 +3,4 @@ CompileFlags:
     - "-nocudainc"
     - "-nocudalib"
     - "-D_CRT_SECURE_NO_WARNINGS"
-    - "-std=c++17"
+    - "-Wno-microsoft-goto"

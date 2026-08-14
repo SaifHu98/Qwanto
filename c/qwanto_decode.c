@@ -380,25 +380,29 @@ int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **er
     static const char *ERR_CONFIG="unsupported/missing Llama-Qwen config";
     static const char *ERR_TENSORS="missing Llama-Qwen tensors";
     static const char *ERR_MEMORY="native decoder allocation failed";
+    int D, I, Hd, Q, KV, V, max_dim;
+    size_t floats, kv_elems, kv_bytes;
+    float *p;
+
     memset(d,0,sizeof(*d));if(error)*error=NULL;
     if(qwn_open(path,&d->model,error)!=0)return -1;
     if(load_config(d)!=0||load_tokenizer(d)!=0){if(error)*error=ERR_CONFIG;goto fail;}
     if(ctx_size>0&&ctx_size<d->cfg.max_ctx)d->cfg.max_ctx=ctx_size;
     if(required_tensors(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
-    int D=d->cfg.hidden,I=d->cfg.intermediate,Hd=d->cfg.head_dim;
-    int Q=d->cfg.heads*Hd,KV=d->cfg.kv_heads*Hd,V=d->cfg.vocab;
-    int max_dim=D>I?D:I;if(Q>max_dim)max_dim=Q;if(V>max_dim)max_dim=V;
+    D=d->cfg.hidden; I=d->cfg.intermediate; Hd=d->cfg.head_dim;
+    Q=d->cfg.heads*Hd; KV=d->cfg.kv_heads*Hd; V=d->cfg.vocab;
+    max_dim=D>I?D:I;if(Q>max_dim)max_dim=Q;if(V>max_dim)max_dim=V;
     if(qwn_scratch_init(&d->scratch,1,max_dim)!=0){if(error)*error=ERR_MEMORY;goto fail;}
-    size_t floats=(size_t)D*5+(size_t)Q+(size_t)KV*2+(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx+
-                  (size_t)I*3+(size_t)V+(size_t)(2*d->cfg.layers+1)*D;
+    floats=(size_t)D*5+(size_t)Q+(size_t)KV*2+(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx+
+           (size_t)I*3+(size_t)V+(size_t)(2*d->cfg.layers+1)*D;
     d->arena_bytes=up64(floats*sizeof(float));d->arena=alloc64(d->arena_bytes);
     if(!d->arena){if(error)*error=ERR_MEMORY;goto fail;}
-    float *p=(float*)d->arena;
+    p=(float*)d->arena;
     d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
     d->ctx=p;p+=D;d->att=p;p+=(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx;d->gate=p;p+=I;
     d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
-    size_t kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*d->cfg.kv_heads*Hd;
-    size_t kv_bytes=up64(kv_elems*sizeof(uint16_t));
+    kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*d->cfg.kv_heads*Hd;
+    kv_bytes=up64(kv_elems*sizeof(uint16_t));
     d->kv_allocation=alloc64(kv_bytes*2);if(!d->kv_allocation){if(error)*error=ERR_MEMORY;goto fail;}
     d->key_cache=(uint16_t*)d->kv_allocation;
     d->value_cache=(uint16_t*)((uint8_t*)d->kv_allocation+kv_bytes);
