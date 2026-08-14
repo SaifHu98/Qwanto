@@ -210,24 +210,53 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
         return -1;
     if (weights->dtype == QWN_DT_BYTES && weights->n_dims == 2 &&
         weights->shape[0] == (uint64_t)K && weights->shape[1] == (uint64_t)N) {
+        const uint8_t *raw = m->base + weights->byte_offset;
+        size_t row_b = (size_t)weights->byte_size / (size_t)N;
+        const int is_q4 = (row_b == (size_t)((K + 31) / 32) * 18);
         for (int t = 0; t < M; t++) {
             const float *xt = x + (size_t)t * K;
             float *yt = y + (size_t)t * N;
-            for (int r = 0; r < N; r++) {
-                if (qwn_row_f32(m, weights, r, scratch->row_f32, K) != 0) return -1;
-                float sum = 0.0f;
-                int k = 0;
-#if defined(__AVX2__)
-                __m256 vsum = _mm256_setzero_ps();
-                for (; k <= K - 8; k += 8) {
-                    __m256 vx = _mm256_loadu_ps(xt + k);
-                    __m256 vw = _mm256_loadu_ps(scratch->row_f32 + k);
-                    vsum = _mm256_fmadd_ps(vx, vw, vsum);
-                }
-                float tmp[8]; _mm256_storeu_ps(tmp, vsum);
-                sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+#if defined(_OPENMP)
+            #pragma omp parallel for schedule(static) if(N > 128)
 #endif
-                for (; k < K; k++) sum += xt[k] * scratch->row_f32[k];
+            for (int r = 0; r < N; r++) {
+                float sum = 0.0f;
+                if (is_q4) {
+                    const uint8_t *p = raw + (size_t)r * row_b;
+                    int blocks = (K + 31) / 32;
+                    for (int b = 0; b < blocks; b++) {
+                        uint16_t hs; memcpy(&hs, p + b * 18, 2);
+                        float scale = half_to_float(hs);
+                        const float *xb = xt + b * 32;
+                        const uint8_t *qs = p + b * 18 + 2;
+                        for (int i = 0; i < 32 && b * 32 + i < K; i++) {
+                            uint8_t byte = qs[i >> 1];
+                            int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
+                            sum += (float)q * scale * xb[i];
+                        }
+                    }
+                } else if (row_b >= (size_t)K * 4) {
+                    const float *p = (const float *)(raw + (size_t)r * row_b);
+                    int k = 0;
+#if defined(__AVX2__)
+                    __m256 vsum = _mm256_setzero_ps();
+                    for (; k <= K - 8; k += 8) {
+                        __m256 vx = _mm256_loadu_ps(xt + k);
+                        __m256 vw = _mm256_loadu_ps(p + k);
+                        vsum = _mm256_fmadd_ps(vx, vw, vsum);
+                    }
+                    float tmp[8]; _mm256_storeu_ps(tmp, vsum);
+                    sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+#endif
+                    for (; k < K; k++) sum += xt[k] * p[k];
+                } else {
+                    const uint16_t *p = (const uint16_t *)(raw + (size_t)r * row_b);
+                    for (int k = 0; k < K; k++) {
+                        uint32_t b = (uint32_t)p[k] << 16;
+                        float f; memcpy(&f, &b, 4);
+                        sum += xt[k] * f;
+                    }
+                }
                 yt[r] = sum;
             }
         }

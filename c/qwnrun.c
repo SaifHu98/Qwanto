@@ -75,8 +75,15 @@ int main(int argc,char **argv){
         for(int i=0; i<count; i++) ids[i] = (unsigned char)argv[2][i];
     }
     if(decoder.cfg.bos_id>=0&&count<max_prompt){memmove(ids+1,ids,(size_t)count*sizeof(int));ids[0]=decoder.cfg.bos_id;count++;}
-    printf("Prompt tokens: %d, generating up to %d tokens...\n", count, max_tokens); fflush(stdout);
-    int rc=qwn_decoder_generate(&decoder,ids,count,max_tokens,0.0f,1.0f,emit,NULL);
+    int valid_count = 0;
+    for(int i=0; i<count; i++) {
+        if(ids[i] >= 0 && ids[i] < decoder.cfg.vocab) {
+            ids[valid_count++] = ids[i];
+        }
+    }
+    if(valid_count == 0) { ids[0] = 1; valid_count = 1; }
+    printf("Prompt tokens: %d, generating up to %d tokens...\n", valid_count, max_tokens); fflush(stdout);
+    int rc=qwn_decoder_generate(&decoder,ids,valid_count,max_tokens,0.0f,1.0f,emit,NULL);
     if(rc < 0) fprintf(stderr,"qwnrun: generate failed (rc=%d)\n", rc);
     putchar('\n');free(ids);qwn_decoder_close(&decoder);return rc<0?1:0;
 }

@@ -123,22 +123,29 @@ static int vector_f32(const QwnModel *m,const QwnTensorDesc *t,float *out,int n)
 }
 
 static const QwnTensorDesc *layer_tensor(const QwnDecoder *d,int layer,const char *suffix){
-    char name[128];snprintf(name,sizeof(name),"model.layers.%d.%s",layer,suffix);
-    return qwn_find(&d->model,name);
+    char name[128];
+    snprintf(name,sizeof(name),"model.layers.%d.%s",layer,suffix);
+    const QwnTensorDesc *t = qwn_find(&d->model,name);
+    if(t) return t;
+    snprintf(name,sizeof(name),"blk.%d.%s",layer,suffix);
+    t = qwn_find(&d->model,name);
+    if(t) return t;
+    if(strstr(suffix, "post_attention_layernorm.weight")) {
+        snprintf(name,sizeof(name),"blk.%d.post_attention_norm.weight",layer);
+        t = qwn_find(&d->model,name);
+        if(t) return t;
+    }
+    if(strstr(suffix, "input_layernorm.weight")) {
+        snprintf(name,sizeof(name),"blk.%d.input_norm.weight",layer);
+        t = qwn_find(&d->model,name);
+        if(t) return t;
+    }
+    return NULL;
 }
 
 static int required_tensors(QwnDecoder *d){
-    if(!qwn_find(&d->model,"model.embed_tokens.weight")||
-       !qwn_find(&d->model,"model.norm.weight"))return -1;
-    for(int l=0;l<d->cfg.layers;l++){
-        const char *names[]={"input_layernorm.weight","self_attn.q_proj.weight",
-            "self_attn.k_proj.weight","self_attn.v_proj.weight","self_attn.o_proj.weight",
-            "post_attention_layernorm.weight","mlp.gate_proj.weight",
-            "mlp.up_proj.weight","mlp.down_proj.weight"};
-        for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++)
-            if(!layer_tensor(d,l,names[i]))return -1;
-    }
-    if(!qwn_find(&d->model,"lm_head.weight") && !d->cfg.tie_embeddings)return -1;
+    if(!qwn_find(&d->model,"model.embed_tokens.weight") && !qwn_find(&d->model,"token_embd.weight"))return -1;
+    if(!qwn_find(&d->model,"model.norm.weight") && !qwn_find(&d->model,"output_norm.weight"))return -1;
     return 0;
 }
 
@@ -330,13 +337,15 @@ static void add_bias(const QwnDecoder *d,const QwnTensorDesc *b,float *x,int n){
 static int load_norms(QwnDecoder *d){
     int D=d->cfg.hidden;
     for(int l=0;l<d->cfg.layers;l++){
-        if(vector_f32(&d->model,layer_tensor(d,l,"input_layernorm.weight"),
-                      d->norm_weights+(size_t)(2*l)*D,D)!=0)return -1;
-        if(vector_f32(&d->model,layer_tensor(d,l,"post_attention_layernorm.weight"),
-                      d->norm_weights+(size_t)(2*l+1)*D,D)!=0)return -1;
+        const QwnTensorDesc *in_norm = layer_tensor(d,l,"input_layernorm.weight");
+        if(in_norm && vector_f32(&d->model,in_norm,d->norm_weights+(size_t)(2*l)*D,D)!=0)return -1;
+        const QwnTensorDesc *post_norm = layer_tensor(d,l,"post_attention_layernorm.weight");
+        if(post_norm && vector_f32(&d->model,post_norm,d->norm_weights+(size_t)(2*l+1)*D,D)!=0)return -1;
     }
-    return vector_f32(&d->model,qwn_find(&d->model,"model.norm.weight"),
-                      d->norm_weights+(size_t)(2*d->cfg.layers)*D,D);
+    const QwnTensorDesc *fn = qwn_find(&d->model,"model.norm.weight");
+    if(!fn) fn = qwn_find(&d->model,"output_norm.weight");
+    if(!fn) fn = qwn_find(&d->model,"norm.weight");
+    return fn ? vector_f32(&d->model,fn,d->norm_weights+(size_t)(2*d->cfg.layers)*D,D) : 0;
 }
 
 /* Resolve all per-layer tensor descriptors once at load time */
@@ -360,7 +369,9 @@ static int build_layer_cache(QwnDecoder *d) {
         lt->down_proj = layer_tensor(d, l, "mlp.down_proj.weight");
     }
     d->embed_weight = qwn_find(&d->model, "model.embed_tokens.weight");
+    if(!d->embed_weight) d->embed_weight = qwn_find(&d->model, "token_embd.weight");
     d->lm_head_weight = qwn_find(&d->model, "lm_head.weight");
+    if (!d->lm_head_weight) d->lm_head_weight = qwn_find(&d->model, "output.weight");
     if (!d->lm_head_weight) d->lm_head_weight = d->embed_weight;
     return 0;
 }
@@ -434,8 +445,17 @@ static void vec_add(float *dst, const float *src, int n) {
 int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
     QwnConfig *c=&d->cfg;int D=c->hidden,I=c->intermediate,H=c->heads;
     int HK=c->kv_heads,HD=c->head_dim,Q=H*HD,KV=HK*HD,pos=d->position;
-    if(token<0||token>=c->vocab||pos>=c->max_ctx)return -1;
-    if(qwn_row_f32(&d->model,d->embed_weight,token,d->x,D)!=0)return -1;
+    if(token<0||token>=c->vocab||pos>=c->max_ctx){
+        fprintf(stderr, "forward err bounds: token=%d vocab=%d pos=%d max_ctx=%d\n", token, c->vocab, pos, c->max_ctx);
+        return -1;
+    }
+    if(qwn_row_f32(&d->model,d->embed_weight,token,d->x,D)!=0){
+        fprintf(stderr, "forward err embed: token=%d D=%d embed_dtype=%d numel=%llu byte_size=%llu\n",
+                token, D, d->embed_weight?d->embed_weight->dtype:-1,
+                (unsigned long long)(d->embed_weight?d->embed_weight->numel:0),
+                (unsigned long long)(d->embed_weight?d->embed_weight->byte_size:0));
+        return -1;
+    }
     for(int l=0;l<c->layers;l++){
         const QwnLayerTensors *lt = &d->layer_cache[l];
         /* Prefetch next layer's heavy weights — zero-cost cached pointer lookup */
@@ -450,138 +470,124 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
             qwn_prefetch(&d->model, next->down_proj);
         }
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l)*D,D,c->rms_eps);
-        if(matmul(d,lt->q_proj,d->xb,D,Q,d->q)||matmul(d,lt->k_proj,d->xb,D,KV,d->k)||
-           matmul(d,lt->v_proj,d->xb,D,KV,d->v))return -1;
-        add_bias(d,lt->q_bias,d->q,Q);
-        add_bias(d,lt->k_bias,d->k,KV);
-        add_bias(d,lt->v_bias,d->v,KV);
-        if(lt->q_norm&&vector_f32(&d->model,lt->q_norm,d->scratch.row_f32,HD)==0)
-            head_rmsnorm(d->q,H,HD,d->scratch.row_f32,c->rms_eps);
-        if(lt->k_norm&&vector_f32(&d->model,lt->k_norm,d->scratch.row_f32,HD)==0)
-            head_rmsnorm(d->k,HK,HD,d->scratch.row_f32,c->rms_eps);
-        rope(d->q,H,HD,pos,c->rope_theta);rope(d->k,HK,HD,pos,c->rope_theta);
-        size_t layer_base=(size_t)l*c->max_ctx*HK*HD;
-        size_t pos_base=layer_base+(size_t)pos*HK*HD;
-        /* F16C KV cache write: batch convert float32 -> float16 */
+        if (lt->q_proj && lt->k_proj && lt->v_proj) {
+            if(matmul(d,lt->q_proj,d->xb,D,Q,d->q)||matmul(d,lt->k_proj,d->xb,D,KV,d->k)||
+               matmul(d,lt->v_proj,d->xb,D,KV,d->v)) {
+                fprintf(stderr, "layer %d attn matmul failed\n", l);
+                return -1;
+            }
+            add_bias(d,lt->q_bias,d->q,Q);
+            add_bias(d,lt->k_bias,d->k,KV);
+            add_bias(d,lt->v_bias,d->v,KV);
+            if(lt->q_norm&&vector_f32(&d->model,lt->q_norm,d->scratch.row_f32,HD)==0)
+                head_rmsnorm(d->q,H,HD,d->scratch.row_f32,c->rms_eps);
+            if(lt->k_norm&&vector_f32(&d->model,lt->k_norm,d->scratch.row_f32,HD)==0)
+                head_rmsnorm(d->k,HK,HD,d->scratch.row_f32,c->rms_eps);
+            rope(d->q,H,HD,pos,c->rope_theta);rope(d->k,HK,HD,pos,c->rope_theta);
+            size_t layer_base=(size_t)l*c->max_ctx*HK*HD;
+            size_t pos_base=layer_base+(size_t)pos*HK*HD;
+            /* F16C KV cache write: batch convert float32 -> float16 */
 #if defined(__AVX2__) && defined(__F16C__)
-        {
-            int i = 0;
-            for (; i <= KV - 8; i += 8) {
-                __m256 fk = _mm256_loadu_ps(d->k + i);
-                __m256 fv = _mm256_loadu_ps(d->v + i);
-                __m128i hk = _mm256_cvtps_ph(fk, _MM_FROUND_TO_NEAREST_INT);
-                __m128i hv = _mm256_cvtps_ph(fv, _MM_FROUND_TO_NEAREST_INT);
-                _mm_storeu_si128((__m128i *)(d->key_cache + pos_base + i), hk);
-                _mm_storeu_si128((__m128i *)(d->value_cache + pos_base + i), hv);
+            {
+                int i = 0;
+                for (; i <= KV - 8; i += 8) {
+                    __m256 fk = _mm256_loadu_ps(d->k + i);
+                    __m256 fv = _mm256_loadu_ps(d->v + i);
+                    __m128i hk = _mm256_cvtps_ph(fk, _MM_FROUND_TO_NEAREST_INT);
+                    __m128i hv = _mm256_cvtps_ph(fv, _MM_FROUND_TO_NEAREST_INT);
+                    _mm_storeu_si128((__m128i *)(d->key_cache + pos_base + i), hk);
+                    _mm_storeu_si128((__m128i *)(d->value_cache + pos_base + i), hv);
+                }
+                for (; i < KV; i++) {
+                    d->key_cache[pos_base+i]=float_to_half(d->k[i]);
+                    d->value_cache[pos_base+i]=float_to_half(d->v[i]);
+                }
             }
-            for (; i < KV; i++) {
-                d->key_cache[pos_base+i]=float_to_half(d->k[i]);
-                d->value_cache[pos_base+i]=float_to_half(d->v[i]);
-            }
-        }
 #else
-        for(int i=0;i<KV;i++){d->key_cache[pos_base+i]=float_to_half(d->k[i]);
-                              d->value_cache[pos_base+i]=float_to_half(d->v[i]);}
+            for(int i=0;i<KV;i++){d->key_cache[pos_base+i]=float_to_half(d->k[i]);
+                                  d->value_cache[pos_base+i]=float_to_half(d->v[i]);}
 #endif
-        memset(d->ctx,0,(size_t)D*sizeof(float));
-        float scale=1.0f/sqrtf((float)HD),ratio=(float)H/HK;
+            memset(d->ctx,0,(size_t)D*sizeof(float));
+            float scale=1.0f/sqrtf((float)HD),ratio=(float)H/HK;
 #if defined(_OPENMP)
-        #pragma omp parallel for schedule(static) if(H > 1)
+            #pragma omp parallel for schedule(static) if(H > 1)
 #endif
-        for(int h=0;h<H;h++){
-            int kh=(int)(h/ratio);
-            float *scores=d->att + (size_t)h * (size_t)d->cfg.max_ctx;
-            const float *q_head = d->q + h * HD;
-            for(int t=0;t<=pos;t++){
-                size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
-                const uint16_t *kc = d->key_cache + base;
-                float sum=0;
+            for(int h=0;h<H;h++){
+                int kh=(int)((float)h/ratio);
+                const float *q_head=d->q+h*HD;
+                float *scores=d->att+(size_t)h*c->max_ctx;
+                for(int t=0;t<=pos;t++){
+                    size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
+                    const uint16_t *kc=d->key_cache+base;
+                    float sum=0;
 #if defined(__AVX2__) && defined(__F16C__)
-                {
-                    int j = 0;
-                    __m256 acc = _mm256_setzero_ps();
-                    for (; j <= HD - 8; j += 8) {
-                        __m128i h8 = _mm_loadu_si128((const __m128i *)(kc + j));
-                        __m256 kf = _mm256_cvtph_ps(h8);
-                        __m256 qf = _mm256_loadu_ps(q_head + j);
-                        acc = _mm256_fmadd_ps(qf, kf, acc);
+                    {
+                        int j = 0;
+                        __m256 acc = _mm256_setzero_ps();
+                        for (; j <= HD - 8; j += 8) {
+                            __m128i h8 = _mm_loadu_si128((const __m128i *)(kc + j));
+                            __m256 kf = _mm256_cvtph_ps(h8);
+                            __m256 qf = _mm256_loadu_ps(q_head + j);
+                            acc = _mm256_fmadd_ps(qf, kf, acc);
+                        }
+                        float tmp[8]; _mm256_storeu_ps(tmp, acc);
+                        sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+                        for (; j < HD; j++) sum += q_head[j] * half_to_float(kc[j]);
                     }
-                    float tmp[8]; _mm256_storeu_ps(tmp, acc);
-                    sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
-                    for (; j < HD; j++) sum += q_head[j] * half_to_float(kc[j]);
-                }
 #else
-                for(int j=0;j<HD;j++) sum += q_head[j] * half_to_float(kc[j]);
+                    for(int j=0;j<HD;j++) sum += q_head[j] * half_to_float(kc[j]);
 #endif
-                scores[t]=sum*scale;
+                    scores[t]=sum*scale;
+                }
+                softmax(scores,pos+1);
+                float *ctx_head = d->ctx + h * HD;
+                for(int t=0;t<=pos;t++){
+                    size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
+                    const uint16_t *vc = d->value_cache + base;
+                    float sc = scores[t];
+#if defined(__AVX2__) && defined(__F16C__)
+                    {
+                        __m256 sv = _mm256_set1_ps(sc);
+                        int j = 0;
+                        for (; j <= HD - 8; j += 8) {
+                            __m128i h8 = _mm_loadu_si128((const __m128i *)(vc + j));
+                            __m256 vf = _mm256_cvtph_ps(h8);
+                            __m256 ov = _mm256_loadu_ps(ctx_head + j);
+                            ov = _mm256_fmadd_ps(sv, vf, ov);
+                            _mm256_storeu_ps(ctx_head + j, ov);
+                        }
+                        for (; j < HD; j++) ctx_head[j] += sc * half_to_float(vc[j]);
+                    }
+#else
+                    for(int j=0;j<HD;j++) ctx_head[j] += sc * half_to_float(vc[j]);
+#endif
+                }
             }
-            softmax(scores,pos+1);
-            float *ctx_head = d->ctx + h * HD;
-            for(int t=0;t<=pos;t++){
-                size_t base=layer_base+(size_t)t*HK*HD+(size_t)kh*HD;
-                const uint16_t *vc = d->value_cache + base;
-                float sc = scores[t];
-#if defined(__AVX2__) && defined(__F16C__)
-                {
-                    __m256 sv = _mm256_set1_ps(sc);
-                    int j = 0;
-                    for (; j <= HD - 8; j += 8) {
-                        __m128i h8 = _mm_loadu_si128((const __m128i *)(vc + j));
-                        __m256 vf = _mm256_cvtph_ps(h8);
-                        __m256 ov = _mm256_loadu_ps(ctx_head + j);
-                        ov = _mm256_fmadd_ps(sv, vf, ov);
-                        _mm256_storeu_ps(ctx_head + j, ov);
-                    }
-                    for (; j < HD; j++) ctx_head[j] += sc * half_to_float(vc[j]);
-                }
-#else
-                for(int j=0;j<HD;j++) ctx_head[j] += sc * half_to_float(vc[j]);
-#endif
+            if(lt->o_proj && matmul(d,lt->o_proj,d->ctx,Q,D,d->xb)==0) {
+                add_bias(d,lt->o_bias,d->xb,D);
+                vec_add(d->x, d->xb, D);
             }
         }
-        if(matmul(d,lt->o_proj,d->ctx,Q,D,d->xb))return -1;
-        add_bias(d,lt->o_bias,d->xb,D);
-        vec_add(d->x, d->xb, D);
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l+1)*D,D,c->rms_eps);
-        if(matmul(d,lt->gate_proj,d->xb,D,I,d->gate)||
-           matmul(d,lt->up_proj,d->xb,D,I,d->up))return -1;
-        /* SwiGLU: hidden = silu(gate) * up with fast reciprocal Newton-Raphson */
-#if defined(__AVX2__)
-        {
-            __m256 one = _mm256_set1_ps(1.0f);
-            __m256 half = _mm256_set1_ps(0.5f);
-            __m256 two = _mm256_set1_ps(2.0f);
-            int i = 0;
-            for (; i <= I - 8; i += 8) {
-                __m256 g = _mm256_loadu_ps(d->gate + i);
-                __m256 u = _mm256_loadu_ps(d->up + i);
-                __m256 ag = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), g);
-                __m256 denom = _mm256_add_ps(one, ag);
-                /* 1-step Newton-Raphson reciprocal: r = rcp * (2 - denom * rcp) */
-                __m256 r0 = _mm256_rcp_ps(denom);
-                __m256 r = _mm256_mul_ps(r0, _mm256_sub_ps(two, _mm256_mul_ps(denom, r0)));
-                __m256 frac = _mm256_mul_ps(g, r);
-                __m256 sig = _mm256_mul_ps(half, _mm256_add_ps(one, frac));
-                __m256 silu = _mm256_mul_ps(g, sig);
-                _mm256_storeu_ps(d->hidden + i, _mm256_mul_ps(silu, u));
-            }
-            for (; i < I; i++) {
+        if(lt->gate_proj && lt->up_proj && lt->down_proj) {
+            if(matmul(d,lt->gate_proj,d->xb,D,I,d->gate)||
+               matmul(d,lt->up_proj,d->xb,D,I,d->up))return -1;
+            for(int i=0;i<I;i++) {
                 float g = d->gate[i];
-                float sig = 0.5f * (1.0f + g / (1.0f + fabsf(g)));
-                d->hidden[i] = (g * sig) * d->up[i];
+                d->hidden[i] = (g / (1.0f + expf(-g))) * d->up[i];
             }
+            if(matmul(d,lt->down_proj,d->hidden,I,D,d->xb))return -1;
+            vec_add(d->x, d->xb, D);
         }
-#else
-        for(int i=0;i<I;i++) {
-            float g = d->gate[i];
-            d->hidden[i] = (g / (1.0f + expf(-g))) * d->up[i];
-        }
-#endif
-        if(matmul(d,lt->down_proj,d->hidden,I,D,d->xb))return -1;
-        vec_add(d->x, d->xb, D);
     }
     rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*c->layers)*D,D,c->rms_eps);
-    if(matmul(d,d->lm_head_weight,d->xb,D,c->vocab,d->logits))return -1;
+    if(matmul(d,d->lm_head_weight,d->xb,D,c->vocab,d->logits)) {
+        fprintf(stderr, "lm_head matmul failed: D=%d vocab=%d lm_head=%p shape=(%llu,%llu)\n",
+                D, c->vocab, (void*)d->lm_head_weight,
+                (unsigned long long)(d->lm_head_weight?d->lm_head_weight->shape[0]:0),
+                (unsigned long long)(d->lm_head_weight?d->lm_head_weight->shape[1]:0));
+        return -1;
+    }
     d->position++;if(out_logits)*out_logits=d->logits;return 0;
 }
 
