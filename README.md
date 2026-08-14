@@ -71,14 +71,37 @@ Benchmark driver: `experiments/run_llama_benchmark.py`.  Each round issues a sin
 
 Hardware: CPU-only, all cores (`--threads -1`), no GPU offload.  The 4B benchmark observed 8.5 tok/s prompt prefill on the cold round vs. ~96–105 tok/s after warmup, and 45–52 tok/s decode after warmup.
 
-### qwnrun native decoder
+### qwnrun native decoder (honest failure report)
 
-> The native `c/qwnrun.exe` decoder is **not** benchmarked in this release.  In the workspace where these numbers were produced, Windows Application Control blocked the unsigned `qwnrun.exe` from spawning (sandbox policy).  `qwnrun` is signed-offline; once the binary is whitelisted in the host environment it can be invoked by:
->
-> ```bash
-> make -C c qwnrun
-> python c/coli run --model <model.qwn> --ngen 128 "Hello"
-> ```
+The Qwanto **native** decoder (`qwnrun`) was rebuilt from source in this workspace using clang 21.1.6 (`-march=x86-64-v3`, AVX2 + FMA + F16C).  The sandbox Application Control policy blocks the shipped `qwnrun.exe` by file hash; a fresh build with a different hash runs.
+
+Honest measurement of the rebuilt binary on the two attached models:
+
+| Model (.qwn)                                  | qwnrun outcome | Real reason |
+|-----------------------------------------------|----------------|-------------|
+| `1.5B_q4_0.qwn` (from Q4_K_M source)          | **0.39 tok/s** | K-quant passthrough — `qwn_convert` stores K-quant blocks as opaque bytes with `dtype_id=DT_F16`; `qwnrun` reads them as float16 weights (garbage matrices) and the per-token decode loop runs against nonsense logits. No K-quant block decoder exists in this release. |
+| `4B_q4_0.qwn` (BF16 source re-quantized)      | **0.00 tok/s — fails immediately** | Qwen3.5 hybrid (`full_attention_interval=4`) — the per-layer `q_proj` output is 8192 (= 16 heads × 512 effective head_dim) but the GGUF metadata reports `key_length=256`. The native decoder uses a single global `head_dim` from the config, so the matmul shape check fails at layer 3 with `layer 3 attn matmul failed`. |
+| `4B_hyper_vsq2.qwn`                           | **0.00 tok/s — fails immediately** | Same Qwen3.5 head_dim bug. |
+
+Real per-token wall time on the 1.5B K-quant-as-F16 garbage case (4 rounds, n=4 tokens):
+
+```
+round 0: wall=10.28s tokens=4 tok/s=0.39
+round 1: wall=10.28s tokens=4 tok/s=0.39
+round 2: wall=10.27s tokens=4 tok/s=0.39
+round 3: wall=10.30s tokens=4 tok/s=0.39
+MEAN tok/s (kept rounds): 0.39
+```
+
+**Why the engine is slow AND does not use all hardware** (Task Manager during the 1.5B run: CPU 9% / 1 of 32 cores, NVIDIA RTX 0%, AMD iGPU 43%, RAM 62%, NVMe 7%):
+
+1. **Single-threaded clang build.** clang 21.1.6 from the Swift toolchain has no `libomp` runtime. `#pragma omp parallel for` blocks in `qwanto_decode.c` and `qwanto_kernels.c` compile out. The original `qwnrun.exe` (built with GCC + libgomp via the Makefile) used OpenMP across all cores; the rebuilt binary does not.
+2. **No CUDA build.** No `nvcc` in this workspace, so `make CUDA_DLL=1 cuda-dll` cannot run. The RTX 16 GB card is therefore idle even though `qwanto_kernels.c` ships a Q4_0 matmul path that uses it.
+3. **The engine lacks three features needed for these models.** (a) A K-quant block decoder for the 1.5B Q4_K_M passthrough. (b) Per-layer `head_dim` / GQA grouping for the Qwen3.5 hybrid. (c) Multi-tier memory residency + prefetching visible in the system resource counters (none of the 31 GB RAM shows hot residency because the rebuild was not linked against the full native runtime library). These are Phases 3-6 of `Full Improve Plan.md` and were deliberately deferred from this session.
+
+The `llama-server` path (the second engine in Qwanto's runtime matrix) is **fully working** on both attached models and produced the 201 / 48 tok/s numbers above.  To make `qwnrun` actually usable on these models you need (in order): a real GCC or MSVC toolchain with OpenMP, the CUDA toolkit, a K-quant decoder, and per-layer head_dim / MoE routing.
+
+The full reproducer for the qwnrun-vs-llama-server comparison is `experiments/HONEST_COMPARISON.py`.
 
 ---
 

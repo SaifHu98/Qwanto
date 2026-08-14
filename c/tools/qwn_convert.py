@@ -917,7 +917,17 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     inter = metadata.get(f"{arch_prefix}.feed_forward_length", 0)
     heads = metadata.get(f"{arch_prefix}.attention.head_count", 0)
     kv_heads = metadata.get(f"{arch_prefix}.attention.head_count_kv", heads)
-    head_dim = hidden // max(1, heads) if heads else 0
+    # head_dim: trust the GGUF metadata when the family exposes it
+    # (qwen35.attention.key_length / value_length, llama.attention.head_dim
+    # etc.); fall back to hidden/heads only when the metadata is absent.
+    # The previous default (hidden // heads) is wrong for Qwen3.5 (real
+    # head_dim=256 vs. computed 160) and produced .qwn files that the
+    # native decoder refused to load.
+    head_dim = metadata.get(
+        f"{arch_prefix}.attention.head_dim",
+        metadata.get(f"{arch_prefix}.attention.key_length", 0))
+    if not head_dim and heads:
+        head_dim = hidden // max(1, heads)
     layers = metadata.get(f"{arch_prefix}.block_count", 0)
     vocab = metadata.get(f"{arch_prefix}.vocab_size", 0)
     if not vocab:
