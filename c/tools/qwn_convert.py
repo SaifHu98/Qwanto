@@ -22,9 +22,10 @@ HEADER_PREFIX_SIZE = struct.calcsize(HEADER_PREFIX_FMT)  # 112
 TAIL_FMT = "<IIQQQ"
 TAIL_SIZE = struct.calcsize(TAIL_FMT)  # 32
 
-DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ = range(7)
+DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ, DT_VSQ_ULTRA = range(8)
 DT_NAME = {DT_F32: "F32", DT_F16: "F16", DT_Q4_0: "Q4_0",
-           DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES", DT_VSQ: "VSQ"}
+           DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES",
+           DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA"}
 
 
 def align(n: int, a: int = ALIGN) -> int:
@@ -205,6 +206,82 @@ def quantize_vsq_rows(src: bytes, rows: int, cols: int) -> bytes:
     return quantize_q4_0_rows(src, rows, cols)
 
 
+def quantize_vsq_ultra_rows(src: bytes, rows: int, cols: int) -> bytes:
+    """Quantize matrix rows using Qwanto Vector-Superblock Ultra (128 elements / 70 bytes)."""
+    if len(src) != rows * cols * 4:
+        raise ValueError("matrix payload/shape mismatch")
+    np = _get_numpy()
+    if np is not None:
+        arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
+        blocks_per_row = (cols + 127) // 128
+        if cols < blocks_per_row * 128:
+            padded = np.zeros((rows, blocks_per_row * 128), dtype=np.float32)
+            padded[:, :cols] = arr
+            arr = padded
+        total_blocks = rows * blocks_per_row
+        superblocks = arr.reshape(total_blocks, 128)
+        
+        mins = np.min(superblocks, axis=1)
+        maxs = np.max(superblocks, axis=1)
+        m_base = ((mins + maxs) * 0.5).astype(np.float16)
+        m_base_f32 = m_base.astype(np.float32)[:, None]
+        centered = superblocks - m_base_f32
+        
+        quad0 = centered[:, :32]
+        quad1 = centered[:, 32:64]
+        quad2 = centered[:, 64:96]
+        quad3 = centered[:, 96:128]
+        
+        amax0 = np.max(np.abs(quad0), axis=1)
+        amax1 = np.max(np.abs(quad1), axis=1)
+        amax2 = np.max(np.abs(quad2), axis=1)
+        amax3 = np.max(np.abs(quad3), axis=1)
+        
+        base_amax = np.maximum(np.maximum(amax0, amax1), np.maximum(amax2, amax3))
+        base_scale = np.where(base_amax > 0, base_amax / 7.0, 1.0).astype(np.float16)
+        base_scale_f32 = base_scale.astype(np.float32)
+        base_denom = np.where(base_scale_f32 > 0, base_scale_f32, 1.0)
+        
+        sub0 = np.clip(np.round((amax0 / (base_denom * 7.0)) * 8.0), 1, 8).astype(np.uint8)
+        sub1 = np.clip(np.round((amax1 / (base_denom * 7.0)) * 8.0), 1, 8).astype(np.uint8)
+        sub2 = np.clip(np.round((amax2 / (base_denom * 7.0)) * 8.0), 1, 8).astype(np.uint8)
+        sub3 = np.clip(np.round((amax3 / (base_denom * 7.0)) * 8.0), 1, 8).astype(np.uint8)
+        
+        d_subs0 = (sub0 & 0x0F) | ((sub1 & 0x0F) << 4)
+        d_subs1 = (sub2 & 0x0F) | ((sub3 & 0x0F) << 4)
+        
+        eff_s0 = (base_denom * (sub0.astype(np.float32) / 8.0))[:, None]
+        eff_s1 = (base_denom * (sub1.astype(np.float32) / 8.0))[:, None]
+        eff_s2 = (base_denom * (sub2.astype(np.float32) / 8.0))[:, None]
+        eff_s3 = (base_denom * (sub3.astype(np.float32) / 8.0))[:, None]
+        eff_s0 = np.where(eff_s0 > 0, eff_s0, 1.0)
+        eff_s1 = np.where(eff_s1 > 0, eff_s1, 1.0)
+        eff_s2 = np.where(eff_s2 > 0, eff_s2, 1.0)
+        eff_s3 = np.where(eff_s3 > 0, eff_s3, 1.0)
+        
+        q0 = np.clip(np.round(quad0 / eff_s0), -8, 7).astype(np.int8) + 8
+        q1 = np.clip(np.round(quad1 / eff_s1), -8, 7).astype(np.int8) + 8
+        q2 = np.clip(np.round(quad2 / eff_s2), -8, 7).astype(np.int8) + 8
+        q3 = np.clip(np.round(quad3 / eff_s3), -8, 7).astype(np.int8) + 8
+        
+        packed0 = ((q0[:, 0::2] & 0x0F) | ((q0[:, 1::2] & 0x0F) << 4)).astype(np.uint8)
+        packed1 = ((q1[:, 0::2] & 0x0F) | ((q1[:, 1::2] & 0x0F) << 4)).astype(np.uint8)
+        packed2 = ((q2[:, 0::2] & 0x0F) | ((q2[:, 1::2] & 0x0F) << 4)).astype(np.uint8)
+        packed3 = ((q3[:, 0::2] & 0x0F) | ((q3[:, 1::2] & 0x0F) << 4)).astype(np.uint8)
+        
+        out_buf = np.empty((total_blocks, 70), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(base_scale.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 2:4] = np.frombuffer(m_base.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 4] = d_subs0
+        out_buf[:, 5] = d_subs1
+        out_buf[:, 6:22] = packed0
+        out_buf[:, 22:38] = packed1
+        out_buf[:, 38:54] = packed2
+        out_buf[:, 54:70] = packed3
+        return out_buf.tobytes()
+    return quantize_vsq_rows(src, rows, cols)
+
+
 def _desc(t: dict) -> dict:
     name = t["name"]
     encoded = name.encode("utf-8")
@@ -226,11 +303,15 @@ def _desc(t: dict) -> dict:
         expected = shape[1] * ((shape[0] + 63) // 64) * 36
         if payload_size != expected:
             raise ValueError(f"VSQ row layout mismatch for {name}: {payload_size} != {expected}")
+    elif int(t["dtype"]) == DT_VSQ_ULTRA and len(shape) == 2:
+        expected = shape[1] * ((shape[0] + 127) // 128) * 70
+        if payload_size != expected:
+            raise ValueError(f"VSQ_ULTRA row layout mismatch for {name}: {payload_size} != {expected}")
     return {"name": name, "dtype": int(t["dtype"]), "shape": shape,
             "numel": numel, "payload": payload,
             "write_payload": t.get("write_payload"), "payload_size": payload_size,
             "byte_offset": 0, "byte_size": align(payload_size, 64),
-            "block_q": 64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0)}
+            "block_q": 128 if int(t["dtype"]) == DT_VSQ_ULTRA else (64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0))}
 
 
 def pack_desc(t: dict) -> bytes:

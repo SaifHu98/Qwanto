@@ -208,16 +208,17 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
                         float *y) {
     if (!m || !weights || !x || !scratch || !y || M < 1 || K < 1 || N < 1)
         return -1;
-    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ) || weights->n_dims != 2 ||
+    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ && weights->dtype != QWN_DT_VSQ_ULTRA) || weights->n_dims != 2 ||
         weights->shape[0] != (uint64_t)K || weights->shape[1] != (uint64_t)N)
         return -1;
     if ((weights->byte_offset & 63ULL) != 0 || M > scratch->max_tokens ||
-        ((K + 63) & ~63) > scratch->padded_k)
+        ((K + 127) & ~127) > scratch->padded_k)
         return -1;
 
+    const int is_vsq_ultra = (weights->dtype == QWN_DT_VSQ_ULTRA);
     const int is_vsq = (weights->dtype == QWN_DT_VSQ);
-    const int block_elems = is_vsq ? 64 : 32;
-    const int block_bytes = is_vsq ? 36 : 18;
+    const int block_elems = is_vsq_ultra ? 128 : (is_vsq ? 64 : 32);
+    const int block_bytes = is_vsq_ultra ? 70 : (is_vsq ? 36 : 18);
     const int blocks = (K + block_elems - 1) / block_elems;
     const uint64_t row_bytes = (uint64_t)blocks * (uint64_t)block_bytes;
     const uint64_t raw_bytes = row_bytes * (uint64_t)N;
@@ -377,6 +378,37 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 uint8_t byte = qs[16 + (i >> 1)];
                 int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
                 out[b * 64 + 32 + i] = q * s1;
+            }
+        }
+        return 0;
+    }
+    if (t->dtype == QWN_DT_VSQ_ULTRA) {
+        int blocks = (width + 127) / 128;
+        const uint8_t *p = raw + (size_t)row * blocks * 70;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = p + b * 70;
+            uint16_t hs, hm;
+            memcpy(&hs, blk, 2);
+            memcpy(&hm, blk + 2, 2);
+            float base = half_to_float(hs);
+            float offset = half_to_float(hm);
+            uint8_t sub_byte0 = blk[4];
+            uint8_t sub_byte1 = blk[5];
+            float s[4];
+            s[0] = base * ((float)(sub_byte0 & 0x0F) * (1.0f / 8.0f));
+            s[1] = base * ((float)(sub_byte0 >> 4)   * (1.0f / 8.0f));
+            s[2] = base * ((float)(sub_byte1 & 0x0F) * (1.0f / 8.0f));
+            s[3] = base * ((float)(sub_byte1 >> 4)   * (1.0f / 8.0f));
+            const uint8_t *qs = blk + 6;
+            for (int quad = 0; quad < 4; quad++) {
+                const uint8_t *q_quad = qs + quad * 16;
+                float sq = s[quad];
+                int base_idx = b * 128 + quad * 32;
+                for (int i = 0; i < 32 && base_idx + i < width; i++) {
+                    uint8_t byte = q_quad[i >> 1];
+                    int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
+                    out[base_idx + i] = q * sq + offset;
+                }
             }
         }
         return 0;
