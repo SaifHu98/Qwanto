@@ -1,0 +1,60 @@
+{
+  "schema_version": "2.0",
+  "arch": "moe",
+  "arch_id": "moe",
+  "family": "moe",
+  "adapter_name": "moe",
+  "classifier_version": "qwanto/qwn_arch_registry:2.0",
+  "planner_version": "qwanto/qwn_quant_plan:2.0",
+  "model_hash": "758553868d9be330237be30df346acbb08ee30c64e8e76478bc60d1b5fdc6018",
+  "tokenizer_hash": "",
+  "profile": "balanced",
+  "mode": "weight-statistics",
+  "target_bpw": 3.5,
+  "achieved_bpw": 0.0,
+  "estimated_payload_bpw": 0.0,
+  "estimated_effective_bpw": 0.0,
+  "estimated_bytes_on_disk": 0,
+  "payload_bpw": 0.0,
+  "outlier_bytes": 0,
+  "alignment_bytes": 4096,
+  "confidence": 0.2,
+  "quality_gate": {
+    "max_ppl_relative_increase": 0.03,
+    "max_router_topk_drop": 0.005,
+    "require_arch_confidence_min": 0.9,
+    "require_all_dtypes_resolved": true
+  },
+  "fallback_policy": "raise",
+  "notes": [
+    "confidence 0.20 < 0.9; aggressive Q2 disabled"
+  ],
+  "entries": [],
+  "decisions": [
+    {
+      "adapter": "moe",
+      "confidence": 0.2,
+      "constraints": [
+        "confidence too low; refusing Q2",
+        "MoE not confirmed; refusing Q2A on experts"
+      ]
+    },
+    {
+      "profile": "balanced",
+      "mode": "weight-statistics",
+      "target_bpw": 3.5,
+      "achieved_bpw": 0.0
+    }
+  ],
+  "validation": {
+    "ok": true,
+    "issues": [
+      {
+        "severity": "warn",
+        "tensor": "",
+        "code": "plan.confidence",
+        "message": "low confidence adapter; conservative plan only"
+      }
+    ]
+  }
+}

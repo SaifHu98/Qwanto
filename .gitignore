@@ -51,6 +51,12 @@ c/bench/
 *.safetensors
 stats*.txt
 *.log
+*.qwn
+experiments/results/*.qwn
+experiments/results/per_format.json
+experiments/results/run.log
+experiments/results/llama_server.log
+experiments/results/conversion_timings.txt
 
 # script di ricerca stadio-0 (esperimenti locali, non parte del motore)
 /engine.py
@@ -77,6 +83,8 @@ c/tests/test_uring
 *.o
 *.gguf
 *.dll
+*.exp
+*.lib
 .qwanto_presets.json
 Edit
 

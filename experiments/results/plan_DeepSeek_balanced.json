@@ -1,0 +1,5897 @@
+{
+  "schema_version": "2.0",
+  "arch": "moe",
+  "arch_id": "moe",
+  "family": "moe",
+  "adapter_name": "moe",
+  "classifier_version": "qwanto/qwn_arch_registry:2.0",
+  "planner_version": "qwanto/qwn_quant_plan:2.0",
+  "model_hash": "4e96a8e6902617d67ac7476795173975b366e9ece3fcb96204600f129158162c",
+  "tokenizer_hash": "",
+  "profile": "balanced",
+  "mode": "heuristic-safe",
+  "target_bpw": 3.5,
+  "achieved_bpw": 16.8781,
+  "estimated_payload_bpw": 16.8781,
+  "estimated_effective_bpw": 16.9456,
+  "estimated_bytes_on_disk": 0,
+  "payload_bpw": 16.8781,
+  "outlier_bytes": 0,
+  "alignment_bytes": 4096,
+  "confidence": 0.7,
+  "quality_gate": {
+    "max_ppl_relative_increase": 0.03,
+    "max_router_topk_drop": 0.005,
+    "require_arch_confidence_min": 0.9,
+    "require_all_dtypes_resolved": true
+  },
+  "fallback_policy": "raise",
+  "notes": [
+    "confidence 0.70 < 0.9; aggressive Q2 disabled"
+  ],
+  "entries": [
+    {
+      "name": "model.embed_tokens.weight",
+      "role": "embed_tok",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role embed_tok is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.1.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.1.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.1.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.10.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.10.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.10.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.12.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.12.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.12.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.13.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.13.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.13.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.14.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.14.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.14.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.16.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.16.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.16.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.17.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.17.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.17.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.18.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.18.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.18.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.2.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.2.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.2.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.20.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.20.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.20.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.21.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.21.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.21.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.22.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.22.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.22.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.24.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.24.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.24.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.25.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.25.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.25.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.26.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.29.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.30.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.30.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.30.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.4.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.4.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.4.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.5.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.5.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.5.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.6.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.6.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.6.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.8.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.8.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.8.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.9.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.9.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.9.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.0.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.0.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.0.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.26.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.26.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.28.mlp.down_proj.weight",
+      "role": "ffn_down",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_down ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.28.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.28.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.29.mlp.gate_proj.weight",
+      "role": "ffn_gate",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_gate ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.29.mlp.up_proj.weight",
+      "role": "ffn_up",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ffn_up ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.0.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.1.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.10.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.11.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.13.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.14.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.15.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.17.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.18.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.19.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.20.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.21.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.22.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.23.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.25.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.26.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.27.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.29.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.3.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.31.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.5.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.6.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.7.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.9.attn_qkv.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.32.self_attn.q_proj.weight",
+      "role": "attn_q",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_q ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.32.nextn.eh_proj.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.0.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.1.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.10.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.11.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.13.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.14.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.15.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.17.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.18.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.19.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.20.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.21.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.22.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.23.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.25.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.26.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.27.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.29.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.3.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.31.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.5.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.6.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.7.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.9.attn_gate.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_out.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.32.self_attn.o_proj.weight",
+      "role": "attn_o",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_o ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.self_attn.k_proj.weight",
+      "role": "attn_k",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_k ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.self_attn.v_proj.weight",
+      "role": "attn_v",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role attn_v ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_alpha.weight",
+      "role": "ssm_a",
+      "format": "source:2",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=2 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_beta.weight",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_conv1d.weight",
+      "role": "ssm_conv",
+      "format": "Q4_0",
+      "bpw": 4.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q4_0 (4.500 bpw payload)",
+        "role ssm_conv ladder starts at Q4_0 (4.500 bpw)",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "__qwn.tokenizer",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "model.layers.0.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.0.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.1.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.1.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.10.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.10.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.11.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.12.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.13.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.13.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.14.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.14.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.15.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.16.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.17.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.17.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.18.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.18.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.19.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.2.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.20.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.20.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.21.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.21.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.22.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.22.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.23.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.24.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.25.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.25.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.26.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.26.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.27.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.28.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.29.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.29.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.3.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.30.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.31.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.4.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.5.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.5.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.6.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.6.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.7.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.8.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.9.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.9.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.input_layernorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.32.post_attention_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.32.nextn.shared_head_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.32.nextn.enorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.32.nextn.hnorm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.11.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.15.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.19.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.23.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.27.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.3.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.31.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.7.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.self_attn.k_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "model.layers.32.self_attn.q_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "__qwn.config",
+      "role": "unknown",
+      "format": "Q8_0",
+      "bpw": 8.5,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "candidate Q8_0 (8.500 bpw payload)",
+        "role unknown ladder starts at Q8_0 (8.500 bpw)"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_norm.weight",
+      "role": "norm",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role norm is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.0.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.1.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.10.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.12.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.13.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.14.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.16.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.17.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.18.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.2.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.20.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.21.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.22.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.24.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.25.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.26.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.28.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.29.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.30.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.4.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.5.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.6.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.8.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_a",
+      "role": "ssm_a",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role ssm_a is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    },
+    {
+      "name": "blk.9.ssm_dt.bias",
+      "role": "bias",
+      "format": "source:0",
+      "bpw": 32.0,
+      "sidecar_bytes": 0,
+      "sidecar_fraction": 0.0,
+      "reasons": [
+        "role bias is protected: keep source precision",
+        "keeping source dtype id=0 (32.00 bpw)",
+        "role marked protected by plan section 5",
+        "arch confidence weak (0.70); candidate precision may be raised by budget pass"
+      ]
+    }
+  ],
+  "decisions": [],
+  "validation": {
+    "ok": true,
+    "issues": [
+      {
+        "severity": "warn",
+        "tensor": "",
+        "code": "plan.budget",
+        "message": "achieved 16.88 bpw exceeds target 3.50 bpw"
+      },
+      {
+        "severity": "warn",
+        "tensor": "",
+        "code": "plan.confidence",
+        "message": "low confidence adapter; conservative plan only"
+      }
+    ]
+  }
+}

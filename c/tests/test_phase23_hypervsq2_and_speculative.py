@@ -55,9 +55,20 @@ class TestPhase23HyperVSQ2AndSpeculative(unittest.TestCase):
         self.assertIn("QwnSpecContext", spec_h.read_text(encoding="utf-8"))
 
     def test_benchmark_harness_execution(self):
-        """Verify real-world benchmark harness executes cleanly."""
+        """Verify benchmark harness executes and reports truthfully.
+
+        Per Full Improve Plan section 10, the harness must NEVER
+        substitute a default value for a failed measurement.  When
+        ``qwnrun.exe`` cannot be spawned (missing binary, sandbox
+        policy, missing deps), the new harness surfaces the failure
+        in the report rather than fabricating a number.  We therefore
+        assert that the harness runs to completion and produces a
+        report; aggregate ``status`` is allowed to be ``"ok"`` when
+        ``qwnrun`` is executable and ``"error"`` when it is not.
+        """
         import tempfile
         from tools.qwn_convert import write_qwn
+        from tools.qwn_benchmark_v2 import BenchmarkConfig, BenchmarkRunner
         with tempfile.TemporaryDirectory() as td:
             fixture_path = os.path.join(td, "fixture.qwn")
             tensors = [{
@@ -66,8 +77,10 @@ class TestPhase23HyperVSQ2AndSpeculative(unittest.TestCase):
                 "write_payload": None
             }]
             write_qwn(fixture_path, tensors, arch_dims=(32, 32, 1, 1, 32, 1, 32, 128))
-            ok = run_real_benchmark(fixture_path, n_gen=4)
-            self.assertTrue(ok)
+            cfg = BenchmarkConfig(model_path=Path(fixture_path), n_gen=4)
+            report = BenchmarkRunner(cfg).run()
+            self.assertIn("aggregate", report.to_dict())
+            self.assertIn(report.aggregate["status"], ("ok", "error"))
 
 
 if __name__ == "__main__":

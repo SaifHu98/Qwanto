@@ -1,0 +1,18 @@
+{
+  "models": {
+    "1.5B": {
+      "src": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+      "src_size_bytes": 1117320800,
+      "src_size_mb": 1065.5601501464844
+    },
+    "4B": {
+      "src": "DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf",
+      "src_size_bytes": 8665621152,
+      "src_size_mb": 8264.18032836914
+    }
+  },
+  "generated_at": "2026-08-14T18:48:32",
+  "n_conversions": 12,
+  "n_ok": 12,
+  "n_failed": 0
+}

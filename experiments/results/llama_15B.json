@@ -1,0 +1,83 @@
+{
+  "model": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+  "model_size_bytes": 1117320800,
+  "config": {
+    "model_path": "D:\\EcoUni\\qwanto\\models\\DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+    "n_predict": 256,
+    "n_ctx": 4096,
+    "n_gpu_layers": 0,
+    "n_threads": 0,
+    "port": 0,
+    "prompt": "Explain in detail how a CPU executes a fused multiply-add AVX2 instruction and how this maps to a typical int8 quantized matrix multiplication in a transformer model.",
+    "warmup": 1,
+    "measurement_rounds": 3
+  },
+  "aggregate": {
+    "cold_load_seconds": 2.0689816999947652,
+    "n_rounds_kept": 4,
+    "n_rounds_total": 4,
+    "decode_tok_s": {
+      "mean": 201.42600062596347,
+      "median": 203.10107712585025,
+      "min": 194.90431796812248,
+      "max": 204.5975302840309
+    },
+    "ttft_ms": {
+      "mean": 106.97380000419798,
+      "median": 99.38545000477461,
+      "min": 94.44610000355169,
+      "max": 134.67820000369102
+    }
+  },
+  "rounds": [
+    {
+      "round_index": 0,
+      "wall_seconds": 1.366460899997037,
+      "ttft_ms": 134.67820000369102,
+      "prefill_tok_s": 1085.3622763273686,
+      "decode_tok_s": 194.90431796812248,
+      "decode_p50_ms": 0.0042000028770416975,
+      "decode_p95_ms": 63.97346000012476,
+      "decode_p99_ms": 71.37055599945596,
+      "tokens_generated": 254,
+      "error": null
+    },
+    {
+      "round_index": 1,
+      "wall_seconds": 1.282809800002724,
+      "ttft_ms": 100.05480000108946,
+      "prefill_tok_s": 168.29350387075058,
+      "decode_tok_s": 204.5975302840309,
+      "decode_p50_ms": 0.0042000028770416975,
+      "decode_p95_ms": 63.20316000492313,
+      "decode_p99_ms": 64.2888359952485,
+      "tokens_generated": 254,
+      "error": null
+    },
+    {
+      "round_index": 2,
+      "wall_seconds": 1.2886475999985123,
+      "ttft_ms": 98.71610000845976,
+      "prefill_tok_s": 173.85257301808068,
+      "decode_tok_s": 203.43260738619296,
+      "decode_p50_ms": 0.0043000036384910345,
+      "decode_p95_ms": 63.54989999963437,
+      "decode_p99_ms": 64.9506079958519,
+      "tokens_generated": 254,
+      "error": null
+    },
+    {
+      "round_index": 3,
+      "wall_seconds": 1.2878252000082284,
+      "ttft_ms": 94.44610000355169,
+      "prefill_tok_s": 167.58840288252054,
+      "decode_tok_s": 202.76954686550755,
+      "decode_p50_ms": 0.0041000021155923605,
+      "decode_p95_ms": 63.57247999403624,
+      "decode_p99_ms": 64.49514800333418,
+      "tokens_generated": 254,
+      "error": null
+    }
+  ],
+  "peak_rss_mb": 31.828125
+}
