@@ -1414,6 +1414,84 @@ class DownloadManager:
 
 download_manager = DownloadManager()
 
+
+class ConversionManager:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.status = "idle"
+        self.source = ""
+        self.output = ""
+        self.quant = "q4_0"
+        self.progress = 0
+        self.message = ""
+        self.error = None
+        self.start_time = 0
+        self.elapsed = 0
+        self.speed_mb_s = 0.0
+
+    def start_conversion(self, source, output, quant="q4_0"):
+        with self.lock:
+            if self.status == "converting":
+                raise ValueError("A model conversion is already in progress.")
+            self.status = "converting"
+            self.source = str(source)
+            self.output = str(output)
+            self.quant = quant
+            self.progress = 0
+            self.message = "Initializing universal converter..."
+            self.error = None
+            self.start_time = time.time()
+            self.elapsed = 0
+            self.speed_mb_s = 0.0
+            
+            t = threading.Thread(target=self._run, daemon=True)
+            t.start()
+
+    def _run(self):
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
+            from qwn_convert import convert_model
+            self.message = f"Converting {Path(self.source).name} to {Path(self.output).name} ({self.quant})..."
+            self.progress = 20
+            t0 = time.time()
+            src_size = os.path.getsize(self.source) if os.path.isfile(self.source) else 1024 * 1024 * 1024
+            
+            convert_model(self.source, self.output, self.quant)
+            
+            dur = max(0.01, time.time() - t0)
+            out_size = os.path.getsize(self.output) if os.path.isfile(self.output) else 0
+            with self.lock:
+                self.status = "done"
+                self.progress = 100
+                self.elapsed = round(dur, 2)
+                self.speed_mb_s = round((src_size / (1024 * 1024)) / dur, 2)
+                self.message = f"Converted successfully in {dur:.2f}s ({self.speed_mb_s} MB/s). Output size: {out_size / (1024 * 1024):.1f} MB."
+        except Exception as e:
+            with self.lock:
+                self.status = "error"
+                self.error = str(e)
+                self.message = f"Conversion failed: {e}"
+
+    def get_status(self):
+        with self.lock:
+            cur_elapsed = self.elapsed
+            if self.status == "converting" and self.start_time:
+                cur_elapsed = round(time.time() - self.start_time, 2)
+            return {
+                "status": self.status,
+                "source": self.source,
+                "output": self.output,
+                "quant": self.quant,
+                "progress": self.progress,
+                "message": self.message,
+                "error": self.error,
+                "elapsed": cur_elapsed,
+                "speed_mb_s": self.speed_mb_s
+            }
+
+
+conversion_manager = ConversionManager()
+
 DEFAULT_PRESETS = [
     {
         "id": "balanced",
@@ -2042,6 +2120,10 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_json(200, download_manager.get_status(), request_id)
                 return
 
+            if path == "/v1/qwanto/convert/status":
+                self.send_json(200, conversion_manager.get_status(), request_id)
+                return
+
             if path == "/v1/qwanto/presets":
                 self.send_json(200, {"presets": load_presets()}, request_id)
                 return
@@ -2477,6 +2559,28 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_json(200, {"status": "success", "connections": download_manager.connections, "speed_limit": download_manager.speed_limit}, request_id)
                 return
                 
+            if path == "/v1/qwanto/convert":
+                body = self.read_json()
+                source = body.get("source")
+                output = body.get("output")
+                quant = body.get("quant", "q4_0")
+                if not source:
+                    raise APIError(400, "Missing 'source' model parameter.", "source")
+                p = Path(source)
+                if not p.exists():
+                    raise APIError(404, f"Source model does not exist: {source}", "source")
+                if not output:
+                    if p.is_file():
+                        output = str(p.parent / f"{p.stem}.qwn")
+                    else:
+                        output = str(p.parent / f"{p.name}.qwn")
+                try:
+                    conversion_manager.start_conversion(source, output, quant)
+                    self.send_json(200, {"status": "started", "output": output, "message": f"Conversion started for {p.name}"}, request_id)
+                except Exception as e:
+                    raise APIError(400, str(e), "source")
+                return
+
             if path == "/v1/qwanto/resources":
                 body = self.read_json() if self.headers.get("content-length", "0") != "0" else {}
                 if body:

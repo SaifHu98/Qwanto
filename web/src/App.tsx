@@ -54,6 +54,7 @@ import { DoctorView } from "./components/DoctorView"
 import { WorkbenchView } from "./components/WorkbenchView"
 import { BenchmarksView } from "./components/BenchmarksView"
 import { SecurityView } from "./components/SecurityView"
+import { ConverterView } from "./components/ConverterView"
 import type { SystemPreset } from "@/lib/api"
 import {
   getHealth,
@@ -141,9 +142,9 @@ export default function App() {
   const logRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
   const [systemInstruction, setSystemInstruction] = useState("")
-  const [view, setView] = useState<"chat" | "brain" | "models" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
+  const [view, setView] = useState<"chat" | "brain" | "models" | "converter" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
     const saved = stored(localStorage, "qwanto.view", "chat")
-    return (["chat", "brain", "models", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "chat") as any
+    return (["chat", "brain", "models", "converter", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "chat") as any
   })
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
@@ -705,6 +706,7 @@ export default function App() {
           <div><span className="eyebrow">ACTIVE MODEL</span><strong>{model}</strong></div>
           <div className="view-tabs">
             <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}><MessageSquareText className="size-3.5" /> Chat</button>
+            <button className={view === "converter" ? "active" : ""} onClick={() => setView("converter")}><Zap className="size-3.5" /> Converter</button>
             <button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><Sparkles className="size-3.5" /> Studio</button>
             <button className={view === "telemetry" ? "active" : ""} onClick={() => setView("telemetry")}><Activity className="size-3.5" /> Telemetry</button>
             <button className={view === "benchmarks" ? "active" : ""} onClick={() => setView("benchmarks")}><BarChart3 className="size-3.5" /> Benchmarks</button>
@@ -1086,6 +1088,16 @@ export default function App() {
             apiKey={apiKey}
             temperature={temperature}
             maxTokens={maxTokens}
+          />
+        ) : view === "converter" ? (
+          <ConverterView
+            baseUrl={baseUrl}
+            apiKey={apiKey}
+            onModelLoaded={(loadedPath) => {
+              setModel(loadedPath)
+              getHealth(baseUrl, apiKey).then(h => setHealth(h)).catch(() => {})
+            }}
+            onNavigateToChat={() => setView("chat")}
           />
         ) : view === "doctor" ? (
           <DoctorView baseUrl={baseUrl} apiKey={apiKey} />

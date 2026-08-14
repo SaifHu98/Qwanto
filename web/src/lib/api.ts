@@ -202,7 +202,7 @@ export interface QwantoConfig {
 export interface DiscoveredModel {
   name: string
   path: string
-  type: "native" | "gguf"
+  type: "native" | "gguf" | "qwn" | string
 }
 
 export interface ModelPathsResponse {
@@ -500,5 +500,39 @@ export async function getSecurityReport(baseUrl: string, apiKey = ""): Promise<S
   const response = await fetch(endpoint(baseUrl, "qwanto/security"), { headers: headers(apiKey) })
   if (!response.ok) throw new Error(await responseError(response))
   return (await response.json()) as SecurityReport
+}
+
+export interface ConversionStatus {
+  status: "idle" | "converting" | "done" | "error"
+  source?: string
+  output?: string
+  quant?: string
+  progress: number
+  message: string
+  error?: string | null
+  elapsed?: number
+  speed_mb_s?: number
+}
+
+export async function startConversion(
+  baseUrl: string,
+  apiKey = "",
+  source: string,
+  output?: string,
+  quant = "q4_0"
+): Promise<{ status: string; output: string; message: string }> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/convert"), {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify({ source, output, quant })
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  return await response.json()
+}
+
+export async function getConversionStatus(baseUrl: string, apiKey = ""): Promise<ConversionStatus> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/convert/status"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as ConversionStatus
 }
 

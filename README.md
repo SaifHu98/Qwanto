@@ -280,12 +280,13 @@ The Qwanto engine incorporates two specialized Phase 10 attention parallelism op
 1. **Multi-Head Lock-Free Attention Sharding (`qwanto_decode.c`)**: Distributes multi-head attention score computation, softmax, and context reduction across all physical CPU cores with isolated per-head score buffers (`d->att + h * max_ctx`), delivering a **4x-8x speedup in attention compute** and a **100%+ (2x-3x) overall token throughput leap**.
 2. **Parallel Multi-Head RoPE & Head RMSNorm (`qwanto_decode.c`)**: Vectorizes and parallelizes Rotary Positional Embeddings and per-head RMSNorm across OpenMP core threads simultaneously.
 
-### Universal Multi-Format Model Ingestion Engine
+### Universal Multi-Format Model Ingestion & Studio
 
-The Qwanto engine incorporates two specialized Phase 11 & 12 universal converter optimizations:
+The Qwanto engine incorporates three specialized Phase 11, 12 & 13 universal conversion optimizations:
 
 1. **Universal Model Converter (`qwn_convert.py`)**: Seamlessly auto-detects and converts `.gguf`, `.safetensors`, `.pt`/`.pth`/`.bin`, `.onnx`, and `.h5`/`.keras` into 4KiB page-aligned `.qwn` NVMe containers.
 2. **10x - 50x Vectorized SIMD Quantization Engine (`qwn_convert.py`)**: Vectorizes matrix quantization with compiled SIMD C-extensions and chunked block streaming, accelerating model conversion speed by **10x to 50x** while preserving a ultra-light memory footprint (< 4 GB RAM).
+3. **Web Dashboard Converter Studio (`ConverterView.tsx`, `openai_server.py`)**: Provides a full interactive GUI to select, quantize, convert, and immediately activate `.qwn` models with 1-click in the browser.
 
 ### `.qwn` Capabilities & Scope
 
@@ -301,6 +302,7 @@ The Qwanto engine incorporates two specialized Phase 11 & 12 universal converter
 | Area | Implemented behavior |
 |------|----------------------|
 | Chat | SSE rendering, token speed, TTFT, stop generation, persistent conversations |
+| Converter | 1-Click universal conversion (.gguf, .safetensors, .pt, .bin, .onnx, .h5 -> .qwn) with real-time throughput & instant activation |
 | Prompt Studio | Custom system prompts, temperature/top-p presets, 1-click studio templates |
 | Telemetry | Tokens/sec tracking, generation throughput, hardware allocation, request telemetry |
 | API Workbench | Multi-language code generator (cURL, Python, TypeScript, Rust) |

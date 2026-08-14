@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import struct
@@ -36,11 +37,17 @@ def fnv1a64(name: str) -> int:
     return h
 
 
-try:
-    import numpy as np
-    _HAS_NUMPY = True
-except ImportError:
-    _HAS_NUMPY = False
+def _get_numpy():
+    try:
+        return importlib.import_module("numpy")
+    except Exception:
+        return None
+
+def _get_torch():
+    try:
+        return importlib.import_module("torch")
+    except Exception:
+        return None
 
 
 def f32_to_f16(value: float) -> int:
@@ -56,7 +63,8 @@ def quantize_q4_0(src: bytes) -> bytes:
     n_floats = len(src) // 4
     if not n_floats:
         return b""
-    if _HAS_NUMPY:
+    np = _get_numpy()
+    if np is not None:
         arr = np.frombuffer(src, dtype=np.float32)
         n_blocks = (n_floats + 31) // 32
         if arr.size < n_blocks * 32:
@@ -99,7 +107,8 @@ def quantize_q4_0(src: bytes) -> bytes:
 def f16_payload_to_f32(src: bytes) -> bytes:
     if len(src) % 2:
         raise ValueError("F16 payload is not element-aligned")
-    if _HAS_NUMPY:
+    np = _get_numpy()
+    if np is not None:
         return np.frombuffer(src, dtype=np.float16).astype(np.float32).tobytes()
     values = struct.unpack(f"<{len(src) // 2}e", src)
     return struct.pack(f"<{len(values)}f", *values)
@@ -116,7 +125,8 @@ def quantize_q4_0_rows(src: bytes, rows: int, cols: int) -> bytes:
     """Quantize each matrix row independently; every K-tail gets zero padding."""
     if len(src) != rows * cols * 4:
         raise ValueError("matrix payload/shape mismatch")
-    if _HAS_NUMPY:
+    np = _get_numpy()
+    if np is not None:
         arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
         out = bytearray()
         for r in range(rows):
@@ -462,9 +472,8 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
 
 
 def _read_pytorch_tensors(path: str, quant: str = "q4_0"):
-    try:
-        import torch
-    except ImportError:
+    torch = _get_torch()
+    if torch is None:
         raise RuntimeError("PyTorch is required to convert .pt / .pth / .bin checkpoints (pip install torch)")
     
     state = torch.load(path, map_location="cpu", weights_only=True)
