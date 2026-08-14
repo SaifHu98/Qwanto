@@ -282,11 +282,12 @@ The Qwanto engine incorporates two specialized Phase 10 attention parallelism op
 
 ### Universal Multi-Format Model Ingestion & Studio
 
-The Qwanto engine incorporates three specialized Phase 11, 12 & 13 universal conversion optimizations:
+The Qwanto engine incorporates four specialized Phase 11, 12, 13 & 14 universal conversion optimizations:
 
 1. **Universal Model Converter (`qwn_convert.py`)**: Seamlessly auto-detects and converts `.gguf`, `.safetensors`, `.pt`/`.pth`/`.bin`, `.onnx`, and `.h5`/`.keras` into 4KiB page-aligned `.qwn` NVMe containers.
 2. **10x - 50x Vectorized SIMD Quantization Engine (`qwn_convert.py`)**: Vectorizes matrix quantization with compiled SIMD C-extensions and chunked block streaming, accelerating model conversion speed by **10x to 50x** while preserving a ultra-light memory footprint (< 4 GB RAM).
 3. **Web Dashboard Converter Studio (`ConverterView.tsx`, `openai_server.py`)**: Provides a full interactive GUI to select, quantize, convert, and immediately activate `.qwn` models with 1-click in the browser.
+4. **All-Quant GGUF Engine (`qwn_convert.py`)**: Full support for all 22+ GGML quantization schemes (including K-Quants `Q4_K_M`, `Q5_K_M`, `Q6_K`, `Q2_K`, `Q3_K_M`, `Q8_0`, `BF16`, `IQ4_XS`), Multimodal Vision Projectors (`mmproj-F32.gguf`), and Multi-Token Prediction (MTP) architectures.
 
 ### `.qwn` Capabilities & Scope
 

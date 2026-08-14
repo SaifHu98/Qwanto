@@ -372,7 +372,31 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         # Tensor data begins aligned
         data_base = (f.tell() + alignment - 1) & ~(alignment - 1)
 
-    # GGML dtypes: 0=F32, 1=F16, 2=Q4_0, 7=Q8_0, 28=BF16
+    GGML_BLOCK_SIZES = {
+        0:  (1, 4),     # F32
+        1:  (1, 2),     # F16
+        2:  (32, 18),   # Q4_0
+        3:  (32, 20),   # Q4_1
+        6:  (32, 22),   # Q5_0
+        7:  (32, 24),   # Q5_1
+        8:  (32, 34),   # Q8_0
+        9:  (32, 36),   # Q8_1
+        10: (256, 84),  # Q2_K
+        11: (256, 110), # Q3_K
+        12: (256, 144), # Q4_K
+        13: (256, 176), # Q5_K
+        14: (256, 210), # Q6_K
+        15: (256, 292), # Q8_K
+        16: (256, 66),  # IQ2_XXS
+        17: (256, 74),  # IQ2_XS
+        18: (256, 98),  # IQ3_XXS
+        19: (256, 110), # IQ3_S
+        20: (256, 136), # IQ4_XS
+        21: (256, 144), # IQ4_NL
+        28: (1, 2),     # BF16
+    }
+
+    # GGML dtypes: 0=F32, 1=F16, 2=Q4_0, 7/8=Q8_0, 28=BF16, 10..15=K-Quants, 16..21=IQ-Quants
     for name, dims, dtype, offset in raw_tensors:
         # dims in GGUF is fastest dimension first (already matching .qwn)
         shape = tuple(dims)
@@ -383,8 +407,10 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         for d in shape:
             numel *= d
 
+        block_elems, block_bytes = GGML_BLOCK_SIZES.get(dtype, (1, 2))
+        byte_len = ((numel + block_elems - 1) // block_elems) * block_bytes
+
         if dtype == 0:  # F32
-            byte_len = numel * 4
             out_dtype = DT_F32
             if quant == "q4_0" and len(shape) == 2:
                 out_dtype = DT_Q4_0
@@ -402,7 +428,6 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 "write_payload": make_writer(byte_offset, shape[1], shape[0])})
                 continue
         elif dtype == 1:  # F16
-            byte_len = numel * 2
             out_dtype = DT_F16
             if quant == "q4_0" and len(shape) == 2:
                 out_dtype = DT_Q4_0
@@ -420,18 +445,30 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 "payload_size": payload_size,
                                 "write_payload": make_writer(byte_offset, shape[1], shape[0])})
                 continue
-        elif dtype == 2:  # Q4_0
-            byte_len = (numel // 32) * 18
-            out_dtype = DT_Q4_0
-        elif dtype == 7:  # Q8_0
-            byte_len = (numel // 32) * 34
-            out_dtype = DT_Q8_0
         elif dtype == 28:  # BF16
-            byte_len = numel * 2
             out_dtype = DT_BF16
+            if quant == "q4_0" and len(shape) == 2:
+                out_dtype = DT_Q4_0
+                payload_size = shape[1] * ((shape[0] + 31) // 32) * 18
+                def make_writer(b_off, r, c):
+                    def write(out):
+                        with open(path, "rb") as sf:
+                            sf.seek(b_off)
+                            for _ in range(r):
+                                raw = sf.read(c * 2)
+                                raw_f32 = bf16_payload_to_f32(raw)
+                                out.write(quantize_q4_0(raw_f32))
+                    return write
+                tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                                "payload_size": payload_size,
+                                "write_payload": make_writer(byte_offset, shape[1], shape[0])})
+                continue
+        elif dtype == 2:  # Q4_0
+            out_dtype = DT_Q4_0
+        elif dtype in (7, 8):  # Q8_0
+            out_dtype = DT_Q8_0
         else:
-            byte_len = numel * 2
-            out_dtype = DT_F16
+            out_dtype = DT_BYTES if dtype not in (0, 1, 28) else DT_F16
 
         def make_copy(b_off, b_len):
             def write(out):

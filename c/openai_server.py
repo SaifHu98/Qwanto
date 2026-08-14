@@ -1449,14 +1449,22 @@ class ConversionManager:
 
     def _run(self):
         try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
-            from qwn_convert import convert_model
+            import importlib.util
+            tools_dir = Path(__file__).resolve().parent / "tools"
+            tool_file = tools_dir / "qwn_convert.py"
+            spec = importlib.util.spec_from_file_location("qwn_convert", tool_file)
+            if spec and spec.loader:
+                qwn_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(qwn_mod)
+                convert_func = getattr(qwn_mod, "convert_model")
+            else:
+                raise ImportError(f"Cannot load qwn_convert from {tool_file}")
             self.message = f"Converting {Path(self.source).name} to {Path(self.output).name} ({self.quant})..."
             self.progress = 20
             t0 = time.time()
             src_size = os.path.getsize(self.source) if os.path.isfile(self.source) else 1024 * 1024 * 1024
             
-            convert_model(self.source, self.output, self.quant)
+            convert_func(self.source, self.output, self.quant)
             
             dur = max(0.01, time.time() - t0)
             out_size = os.path.getsize(self.output) if os.path.isfile(self.output) else 0
