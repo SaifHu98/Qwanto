@@ -1,4 +1,6 @@
 #include "qwn_hypervsq_cuda.h"
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef __CUDACC__
 #include <cuda_runtime.h>

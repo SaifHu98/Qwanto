@@ -4,9 +4,18 @@ import math
 import pytest
 from pathlib import Path
 
-# Add tools to sys.path
-sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
-from qwn_ppl import evaluate_ppl_simulation, compute_perplexity_from_logits, WIKITEXT2_SAMPLE
+# Add tools and root directory to sys.path for both pytest and IDE static analyzers
+root_dir = Path(__file__).resolve().parent.parent.parent
+tools_dir = Path(__file__).resolve().parent.parent / "tools"
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+if str(tools_dir) not in sys.path:
+    sys.path.insert(0, str(tools_dir))
+
+try:
+    from c.tools.qwn_ppl import evaluate_ppl_simulation, compute_perplexity_from_logits, WIKITEXT2_SAMPLE
+except ImportError:
+    from qwn_ppl import evaluate_ppl_simulation, compute_perplexity_from_logits, WIKITEXT2_SAMPLE
 
 
 def test_ppl_simulation_hypervsq():
