@@ -56,6 +56,7 @@ extern "C" {
 #define QWN_DT_Q8_0        3
 #define QWN_DT_BF16        4
 #define QWN_DT_BYTES       5
+#define QWN_DT_VSQ         6
 
 #if defined(_MSC_VER)
 #define QWN_PACKED
@@ -63,6 +64,14 @@ extern "C" {
 #else
 #define QWN_PACKED __attribute__((packed))
 #endif
+
+/* Qwanto Vector-Superblock Quantization (64 elements / 36 bytes) */
+typedef struct QWN_PACKED {
+    uint16_t d_base;              /* FP16 base scale */
+    uint8_t  d_sub0;              /* Sub-block 0 scale multiplier */
+    uint8_t  d_sub1;              /* Sub-block 1 scale multiplier */
+    uint8_t  qs[32];              /* 64 x 4-bit nibbles (bias 8) */
+} QwnBlockVSQ;
 
 typedef struct QWN_PACKED {
     char     name[64];

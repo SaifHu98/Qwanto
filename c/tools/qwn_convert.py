@@ -22,9 +22,9 @@ HEADER_PREFIX_SIZE = struct.calcsize(HEADER_PREFIX_FMT)  # 112
 TAIL_FMT = "<IIQQQ"
 TAIL_SIZE = struct.calcsize(TAIL_FMT)  # 32
 
-DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES = range(6)
+DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ = range(7)
 DT_NAME = {DT_F32: "F32", DT_F16: "F16", DT_Q4_0: "Q4_0",
-           DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES"}
+           DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES", DT_VSQ: "VSQ"}
 
 
 def align(n: int, a: int = ALIGN) -> int:
@@ -41,29 +41,29 @@ def fnv1a64(name: str) -> int:
 def _get_numpy():
     try:
         return importlib.import_module("numpy")
-    except Exception:
+    except ImportError:
         return None
 
 def _get_torch():
     try:
         return importlib.import_module("torch")
-    except Exception:
+    except ImportError:
         return None
 
 
-def f32_to_f16(value: float) -> int:
-    try:
-        return struct.unpack("<H", struct.pack("<e", value))[0]
-    except OverflowError:
-        return 0xFC00 if value < 0 else 0x7C00
+def f32_to_f16(val: float) -> int:
+    """Convert a Python float to an IEEE 754 half-precision uint16."""
+    return struct.unpack("<H", struct.pack("<e", val))[0]
 
 
 def quantize_q4_0(src: bytes) -> bytes:
-    if len(src) % 4:
-        raise ValueError("F32 payload is not element-aligned")
+    """Quantize Float32 bytes into Q4_0 blocks (32 elements -> 18 bytes)."""
+    if len(src) % 4 != 0:
+        raise ValueError("source buffer length must be a multiple of 4")
     n_floats = len(src) // 4
     if not n_floats:
         return b""
+
     np = _get_numpy()
     if np is not None:
         arr = np.frombuffer(src, dtype=np.float32)
@@ -153,6 +153,58 @@ def quantize_q4_0_rows(src: bytes, rows: int, cols: int) -> bytes:
     return bytes(out)
 
 
+def quantize_vsq_rows(src: bytes, rows: int, cols: int) -> bytes:
+    """Quantize matrix rows using Qwanto Vector-Superblock (64 elements / 36 bytes)."""
+    if len(src) != rows * cols * 4:
+        raise ValueError("matrix payload/shape mismatch")
+    np = _get_numpy()
+    if np is not None:
+        arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
+        blocks_per_row = (cols + 63) // 64
+        if cols < blocks_per_row * 64:
+            padded = np.zeros((rows, blocks_per_row * 64), dtype=np.float32)
+            padded[:, :cols] = arr
+            arr = padded
+        total_blocks = rows * blocks_per_row
+        superblocks = arr.reshape(total_blocks, 64)
+        sub0 = superblocks[:, :32]
+        sub1 = superblocks[:, 32:]
+        amax0 = np.max(np.abs(sub0), axis=1)
+        amax1 = np.max(np.abs(sub1), axis=1)
+        base_amax = np.maximum(amax0, amax1)
+        base_scale = np.where(base_amax > 0, base_amax / 7.0, 1.0).astype(np.float16)
+        base_scale_f32 = base_scale.astype(np.float32)
+        base_denom = np.where(base_scale_f32 > 0, base_scale_f32, 1.0)
+        
+        d_sub0 = np.clip(np.round((amax0 / (base_denom * 7.0)) * 128.0), 1, 128).astype(np.uint8)
+        d_sub1 = np.clip(np.round((amax1 / (base_denom * 7.0)) * 128.0), 1, 128).astype(np.uint8)
+        
+        eff_s0 = (base_denom * (d_sub0.astype(np.float32) / 128.0))[:, None]
+        eff_s1 = (base_denom * (d_sub1.astype(np.float32) / 128.0))[:, None]
+        eff_s0 = np.where(eff_s0 > 0, eff_s0, 1.0)
+        eff_s1 = np.where(eff_s1 > 0, eff_s1, 1.0)
+        
+        q0 = np.clip(np.round(sub0 / eff_s0), -8, 7).astype(np.int8) + 8
+        q1 = np.clip(np.round(sub1 / eff_s1), -8, 7).astype(np.int8) + 8
+        
+        lo0 = q0[:, 0::2] & 0x0F
+        hi0 = q0[:, 1::2] & 0x0F
+        packed0 = (lo0 | (hi0 << 4)).astype(np.uint8)
+        
+        lo1 = q1[:, 0::2] & 0x0F
+        hi1 = q1[:, 1::2] & 0x0F
+        packed1 = (lo1 | (hi1 << 4)).astype(np.uint8)
+        
+        out_buf = np.empty((total_blocks, 36), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(base_scale.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 2] = d_sub0
+        out_buf[:, 3] = d_sub1
+        out_buf[:, 4:20] = packed0
+        out_buf[:, 20:36] = packed1
+        return out_buf.tobytes()
+    return quantize_q4_0_rows(src, rows, cols)
+
+
 def _desc(t: dict) -> dict:
     name = t["name"]
     encoded = name.encode("utf-8")
@@ -170,11 +222,15 @@ def _desc(t: dict) -> dict:
         expected = shape[1] * ((shape[0] + 31) // 32) * 18
         if payload_size != expected:
             raise ValueError(f"Q4_0 row layout mismatch for {name}: {payload_size} != {expected}")
+    elif int(t["dtype"]) == DT_VSQ and len(shape) == 2:
+        expected = shape[1] * ((shape[0] + 63) // 64) * 36
+        if payload_size != expected:
+            raise ValueError(f"VSQ row layout mismatch for {name}: {payload_size} != {expected}")
     return {"name": name, "dtype": int(t["dtype"]), "shape": shape,
             "numel": numel, "payload": payload,
             "write_payload": t.get("write_payload"), "payload_size": payload_size,
             "byte_offset": 0, "byte_size": align(payload_size, 64),
-            "block_q": 32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0}
+            "block_q": 64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0)}
 
 
 def pack_desc(t: dict) -> bytes:

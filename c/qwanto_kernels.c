@@ -208,15 +208,18 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
                         float *y) {
     if (!m || !weights || !x || !scratch || !y || M < 1 || K < 1 || N < 1)
         return -1;
-    if (weights->dtype != QWN_DT_Q4_0 || weights->n_dims != 2 ||
+    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ) || weights->n_dims != 2 ||
         weights->shape[0] != (uint64_t)K || weights->shape[1] != (uint64_t)N)
         return -1;
     if ((weights->byte_offset & 63ULL) != 0 || M > scratch->max_tokens ||
-        ((K + 31) & ~31) > scratch->padded_k)
+        ((K + 63) & ~63) > scratch->padded_k)
         return -1;
 
-    const int blocks = (K + 31) / 32;
-    const uint64_t row_bytes = (uint64_t)blocks * 18ULL;
+    const int is_vsq = (weights->dtype == QWN_DT_VSQ);
+    const int block_elems = is_vsq ? 64 : 32;
+    const int block_bytes = is_vsq ? 36 : 18;
+    const int blocks = (K + block_elems - 1) / block_elems;
+    const uint64_t row_bytes = (uint64_t)blocks * (uint64_t)block_bytes;
     const uint64_t raw_bytes = row_bytes * (uint64_t)N;
     if (weights->byte_offset > m->file_size ||
         raw_bytes > m->file_size - weights->byte_offset ||
@@ -351,6 +354,29 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 uint8_t byte = p[b * 18 + 2 + (i >> 1)];
                 int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
                 out[b * 32 + i] = q * scale;
+            }
+        }
+        return 0;
+    }
+    if (t->dtype == QWN_DT_VSQ) {
+        int blocks = (width + 63) / 64;
+        const uint8_t *p = raw + (size_t)row * blocks * 36;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = p + b * 36;
+            uint16_t hs; memcpy(&hs, blk, 2);
+            float base = half_to_float(hs);
+            float s0 = base * ((float)blk[2] * (1.0f / 128.0f));
+            float s1 = base * ((float)blk[3] * (1.0f / 128.0f));
+            const uint8_t *qs = blk + 4;
+            for (int i = 0; i < 32 && b * 64 + i < width; i++) {
+                uint8_t byte = qs[i >> 1];
+                int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
+                out[b * 64 + i] = q * s0;
+            }
+            for (int i = 0; i < 32 && b * 64 + 32 + i < width; i++) {
+                uint8_t byte = qs[16 + (i >> 1)];
+                int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
+                out[b * 64 + 32 + i] = q * s1;
             }
         }
         return 0;

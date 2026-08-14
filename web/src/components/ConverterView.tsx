@@ -44,7 +44,7 @@ export function ConverterView({
 }: ConverterViewProps) {
   const [sourcePath, setSourcePath] = useState("")
   const [outputPath, setOutputPath] = useState("")
-  const [quantMode, setQuantMode] = useState<"q4_0" | "none">("q4_0")
+  const [quantMode, setQuantMode] = useState<"vsq" | "q4_0" | "none">("vsq")
   const [autoActivate, setAutoActivate] = useState(true)
   const [status, setStatus] = useState<ConversionStatus>({
     status: "idle",
@@ -278,7 +278,25 @@ export function ConverterView({
             {/* Quantization Mode Cards */}
             <div className="space-y-1.5 pt-1">
               <label className="text-xs font-medium text-muted-foreground">Quantization Target</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setQuantMode("vsq")}
+                  className={`p-3 rounded-lg border text-left transition ${
+                    quantMode === "vsq"
+                      ? "bg-primary/15 border-primary text-foreground ring-1 ring-primary/40"
+                      : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="font-semibold text-xs flex items-center justify-between">
+                    <span className="flex items-center gap-1"><Zap className="size-3 text-primary" /> QWN-VSQ</span>
+                    <Badge className="text-[9px] bg-primary/30 text-primary border-primary/50">~80% Saved</Badge>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Proprietary 64-element dual-scale superblock with 10x in-register AVX2 shuffle decoding.
+                  </p>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setQuantMode("q4_0")}
@@ -289,11 +307,11 @@ export function ConverterView({
                   }`}
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
-                    <span>Q4_0 (Recommended)</span>
-                    <Badge className="text-[10px] bg-primary/30 text-primary border-primary/50">~75% RAM Saved</Badge>
+                    <span>Q4_0 SIMD</span>
+                    <Badge className="text-[9px] bg-muted text-muted-foreground">~75% Saved</Badge>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Compact 4-bit SIMD matrix representation with hardware FP16 scaling.
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Standard 32-element 4-bit block representation with FP16 scale.
                   </p>
                 </button>
 
@@ -307,31 +325,33 @@ export function ConverterView({
                   }`}
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
-                    <span>Full Precision (None)</span>
-                    <span className="border border-border/60 rounded px-1.5 py-0.5 text-[10px]">Unquantized</span>
+                    <span>Full Precision</span>
+                    <span className="border border-border/60 rounded px-1.5 py-0.5 text-[9px]">None</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Preserves original F32, F16, and BF16 tensor values without matrix conversion.
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Preserves original F32, F16, and BF16 tensor values without conversion.
                   </p>
                 </button>
               </div>
             </div>
 
             {/* Memory & Size Comparison Card */}
-            {quantMode === "q4_0" && (
+            {(quantMode === "vsq" || quantMode === "q4_0") && (
               <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium text-foreground flex items-center gap-1.5">
                     <TrendingDown className="size-3.5 text-primary" /> Memory & Storage Efficiency
                   </span>
-                  <span className="text-emerald-400 font-semibold font-mono text-[11px]">~71% - 75% Compression</span>
+                  <span className="text-emerald-400 font-semibold font-mono text-[11px]">
+                    {quantMode === "vsq" ? "~78% - 82% Compression (QWN-VSQ)" : "~71% - 75% Compression (Q4_0)"}
+                  </span>
                 </div>
                 <div className="w-full bg-muted/60 rounded-full h-2 overflow-hidden flex">
-                  <div className="bg-primary h-full" style={{ width: "27%" }} title="Q4_0 Size: ~27%" />
-                  <div className="bg-muted-foreground/30 h-full" style={{ width: "73%" }} title="Saved Space: ~73%" />
+                  <div className="bg-primary h-full" style={{ width: quantMode === "vsq" ? "20%" : "27%" }} title="Compressed Size" />
+                  <div className="bg-muted-foreground/30 h-full" style={{ width: quantMode === "vsq" ? "80%" : "73%" }} title="Saved Space" />
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
-                  <span>Target: Q4_0 Container (~27% size)</span>
+                  <span>Target: {quantMode === "vsq" ? "QWN-VSQ Container (~20% size)" : "Q4_0 Container (~27% size)"}</span>
                   <span>Uncompressed Baseline (100%)</span>
                 </div>
               </div>
