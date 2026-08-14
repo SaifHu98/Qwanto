@@ -5,6 +5,16 @@
  * Regola: ogni differenza di piattaforma vive QUI; i .c restano puliti. */
 #ifndef COMPAT_H
 #define COMPAT_H
+
+#if !defined(_WIN32)
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <pthread.h>
+#include <sched.h>
+#include <unistd.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -550,7 +560,7 @@ static inline void compat_set_thread_affinity(int thread_idx, int total_threads)
 #else /* !_WIN32 */
 
 static inline void compat_set_thread_affinity(int thread_idx, int total_threads) {
-#if defined(__linux__) && defined(_GNU_SOURCE)
+#if defined(__linux__)
     if (total_threads > 0) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
