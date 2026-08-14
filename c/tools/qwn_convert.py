@@ -573,6 +573,11 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     head_dim = hidden // max(1, heads) if heads else 0
     layers = metadata.get(f"{arch_prefix}.block_count", 0)
     vocab = metadata.get(f"{arch_prefix}.vocab_size", 0)
+    if not vocab:
+        for t in tensors:
+            if t["name"] in ("model.embed_tokens.weight", "lm_head.weight") and len(t.get("shape", ())) >= 2:
+                vocab = max(t["shape"])
+                break
     ctx = metadata.get(f"{arch_prefix}.context_length", 2048)
 
     config_data = json.dumps({
@@ -583,6 +588,29 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     }).encode("utf-8")
     tensors.append({"name": "__qwn.config", "dtype": DT_BYTES,
                     "shape": (len(config_data),), "payload": config_data})
+
+    isdir = [False] * 256
+    for b in range(33, 127): isdir[b] = True
+    for b in range(161, 173): isdir[b] = True
+    for b in range(174, 256): isdir[b] = True
+    n = 0
+    vocab_map = {}
+    for b in range(256):
+        cp = b if isdir[b] else (256 + n)
+        if not isdir[b]: n += 1
+        vocab_map[chr(cp)] = b
+
+    tok_data = json.dumps({
+        "version": "1.0",
+        "model": {
+            "type": "BPE",
+            "vocab": vocab_map,
+            "merges": []
+        },
+        "added_tokens": []
+    }).encode("utf-8")
+    tensors.append({"name": "__qwn.tokenizer", "dtype": DT_BYTES,
+                    "shape": (len(tok_data),), "payload": tok_data})
 
     dims = (hidden, inter, heads, kv_heads, head_dim, layers, vocab, ctx)
     return tensors, dims

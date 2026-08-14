@@ -2107,14 +2107,22 @@ class APIHandler(BaseHTTPRequestHandler):
                 for p in parent_paths:
                     try:
                         for entry in p.iterdir():
-                            if entry.is_file() and (entry.name.endswith(".gguf") or entry.name.endswith(".qwn")):
-                                models.append({
-                                    "name": entry.name,
-                                    "path": str(entry),
-                                    "type": "qwn" if entry.name.endswith(".qwn") else "gguf"
-                                })
+                            if entry.is_file():
+                                lower = entry.name.lower()
+                                if lower.endswith(".qwn"):
+                                    models.append({"name": entry.name, "path": str(entry), "type": "qwn"})
+                                elif lower.endswith(".gguf"):
+                                    models.append({"name": entry.name, "path": str(entry), "type": "gguf"})
+                                elif lower.endswith(".safetensors"):
+                                    models.append({"name": entry.name, "path": str(entry), "type": "safetensors"})
+                                elif lower.endswith(".pt") or lower.endswith(".pth") or lower.endswith(".bin"):
+                                    models.append({"name": entry.name, "path": str(entry), "type": "pytorch"})
+                                elif lower.endswith(".onnx"):
+                                    models.append({"name": entry.name, "path": str(entry), "type": "onnx"})
+                                elif lower.endswith(".h5") or lower.endswith(".keras"):
+                                    models.append({"name": entry.name, "path": str(entry), "type": "keras"})
                             elif entry.is_dir():
-                                if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") for f in entry.iterdir()):
+                                if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") or f.name.endswith(".safetensors") for f in entry.iterdir()):
                                     models.append({
                                         "name": entry.name,
                                         "path": str(entry),
