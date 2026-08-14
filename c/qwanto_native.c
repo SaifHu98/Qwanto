@@ -1,6 +1,5 @@
 #include "qwanto_native.h"
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>

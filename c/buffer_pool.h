@@ -39,7 +39,8 @@ static inline void buffer_pool_init(EBufferPool *pool, int count, size_t slab_ca
 static inline int buffer_pool_lease(EBufferPool *pool, uint8_t **slab_out, size_t *slab_cap_out, float **fslab_out, size_t *fslab_cap_out) {
     for (int i = 0; i < pool->count; i++) {
         // Atomic compare and swap to lease lock-free
-        if (__atomic_compare_exchange_n(&pool->entries[i].in_use, &(int){0}, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        int expected = 0;
+        if (__atomic_compare_exchange_n(&pool->entries[i].in_use, &expected, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
             // Lazy allocation: allocate memory only on first lease
             if (!pool->entries[i].slab && pool->entries[i].slab_cap > 0) {
                 posix_memalign((void**)&pool->entries[i].slab, 16384, pool->entries[i].slab_cap);

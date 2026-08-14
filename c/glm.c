@@ -617,16 +617,52 @@ static int g_i4s=2;   /* senza SDOT / altrove: soglia originale (misura AVX2 del
                        * EN: without SDOT / elsewhere: original threshold (author's AVX2). */
 #endif
 static inline float qrow_i8(const float *x, int8_t *q, int I){
-    float amax=0; for(int i=0;i<I;i++){ float a=fabsf(x[i]); if(a>amax)amax=a; }
-    float s=amax/127.f; if(s<1e-12f) s=1e-12f; float inv=1.f/s;
-    for(int i=0;i<I;i++) q[i]=(int8_t)lrintf(x[i]*inv);
+    float amax = 0;
+    int i = 0;
+#ifdef __AVX2__
+    if (I >= 8) {
+        const __m256 sign_mask = _mm256_set1_ps(-0.0f);
+        __m256 max_v = _mm256_setzero_ps();
+        for (; i <= I - 8; i += 8) {
+            __m256 v = _mm256_loadu_ps(x + i);
+            v = _mm256_andnot_ps(sign_mask, v);
+            max_v = _mm256_max_ps(max_v, v);
+        }
+        float tmp[8];
+        _mm256_storeu_ps(tmp, max_v);
+        for (int j = 0; j < 8; j++) if (tmp[j] > amax) amax = tmp[j];
+    }
+#endif
+    for (; i < I; i++) { float a = fabsf(x[i]); if (a > amax) amax = a; }
+    float s = amax / 127.f; if (s < 1e-12f) s = 1e-12f; float inv = 1.f / s;
+    i = 0;
+#ifdef __AVX2__
+    if (I >= 8) {
+        const __m256 vinv = _mm256_set1_ps(inv);
+        for (; i <= I - 8; i += 8) {
+            __m256 v = _mm256_loadu_ps(x + i);
+            __m256 scaled = _mm256_mul_ps(v, vinv);
+            __m256i rounded = _mm256_cvtps_epi32(scaled);
+            __m128i r_lo = _mm256_castsi256_si128(rounded);
+            __m128i r_hi = _mm256_extracti128_si256(rounded, 1);
+            __m128i pack16 = _mm_packs_epi32(r_lo, r_hi);
+            __m128i pack8 = _mm_packs_epi16(pack16, pack16);
+            *(int64_t *)(q + i) = _mm_cvtsi128_si64(pack8);
+        }
+    }
+#endif
+    for (; i < I; i++) q[i] = (int8_t)lrintf(x[i] * inv);
     return s;
 }
 #ifdef __AVX2__
 static inline int hsum256_i32(__m256i v){
-    __m128i lo=_mm256_castsi256_si128(v), hi=_mm256_extracti128_si256(v,1);
-    lo=_mm_add_epi32(lo,hi); lo=_mm_hadd_epi32(lo,lo); lo=_mm_hadd_epi32(lo,lo);
-    return _mm_cvtsi128_si32(lo);
+    __m128i lo = _mm256_castsi256_si128(v), hi = _mm256_extracti128_si256(v, 1);
+    __m128i sum128 = _mm_add_epi32(lo, hi);
+    __m128i tmp = _mm_shuffle_epi32(sum128, _MM_SHUFFLE(1, 0, 3, 2));
+    sum128 = _mm_add_epi32(sum128, tmp);
+    tmp = _mm_shuffle_epi32(sum128, _MM_SHUFFLE(2, 3, 0, 1));
+    sum128 = _mm_add_epi32(sum128, tmp);
+    return _mm_cvtsi128_si32(sum128);
 }
 #endif
 #if defined(__AVXVNNI__) && defined(__AVX2__)

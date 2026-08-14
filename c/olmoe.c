@@ -21,6 +21,9 @@
 #include <sys/resource.h>
 #endif
 #include "st.h"
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
 
 /* ---------- config ---------- */
 typedef struct {
@@ -119,6 +122,26 @@ static void matmul_q(float *y, const float *x, const int8_t *q, const float *sca
         return;
     }
 #endif
+#if defined(__AVX2__)
+    #pragma omp parallel for schedule(static)
+    for (int o = 0; o < O; o++) {
+        const int8_t *w = q + (int64_t)o * I;
+        __m256 acc_v = _mm256_setzero_ps();
+        int i = 0;
+        for (; i <= I - 8; i += 8) {
+            __m256 xv = _mm256_loadu_ps(x + i);
+            __m128i wv8 = _mm_loadl_epi64((const __m128i *)(w + i));
+            __m256i wv32 = _mm256_cvtepi8_epi32(wv8);
+            __m256 wvf = _mm256_cvtepi32_ps(wv32);
+            acc_v = _mm256_fmadd_ps(xv, wvf, acc_v);
+        }
+        float tmp[8];
+        _mm256_storeu_ps(tmp, acc_v);
+        float acc = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
+        for (; i < I; i++) acc += x[i] * (float)w[i];
+        y[o] = acc * scale[o];
+    }
+#else
     #pragma omp parallel for schedule(static)
     for (int o = 0; o < O; o++) {
         const int8_t *w = q + (int64_t)o * I;
@@ -126,6 +149,7 @@ static void matmul_q(float *y, const float *x, const int8_t *q, const float *sca
         for (int i = 0; i < I; i++) acc += x[i] * (float)w[i];
         y[o] = acc * scale[o];
     }
+#endif
 }
 
 /* quantizza un weight f32 [O,I] -> int8 q[O,I] + scala[O], simmetrica per riga.
