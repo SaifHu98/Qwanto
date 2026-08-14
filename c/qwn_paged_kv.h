@@ -30,7 +30,14 @@ typedef struct {
     int *block_ids;        /* Array of physical block indices */
     int block_count;
     int block_capacity;
+    int prefill_remaining; /* Unprocessed prompt tokens for chunked prefill */
+    int prefill_offset;    /* Current offset in prompt */
 } QwnBlockTable;
+
+typedef struct {
+    int max_chunk_tokens;  /* Default e.g. 512 tokens per prefill tick */
+    int active_requests;
+} QwnChunkedScheduler;
 
 /* Initialize global physical block pool */
 int qwn_kv_pool_init(QwnKVBlockPool *pool, int total_blocks, int layers, int kv_heads, int head_dim);
@@ -57,11 +64,24 @@ void qwn_block_table_free(QwnKVBlockPool *pool, QwnBlockTable *bt);
 int qwn_paged_kv_write(QwnKVBlockPool *pool, const QwnBlockTable *bt, int layer,
                        int token_pos, const float *k, const float *v);
 
-/* Compute PagedAttention context vector for a single attention head */
+/* Compute PagedAttention context vector for a single attention head with Gather Scratchpad */
 void qwn_paged_attention_head(const QwnKVBlockPool *pool, const QwnBlockTable *bt,
                               int layer, int head_idx, int kv_head_idx,
                               const float *q_head, float *scores_scratch,
                               float *out_ctx_head);
+
+/* High-efficiency L1/L2 Cache Gathered PagedAttention */
+void qwn_paged_attention_gather_head(const QwnKVBlockPool *pool, const QwnBlockTable *bt,
+                                     int layer, int head_idx, int kv_head_idx,
+                                     const float *q_head, uint16_t *k_gather_scratch,
+                                     uint16_t *v_gather_scratch, float *scores_scratch,
+                                     float *out_ctx_head);
+
+/* Initialize chunked prefill scheduler */
+void qwn_scheduler_init(QwnChunkedScheduler *sched, int max_chunk_tokens);
+
+/* Calculate next prefill slice size for a request to prevent decode jitter */
+int qwn_scheduler_next_chunk(const QwnChunkedScheduler *sched, const QwnBlockTable *bt);
 
 #ifdef __cplusplus
 }

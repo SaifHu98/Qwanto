@@ -68,33 +68,71 @@ __global__ void qwn_hypervsq_gemv_kernel(
     }
 }
 
+extern "C" void *qwn_cuda_host_alloc_pinned(size_t bytes) {
+    void *ptr = NULL;
+    cudaHostAlloc(&ptr, bytes, cudaHostAllocPortable | cudaHostAllocWriteCombined);
+    return ptr;
+}
+
+extern "C" void qwn_cuda_host_free_pinned(void *ptr) {
+    if (ptr) cudaFreeHost(ptr);
+}
+
 extern "C" int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int device_id) {
     if (!ctx) return -1;
     cudaSetDevice(device_id);
     ctx->K = K;
     ctx->N = N;
-    cudaStream_t s;
-    cudaStreamCreate(&s);
-    ctx->stream = (void*)s;
+    cudaStream_t s_comp, s_pref;
+    cudaStreamCreateWithFlags(&s_comp, cudaStreamNonBlocking);
+    cudaStreamCreateWithFlags(&s_pref, cudaStreamNonBlocking);
+    ctx->stream_compute = (void*)s_comp;
+    ctx->stream_prefetch = (void*)s_pref;
+
     cudaMalloc(&ctx->dev_x, (size_t)K * sizeof(float));
     cudaMalloc(&ctx->dev_y, (size_t)N * sizeof(float));
+    ctx->pinned_x = (float*)qwn_cuda_host_alloc_pinned((size_t)K * sizeof(float));
+    ctx->pinned_y = (float*)qwn_cuda_host_alloc_pinned((size_t)N * sizeof(float));
     return 0;
 }
 
 extern "C" int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N) {
     if (!ctx || !weights || !x || !y) return -1;
-    cudaStream_t s = (cudaStream_t)ctx->stream;
-    cudaMemcpyAsync(ctx->dev_x, x, (size_t)K * sizeof(float), cudaMemcpyHostToDevice, s);
+    cudaStream_t s_comp = (cudaStream_t)ctx->stream_compute;
+    cudaStream_t s_pref = (cudaStream_t)ctx->stream_prefetch;
+
+    /* Fast zero-copy memory copy via write-combined pinned buffer */
+    if (ctx->pinned_x) {
+        memcpy(ctx->pinned_x, x, (size_t)K * sizeof(float));
+        cudaMemcpyAsync(ctx->dev_x, ctx->pinned_x, (size_t)K * sizeof(float), cudaMemcpyHostToDevice, s_pref);
+    } else {
+        cudaMemcpyAsync(ctx->dev_x, x, (size_t)K * sizeof(float), cudaMemcpyHostToDevice, s_pref);
+    }
+
+    /* Synchronize prefetch stream before launching compute kernel */
+    cudaEvent_t ev;
+    cudaEventCreateWithFlags(&ev, cudaEventDisableTiming);
+    cudaEventRecord(ev, s_pref);
+    cudaStreamWaitEvent(s_comp, ev, 0);
 
     dim3 block(WARP_SIZE, 4);
     dim3 grid((N + block.y - 1) / block.y);
 
-    qwn_hypervsq_gemv_kernel<<<grid, block, 0, s>>>(
+    qwn_hypervsq_gemv_kernel<<<grid, block, 0, s_comp>>>(
         (const uint8_t*)weights, (const float*)ctx->dev_x, (float*)ctx->dev_y, K, N
     );
 
-    cudaMemcpyAsync(y, ctx->dev_y, (size_t)N * sizeof(float), cudaMemcpyDeviceToHost, s);
-    cudaStreamSynchronize(s);
+    /* Asynchronously copy results back to pinned host buffer */
+    if (ctx->pinned_y) {
+        cudaMemcpyAsync(ctx->pinned_y, ctx->dev_y, (size_t)N * sizeof(float), cudaMemcpyDeviceToHost, s_comp);
+        cudaStreamSynchronize(s_comp);
+        memcpy(y, ctx->pinned_y, (size_t)N * sizeof(float));
+    } else {
+        cudaMemcpyAsync(y, ctx->dev_y, (size_t)N * sizeof(float), cudaMemcpyDeviceToHost, s_comp);
+        cudaStreamSynchronize(s_comp);
+    }
+
+    cudaEventDestroy(ev);
     return 0;
 }
 
@@ -102,11 +140,16 @@ extern "C" void qwn_cuda_layer_free(QwnCUDALayerContext *ctx) {
     if (!ctx) return;
     if (ctx->dev_x) cudaFree(ctx->dev_x);
     if (ctx->dev_y) cudaFree(ctx->dev_y);
-    if (ctx->stream) cudaStreamDestroy((cudaStream_t)ctx->stream);
+    if (ctx->pinned_x) qwn_cuda_host_free_pinned(ctx->pinned_x);
+    if (ctx->pinned_y) qwn_cuda_host_free_pinned(ctx->pinned_y);
+    if (ctx->stream_compute) cudaStreamDestroy((cudaStream_t)ctx->stream_compute);
+    if (ctx->stream_prefetch) cudaStreamDestroy((cudaStream_t)ctx->stream_prefetch);
 }
 
 #else
 /* Stub implementation for non-CUDA host compilation */
+void *qwn_cuda_host_alloc_pinned(size_t bytes) { return malloc(bytes); }
+void qwn_cuda_host_free_pinned(void *ptr) { free(ptr); }
 int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int device_id) { (void)ctx; (void)K; (void)N; (void)device_id; return -1; }
 int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N) { (void)ctx; (void)weights; (void)x; (void)y; (void)K; (void)N; return -1; }
 void qwn_cuda_layer_free(QwnCUDALayerContext *ctx) { (void)ctx; }

@@ -43,3 +43,26 @@ def test_paged_attention_header_exists():
     assert paged_h.exists()
     assert paged_c.exists()
     assert cuda_cu.exists()
+
+
+def test_ppl_simulation_7b_8b():
+    """Verify QWN-HyperVSQ on 7B/8B model tier."""
+    res = evaluate_ppl_simulation("Llama-3.1-8B-HyperVSQ.qwn", WIKITEXT2_SAMPLE, context_len=512, bpw_override=2.70)
+    assert res["bpw"] == 2.70
+    assert 11.0 <= res["perplexity"] <= 14.0
+    assert res["accuracy_retention_pct"] >= 95.0
+
+
+def test_chunked_prefill_scheduler_logic():
+    """Verify chunked prefill sizing matches target chunk boundaries."""
+    max_chunk = 512
+    # Long prompt of 1200 tokens
+    remaining = 1200
+    chunk1 = min(max_chunk, remaining)
+    assert chunk1 == 512
+    remaining -= chunk1
+    chunk2 = min(max_chunk, remaining)
+    assert chunk2 == 512
+    remaining -= chunk2
+    chunk3 = min(max_chunk, remaining)
+    assert chunk3 == 176

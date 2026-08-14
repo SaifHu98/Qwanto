@@ -249,3 +249,100 @@ void qwn_paged_attention_head(const QwnKVBlockPool *pool, const QwnBlockTable *b
 #endif
     }
 }
+
+void qwn_paged_attention_gather_head(const QwnKVBlockPool *pool, const QwnBlockTable *bt,
+                                     int layer, int head_idx, int kv_head_idx,
+                                     const float *q_head, uint16_t *k_gather_scratch,
+                                     uint16_t *v_gather_scratch, float *scores_scratch,
+                                     float *out_ctx_head) {
+    (void)head_idx;
+    if (!pool || !bt || bt->num_tokens <= 0) return;
+    int num_tokens = bt->num_tokens;
+    int HD = pool->head_dim;
+    int HK = pool->kv_heads;
+    float scale = 1.0f / sqrtf((float)HD);
+    size_t block_stride = (size_t)pool->layers * HK * QWN_PAGE_BLOCK_SIZE * HD;
+    size_t layer_offset = (size_t)layer * HK * QWN_PAGE_BLOCK_SIZE * HD;
+
+    /* Step 1: Sequential Cache Gather with Hardware Prefetching */
+    int num_blocks = (num_tokens + QWN_PAGE_BLOCK_SIZE - 1) / QWN_PAGE_BLOCK_SIZE;
+    for (int b = 0; b < num_blocks; b++) {
+        int phys_block = bt->block_ids[b];
+        size_t src_base = (size_t)phys_block * block_stride + layer_offset +
+                          (size_t)kv_head_idx * QWN_PAGE_BLOCK_SIZE * HD;
+        int tokens_in_block = (b == num_blocks - 1) ? (num_tokens - b * QWN_PAGE_BLOCK_SIZE) : QWN_PAGE_BLOCK_SIZE;
+        size_t copy_elems = (size_t)tokens_in_block * HD;
+
+        /* Hardware L1 Prefetch for next block */
+        if (b + 1 < num_blocks) {
+            int next_phys = bt->block_ids[b + 1];
+            size_t next_base = (size_t)next_phys * block_stride + layer_offset;
+#if defined(__AVX2__)
+            _mm_prefetch((const char *)(pool->key_data + next_base), _MM_HINT_T0);
+            _mm_prefetch((const char *)(pool->val_data + next_base), _MM_HINT_T0);
+#endif
+        }
+
+        memcpy(k_gather_scratch + (size_t)b * QWN_PAGE_BLOCK_SIZE * HD, pool->key_data + src_base, copy_elems * sizeof(uint16_t));
+        memcpy(v_gather_scratch + (size_t)b * QWN_PAGE_BLOCK_SIZE * HD, pool->val_data + src_base, copy_elems * sizeof(uint16_t));
+    }
+
+    /* Step 2: High-throughput contiguous L1 vector dot-products */
+    for (int t = 0; t < num_tokens; t++) {
+        const uint16_t *kc = k_gather_scratch + (size_t)t * HD;
+        float dot = 0.0f;
+#if defined(__AVX2__) && defined(__F16C__)
+        __m256 acc = _mm256_setzero_ps();
+        int j = 0;
+        for (; j <= HD - 8; j += 8) {
+            __m128i h8 = _mm_loadu_si128((const __m128i *)(kc + j));
+            __m256 kf = _mm256_cvtph_ps(h8);
+            __m256 qf = _mm256_loadu_ps(q_head + j);
+            acc = _mm256_fmadd_ps(qf, kf, acc);
+        }
+        float tmp[8]; _mm256_storeu_ps(tmp, acc);
+        dot = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+        for (; j < HD; j++) dot += q_head[j] * half_to_float(kc[j]);
+#else
+        for (int j = 0; j < HD; j++) dot += q_head[j] * half_to_float(kc[j]);
+#endif
+        scores_scratch[t] = dot * scale;
+    }
+
+    softmax_inplace(scores_scratch, num_tokens);
+
+    /* Step 3: Contiguous accumulation into output context */
+    memset(out_ctx_head, 0, (size_t)HD * sizeof(float));
+    for (int t = 0; t < num_tokens; t++) {
+        float sc = scores_scratch[t];
+        const uint16_t *vc = v_gather_scratch + (size_t)t * HD;
+#if defined(__AVX2__) && defined(__F16C__)
+        __m256 sv = _mm256_set1_ps(sc);
+        int j = 0;
+        for (; j <= HD - 8; j += 8) {
+            __m128i h8 = _mm_loadu_si128((const __m128i *)(vc + j));
+            __m256 vf = _mm256_cvtph_ps(h8);
+            __m256 ov = _mm256_loadu_ps(out_ctx_head + j);
+            ov = _mm256_fmadd_ps(sv, vf, ov);
+            _mm256_storeu_ps(out_ctx_head + j, ov);
+        }
+        for (; j < HD; j++) out_ctx_head[j] += sc * half_to_float(vc[j]);
+#else
+        for (int j = 0; j < HD; j++) out_ctx_head[j] += sc * half_to_float(vc[j]);
+#endif
+    }
+}
+
+void qwn_scheduler_init(QwnChunkedScheduler *sched, int max_chunk_tokens) {
+    if (!sched) return;
+    sched->max_chunk_tokens = max_chunk_tokens > 0 ? max_chunk_tokens : 512;
+    sched->active_requests = 0;
+}
+
+int qwn_scheduler_next_chunk(const QwnChunkedScheduler *sched, const QwnBlockTable *bt) {
+    if (!sched || !bt) return 0;
+    if (bt->prefill_remaining <= 0) return 1; /* Decode step: 1 token */
+    int chunk = bt->prefill_remaining;
+    if (chunk > sched->max_chunk_tokens) chunk = sched->max_chunk_tokens;
+    return chunk;
+}
