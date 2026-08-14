@@ -525,22 +525,30 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l+1)*D,D,c->rms_eps);
         if(matmul(d,lt->gate_proj,d->xb,D,I,d->gate)||
            matmul(d,lt->up_proj,d->xb,D,I,d->up))return -1;
-        /* SwiGLU: hidden = silu(gate) * up */
+        /* SwiGLU: hidden = silu(gate) * up with fast reciprocal Newton-Raphson */
 #if defined(__AVX2__)
         {
             __m256 one = _mm256_set1_ps(1.0f);
+            __m256 half = _mm256_set1_ps(0.5f);
+            __m256 two = _mm256_set1_ps(2.0f);
             int i = 0;
             for (; i <= I - 8; i += 8) {
                 __m256 g = _mm256_loadu_ps(d->gate + i);
                 __m256 u = _mm256_loadu_ps(d->up + i);
                 __m256 ag = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), g);
-                __m256 sig = _mm256_div_ps(g, _mm256_add_ps(one, ag));
+                __m256 denom = _mm256_add_ps(one, ag);
+                /* 1-step Newton-Raphson reciprocal: r = rcp * (2 - denom * rcp) */
+                __m256 r0 = _mm256_rcp_ps(denom);
+                __m256 r = _mm256_mul_ps(r0, _mm256_sub_ps(two, _mm256_mul_ps(denom, r0)));
+                __m256 frac = _mm256_mul_ps(g, r);
+                __m256 sig = _mm256_mul_ps(half, _mm256_add_ps(one, frac));
                 __m256 silu = _mm256_mul_ps(g, sig);
                 _mm256_storeu_ps(d->hidden + i, _mm256_mul_ps(silu, u));
             }
             for (; i < I; i++) {
                 float g = d->gate[i];
-                d->hidden[i] = (g * g / (1.0f + fabsf(g))) * d->up[i];
+                float sig = 0.5f * (1.0f + g / (1.0f + fabsf(g)));
+                d->hidden[i] = (g * sig) * d->up[i];
             }
         }
 #else

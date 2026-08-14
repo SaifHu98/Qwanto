@@ -80,14 +80,11 @@ def quantize_q4_0(src: bytes) -> bytes:
         hi = q[:, 1::2] & 0x0F
         packed = (lo | (hi << 4)).astype(np.uint8)
         
-        # Interleave scale (2B) + packed (16B) = 18B per block
-        out = bytearray(n_blocks * 18)
-        scale_bytes = scales.tobytes()
-        packed_bytes = packed.tobytes()
-        for b in range(n_blocks):
-            out[b * 18 : b * 18 + 2] = scale_bytes[b * 2 : (b + 1) * 2]
-            out[b * 18 + 2 : (b + 1) * 18] = packed_bytes[b * 16 : (b + 1) * 16]
-        return bytes(out)
+        # Fully vectorized block packing without python loop
+        out_buf = np.empty((n_blocks, 18), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(scales.tobytes(), dtype=np.uint8).reshape(n_blocks, 2)
+        out_buf[:, 2:] = packed
+        return out_buf.tobytes()
     else:
         values = struct.unpack(f"<{n_floats}f", src)
         out = bytearray()
@@ -122,16 +119,31 @@ def bf16_payload_to_f32(src: bytes) -> bytes:
 
 
 def quantize_q4_0_rows(src: bytes, rows: int, cols: int) -> bytes:
-    """Quantize each matrix row independently; every K-tail gets zero padding."""
+    """Quantize each matrix row independently; vectorized across all rows."""
     if len(src) != rows * cols * 4:
         raise ValueError("matrix payload/shape mismatch")
     np = _get_numpy()
     if np is not None:
         arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
-        out = bytearray()
-        for r in range(rows):
-            out += quantize_q4_0(arr[r].tobytes())
-        return bytes(out)
+        blocks_per_row = (cols + 31) // 32
+        if cols < blocks_per_row * 32:
+            padded = np.zeros((rows, blocks_per_row * 32), dtype=np.float32)
+            padded[:, :cols] = arr
+            arr = padded
+        total_blocks = rows * blocks_per_row
+        blocks = arr.reshape(total_blocks, 32)
+        amax = np.max(np.abs(blocks), axis=1)
+        scales = np.where(amax > 0, amax / 7.0, 1.0).astype(np.float16)
+        scale_denom = np.where(scales > 0, scales, 1.0)[:, None]
+        q = np.clip(np.round(blocks / scale_denom), -8, 7).astype(np.int8) + 8
+        lo = q[:, 0::2] & 0x0F
+        hi = q[:, 1::2] & 0x0F
+        packed = (lo | (hi << 4)).astype(np.uint8)
+        
+        out_buf = np.empty((total_blocks, 18), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(scales.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 2:] = packed
+        return out_buf.tobytes()
     values = struct.unpack(f"<{rows * cols}f", src)
     out = bytearray()
     for row in range(rows):
@@ -300,18 +312,21 @@ def _copy_writer(meta):
 def _q4_writer(meta):
     rows, cols = meta["shape"]
     item_bytes = 4 if meta["dtype"] == "F32" else 2
+    row_bytes = cols * item_bytes
+    chunk_rows = max(1, (16 * 1024 * 1024) // row_bytes)
     def write(out):
         with meta["path"].open("rb") as src:
             src.seek(meta["offset"])
-            for _ in range(rows):
-                raw = src.read(cols * item_bytes)
-                if len(raw) != cols * item_bytes:
-                    raise ValueError(f"truncated matrix row: {meta['name']}")
+            for r_start in range(0, rows, chunk_rows):
+                cur_rows = min(chunk_rows, rows - r_start)
+                raw = src.read(cur_rows * row_bytes)
+                if len(raw) != cur_rows * row_bytes:
+                    raise ValueError(f"truncated matrix chunk: {meta['name']}")
                 if meta["dtype"] == "F16":
                     raw = f16_payload_to_f32(raw)
                 elif meta["dtype"] == "BF16":
                     raw = bf16_payload_to_f32(raw)
-                out.write(quantize_q4_0(raw))
+                out.write(quantize_q4_0_rows(raw, cur_rows, cols))
     return write
 
 
@@ -414,54 +429,66 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
             out_dtype = DT_F32
             if quant == "q4_0" and len(shape) == 2:
                 out_dtype = DT_Q4_0
-                payload_size = shape[1] * ((shape[0] + 31) // 32) * 18
+                cols, rows = shape[0], shape[1]
+                payload_size = rows * ((cols + 31) // 32) * 18
                 def make_writer(b_off, r, c):
+                    row_b = c * 4
+                    chunk_r = max(1, (16 * 1024 * 1024) // row_b)
                     def write(out):
                         with open(path, "rb") as sf:
                             sf.seek(b_off)
-                            for _ in range(r):
-                                raw = sf.read(c * 4)
-                                out.write(quantize_q4_0(raw))
+                            for r_start in range(0, r, chunk_r):
+                                cur_r = min(chunk_r, r - r_start)
+                                raw = sf.read(cur_r * row_b)
+                                out.write(quantize_q4_0_rows(raw, cur_r, c))
                     return write
                 tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                                 "payload_size": payload_size,
-                                "write_payload": make_writer(byte_offset, shape[1], shape[0])})
+                                "write_payload": make_writer(byte_offset, rows, cols)})
                 continue
         elif dtype == 1:  # F16
             out_dtype = DT_F16
             if quant == "q4_0" and len(shape) == 2:
                 out_dtype = DT_Q4_0
-                payload_size = shape[1] * ((shape[0] + 31) // 32) * 18
+                cols, rows = shape[0], shape[1]
+                payload_size = rows * ((cols + 31) // 32) * 18
                 def make_writer(b_off, r, c):
+                    row_b = c * 2
+                    chunk_r = max(1, (16 * 1024 * 1024) // row_b)
                     def write(out):
                         with open(path, "rb") as sf:
                             sf.seek(b_off)
-                            for _ in range(r):
-                                raw = sf.read(c * 2)
+                            for r_start in range(0, r, chunk_r):
+                                cur_r = min(chunk_r, r - r_start)
+                                raw = sf.read(cur_r * row_b)
                                 raw_f32 = f16_payload_to_f32(raw)
-                                out.write(quantize_q4_0(raw_f32))
+                                out.write(quantize_q4_0_rows(raw_f32, cur_r, c))
                     return write
                 tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                                 "payload_size": payload_size,
-                                "write_payload": make_writer(byte_offset, shape[1], shape[0])})
+                                "write_payload": make_writer(byte_offset, rows, cols)})
                 continue
         elif dtype == 28:  # BF16
             out_dtype = DT_BF16
             if quant == "q4_0" and len(shape) == 2:
                 out_dtype = DT_Q4_0
-                payload_size = shape[1] * ((shape[0] + 31) // 32) * 18
+                cols, rows = shape[0], shape[1]
+                payload_size = rows * ((cols + 31) // 32) * 18
                 def make_writer(b_off, r, c):
+                    row_b = c * 2
+                    chunk_r = max(1, (16 * 1024 * 1024) // row_b)
                     def write(out):
                         with open(path, "rb") as sf:
                             sf.seek(b_off)
-                            for _ in range(r):
-                                raw = sf.read(c * 2)
+                            for r_start in range(0, r, chunk_r):
+                                cur_r = min(chunk_r, r - r_start)
+                                raw = sf.read(cur_r * row_b)
                                 raw_f32 = bf16_payload_to_f32(raw)
-                                out.write(quantize_q4_0(raw_f32))
+                                out.write(quantize_q4_0_rows(raw_f32, cur_r, c))
                     return write
                 tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                                 "payload_size": payload_size,
-                                "write_payload": make_writer(byte_offset, shape[1], shape[0])})
+                                "write_payload": make_writer(byte_offset, rows, cols)})
                 continue
         elif dtype == 2:  # Q4_0
             out_dtype = DT_Q4_0
@@ -561,8 +588,21 @@ def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
     src_path = Path(src)
     ext = src_path.suffix.lower()
 
-    if ext == ".gguf":
+    is_gguf = ext == ".gguf" or (src_path.is_file() and open(src_path, "rb").read(4) == b"GGUF")
+    if is_gguf:
         tensors, dims = _read_gguf_tensors(str(src_path), quant)
+        # Check for companion mmproj file in same directory
+        parent_dir = src_path.parent
+        for mmproj_cand in parent_dir.glob("*mmproj*.gguf"):
+            if mmproj_cand.is_file() and mmproj_cand != src_path:
+                try:
+                    mm_tensors, _ = _read_gguf_tensors(str(mmproj_cand), quant="none")
+                    for mt in mm_tensors:
+                        if not mt["name"].startswith("mmproj.") and not mt["name"].startswith("vision_tower."):
+                            mt["name"] = f"mmproj.{mt['name']}"
+                        tensors.append(mt)
+                except Exception:
+                    pass
         return write_qwn(dst, tensors, arch_dims=dims)
     elif ext in (".pt", ".pth", ".bin"):
         tensors, dims = _read_pytorch_tensors(str(src_path), quant)
@@ -570,13 +610,6 @@ def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
     elif ext == ".safetensors" or src_path.is_dir() or any(src_path.glob("*.safetensors") if src_path.is_dir() else ()):
         return convert_safetensors(src, dst, quant)
     else:
-        # Check header magic for GGUF
-        if src_path.is_file():
-            with open(src_path, "rb") as f:
-                head = f.read(4)
-                if head == b"GGUF":
-                    tensors, dims = _read_gguf_tensors(str(src_path), quant)
-                    return write_qwn(dst, tensors, arch_dims=dims)
         # Default fallback to safetensors
         return convert_safetensors(src, dst, quant)
 
