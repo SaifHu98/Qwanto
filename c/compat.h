@@ -547,6 +547,24 @@ static inline void compat_set_thread_affinity(int thread_idx, int total_threads)
 #define mmap(addr,length,prot,flags,fd,offset) compat_mmap(addr,length,prot,flags,fd,offset)
 #define munmap(addr,length) compat_munmap(addr,length)
 
+#else /* !_WIN32 */
+
+static inline void compat_set_thread_affinity(int thread_idx, int total_threads) {
+#if defined(__linux__) && defined(_GNU_SOURCE)
+    if (total_threads > 0) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+        if (nprocs > 0) {
+            CPU_SET(thread_idx % nprocs, &cpuset);
+            pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+        }
+    }
+#else
+    (void)thread_idx; (void)total_threads;
+#endif
+}
+
 #endif /* _WIN32 */
 
 /* --- compat_aligned_free su piattaforme diverse da Windows ---

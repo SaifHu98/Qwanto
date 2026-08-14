@@ -118,19 +118,12 @@ def run_doctor(model, ram_gb=0, context=4096, gpu_indices=None, vram_gb=0, *,
         checks.append(_check("storage.disk", disk_status, disk_summary,
                              available_bytes=disk["available_bytes"], model_bytes=disk["model_bytes"]))
         ram = plan["tiers"]["ram"]
-        mmap_enabled = os.environ.get("QWANTO_MMAP") == "1" or (ram["budget_bytes"] < 12 * GB)
         if not available_memory:
             ram_status, ram_summary = "warn", "available RAM could not be measured"
         elif ram["budget_bytes"] > available_memory:
-            if mmap_enabled:
-                ram_status, ram_summary = "warn", "planned RAM budget exceeds available memory (mmap zero-copy active)"
-            else:
-                ram_status, ram_summary = "fail", "planned RAM budget exceeds available memory"
+            ram_status, ram_summary = "fail", "planned RAM budget exceeds available memory"
         elif ram["cache_slots_per_layer"] < 1:
-            if mmap_enabled:
-                ram_status, ram_summary = "warn", "RAM budget cannot hold one expert slot per sparse layer (mmap zero-copy active)"
-            else:
-                ram_status, ram_summary = "fail", "RAM budget cannot hold one expert slot per sparse layer"
+            ram_status, ram_summary = "fail", "RAM budget cannot hold one expert slot per sparse layer"
         else:
             ram_status, ram_summary = "pass", "RAM budget is viable"
         checks.append(_check("memory.ram", ram_status, ram_summary,

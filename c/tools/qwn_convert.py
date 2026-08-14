@@ -567,21 +567,6 @@ def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
                 if pad > 0:
                     out.write(b"\0" * pad)
 
-        # Write tail block and index
-        out.seek(tail_offset)
-        out.write(struct.pack(TAIL_FMT, len(overflow), DESC_SIZE,
-                              desc_offset, index_offset, 0))
-        descriptor_offsets = []
-        for i, tensor in enumerate(overflow):
-            descriptor_offsets.append(desc_offset + i * DESC_SIZE)
-            out.write(pack_desc(tensor))
-        entries = sorted((fnv1a64(t["name"]), descriptor_offsets[i])
-                         for i, t in enumerate(overflow))
-        for name_hash, descriptor_offset in entries:
-            out.write(struct.pack("<QQ", name_hash, descriptor_offset))
-        out.write(struct.pack("<Q", tail_offset))
-        out.truncate(file_size)
-
     # Process large streaming tensors in parallel across CPU cores
     streaming_tensors = [t for t in layout if t["write_payload"] is not None]
     if streaming_tensors:
@@ -596,6 +581,22 @@ def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
         max_workers = min(8, os.cpu_count() or 4)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             list(pool.map(_stream_worker, streaming_tensors))
+
+    # Write tail block and index AFTER streaming completes
+    with target.open("r+b") as out:
+        out.seek(tail_offset)
+        out.write(struct.pack(TAIL_FMT, len(overflow), DESC_SIZE,
+                              desc_offset, index_offset, 0))
+        descriptor_offsets = []
+        for i, tensor in enumerate(overflow):
+            descriptor_offsets.append(desc_offset + i * DESC_SIZE)
+            out.write(pack_desc(tensor))
+        entries = sorted((fnv1a64(t["name"]), descriptor_offsets[i])
+                         for i, t in enumerate(overflow))
+        for name_hash, descriptor_offset in entries:
+            out.write(struct.pack("<QQ", name_hash, descriptor_offset))
+        out.write(struct.pack("<Q", tail_offset))
+        out.truncate(file_size)
 
     return file_size
 

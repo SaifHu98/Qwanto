@@ -55,10 +55,18 @@ class TestPhase23HyperVSQ2AndSpeculative(unittest.TestCase):
         self.assertIn("QwnSpecContext", spec_h.read_text(encoding="utf-8"))
 
     def test_benchmark_harness_execution(self):
-        """Verify real-world benchmark harness executes on existing model checkpoints."""
-        model_path = "D:/EcoUni/qwanto/models/DeepSeek-V4-Pro-Qwen3.5-4B-MTP-HyperVSQ.qwn"
-        if os.path.exists(model_path):
-            ok = run_real_benchmark(model_path, n_gen=16)
+        """Verify real-world benchmark harness executes cleanly."""
+        import tempfile
+        from tools.qwn_convert import write_qwn
+        with tempfile.TemporaryDirectory() as td:
+            fixture_path = os.path.join(td, "fixture.qwn")
+            tensors = [{
+                "name": "weight", "dtype": 2, "shape": (32, 1),
+                "payload": b"\x00" * 18, "payload_size": 18,
+                "write_payload": None
+            }]
+            write_qwn(fixture_path, tensors, arch_dims=(32, 32, 1, 1, 32, 1, 32, 128))
+            ok = run_real_benchmark(fixture_path, n_gen=4)
             self.assertTrue(ok)
 
 
