@@ -232,6 +232,36 @@ static inline int32_t hsum_epi32_avx2(__m256i v) {
     sum128 = _mm_add_epi32(sum128, tmp);
     return _mm_cvtsi128_si32(sum128);
 }
+
+/* Unpack 8 packed 2-bit values (8 bytes, 32 weights) into a __m256i of
+ * 32 signed bytes in [0..3] (the encoded range).  Each input byte holds
+ * 4 weights in its low/high 2-bit pairs; the output lays them out in
+ * order so output[0] = weights[0..3] and so on.
+ *
+ * The trick: AND with 0x03, then shift each nibble to its position
+ * (no shift, >>2, >>4, >>6), then interleave 4-byte chunks via two
+ * levels of unpacklo_epi8 / unpacklo_epi16.
+ */
+static inline __m256i unpack_8x4_2bit_avx2(__m128i in8) {
+    const __m256i mask03 = _mm256_set1_epi8(0x03);
+    __m256i in256 = _mm256_set_m128i(in8, in8);
+    __m256i w0 = _mm256_and_si256(in256, mask03);
+    __m256i w1 = _mm256_and_si256(_mm256_srli_epi16(in256, 2), mask03);
+    __m256i w2 = _mm256_and_si256(_mm256_srli_epi16(in256, 4), mask03);
+    __m256i w3 = _mm256_and_si256(_mm256_srli_epi16(in256, 6), mask03);
+    __m256i pack01 = _mm256_unpacklo_epi8(w0, w1);
+    __m256i pack23 = _mm256_unpacklo_epi8(w2, w3);
+    return _mm256_unpacklo_epi16(pack01, pack23);
+}
+
+/* Convert packed [0..3] bytes to signed [-1..2] in place using a
+ * single signed subtract-by-one.  After this, _mm256_maddubs_epi16
+ * treats the bytes as signed (Q4_0-style) and produces the correct
+ * int16 partial products.
+ */
+static inline __m256i signed_minus_one_avx2(__m256i v) {
+    return _mm256_sub_epi8(v, _mm256_set1_epi8(1));
+}
 #endif
 
 static int32_t dot_q4_q8_block(const uint8_t *packed, const int8_t *q8,
@@ -350,6 +380,91 @@ static int32_t dot_hyper_vsq_block(const uint8_t *blk, const int8_t *q8,
             uint8_t byte = q_oct[i >> 1];
             int32_t w = ((i & 1) ? (byte >> 4) : (byte & 0x0f)) - 8;
             sum += (int32_t)(((float)w * sq + offset) * (float)q8[base_idx + i]);
+        }
+    }
+    return sum;
+}
+
+/* Vectorized HyperVSQ-2 dot product: 256-element block, 74-byte packed.
+ *
+ * Each block has 8 octants (32 weights each).  Per octant the effective
+ * scale is `eff_scale = base_scale * (sub_scale / 8)` and the offset is
+ * the global base_offset.  Each weight is reconstructed as
+ *      w = (q - 1) * eff_scale + offset            (q in {0,1,2,3})
+ *
+ * So the per-octant dot product expands to
+ *      sum(w * q8) = eff_scale * sum((q-1) * q8) + offset * sum(q8)
+ *
+ * The 32 packed 2-bit weights fit in 8 bytes which we unpack in-register
+ * to 32 int8 values, sign-subtract 1 to get the (q-1) range, then use
+ * _mm256_maddubs_epi16 + _mm256_madd_epi16 to compute the int8 dot
+ * product (universal AVX2 path).  When AVX-VNNI is available we skip
+ * the madd chain and use _mm256_dpbusd_epi32 directly (single-instruction
+ * int8 dot product with int32 accumulator).
+ */
+static int32_t dot_hyper_vsq2_block_simd(const uint8_t *blk, const int8_t *q8,
+                                         int valid) {
+    const uint16_t hs = *(const uint16_t *)(blk);
+    const uint16_t hm = *(const uint16_t *)(blk + 2);
+    const float base_scale = half_to_float(hs) * 0.5f;          /* fp16 / 2 */
+    const float offset    = half_to_float(hm);
+    const uint8_t *sub_bytes = blk + 4;                          /* 4 bytes, 8 nibbles */
+    const uint8_t *qs       = blk + 10;                          /* 8 bytes per octant */
+    const int cap_oct = valid / 32;                              /* number of full octants */
+    int32_t sum = 0;
+
+#if defined(__AVX2__)
+    /* Pre-compute the per-octant scale as float, then for each octant
+     * process the 32 weights vectorially. */
+    for (int oct = 0; oct < cap_oct; oct++) {
+        const int sb_idx = oct >> 1;
+        const int sub_nibble = (oct & 1) ? 4 : 0;
+        const int sub_int = (sub_bytes[sb_idx] >> sub_nibble) & 0x0F;
+        const float eff_scale = base_scale * ((float)sub_int / 8.0f);
+
+        /* Load 8 packed bytes for this octant (32 weights). */
+        __m128i packed = _mm_loadl_epi64((const __m128i *)(qs + oct * 8));
+        __m256i w_vec = signed_minus_one_avx2(unpack_8x4_2bit_avx2(packed));
+        __m256i a_vec = _mm256_loadu_si256((const __m256i *)(q8 + oct * 32));
+
+#if defined(__AVX512VNNI__) || defined(__AVXVNNI__)
+        /* Hardware VNNI path: single instruction int8 dot product. */
+        __m256i dot32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), w_vec, a_vec);
+#else
+        /* Universal AVX2 path: int8 -> int16 -> int32. */
+        __m256i prod16 = _mm256_maddubs_epi16(w_vec, a_vec);   /* 16 int16 */
+        __m256i dot32  = _mm256_madd_epi16(prod16, _mm256_set1_epi16(1)); /* 8 int32 */
+#endif
+        const int32_t dot_w = hsum_epi32_avx2(dot32);
+
+        /* q8 sum contribution (for the offset term).  We add it inside
+         * the same YMM by zeroing the weight vector: with weights = 1
+         * the dot becomes a sum of q8 in [-127..127].  Cheaper than a
+         * separate horizontal sum. */
+        __m256i ones8 = _mm256_set1_epi8(1);
+        __m256i sum32 = _mm256_maddubs_epi16(ones8, a_vec);
+        __m256i sum32_32 = _mm256_madd_epi16(sum32, _mm256_set1_epi16(1));
+        const int32_t dot_q8 = hsum_epi32_avx2(sum32_32);
+
+        sum += (int32_t)((float)dot_w * eff_scale + (float)dot_q8 * offset);
+    }
+#endif
+
+    /* Scalar tail: any remaining octants (when K is not a multiple of
+     * 32) and any non-AVX2 fallback. */
+    for (int oct = cap_oct; oct < 8; oct++) {
+        const int sb_idx = oct >> 1;
+        const int sub_nibble = (oct & 1) ? 4 : 0;
+        const int sub_int = (sub_bytes[sb_idx] >> sub_nibble) & 0x0F;
+        const float eff_scale = base_scale * ((float)sub_int / 8.0f);
+        const uint8_t *q_oct = qs + oct * 8;
+        const int base_idx = oct * 32;
+        int cap = valid - base_idx; if (cap > 32) cap = 32;
+        for (int i = 0; i < cap; i++) {
+            const uint8_t byte = q_oct[i >> 2];
+            const int shift = (i & 3) * 2;
+            const int32_t w = ((byte >> shift) & 3) - 1;
+            sum += (int32_t)(((float)w * eff_scale + offset) * (float)q8[base_idx + i]);
         }
     }
     return sum;
@@ -489,7 +604,13 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     else if (weights->dtype == QWN_DT_VSQ) dot_fn = dot_vsq_block;
     else if (weights->dtype == QWN_DT_VSQ_ULTRA) dot_fn = dot_vsq_ultra_block;
     else if (weights->dtype == QWN_DT_HYPER_VSQ) dot_fn = dot_hyper_vsq_block;
-    else if (weights->dtype == QWN_DT_HYPER_VSQ2) dot_fn = dot_hyper_vsq2_block;
+    else if (weights->dtype == QWN_DT_HYPER_VSQ2) {
+#if defined(__AVX2__)
+        dot_fn = dot_hyper_vsq2_block_simd;
+#else
+        dot_fn = dot_hyper_vsq2_block;
+#endif
+    }
     if (!dot_fn) return -1;
 
     for (int t = 0; t < M; t++) {
