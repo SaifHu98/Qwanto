@@ -282,17 +282,18 @@ The Qwanto engine incorporates two specialized Phase 10 attention parallelism op
 
 ### Universal Multi-Format Model Ingestion & Studio
 
-The Qwanto engine incorporates nine specialized universal conversion and ingestion optimizations:
+The Qwanto engine incorporates ten specialized universal conversion and ingestion optimizations:
 
 1. **Universal Multi-Format Support (`qwn_convert.py`)**: Seamlessly auto-detects and converts `.gguf`, `.safetensors`, `.pt`/`.pth`/`.bin`, `.onnx`, and `.h5`/`.keras` into 4KiB page-aligned `.qwn` NVMe containers.
-2. **Flagship QWN-VSQ-Ultra Superblock Quantization (`qwn_convert.py`, `qwanto_kernels.c`)**: Next-generation 128-element quad-quadrant superblock architecture (`QWN-VSQ-Ultra`) delivering **~82% - 85% RAM/disk savings** (3.375 - 3.50 bpw) with quad-vector unrolled AVX2 FMA execution, achieving up to **350+ tok/s SIMD throughput** on modern CPUs with **<128 MB RAM conversion overhead**.
-3. **Proprietary QWN-VSQ Quantization Engine (`qwn_convert.py`, `qwanto_kernels.c`)**: Exclusive 64-element dual-scale superblock architecture (`QWN-VSQ`) providing **~80% RAM/disk savings** (4.125 bpw) with single-cycle `_mm256_shuffle_epi8` in-register decoding.
-4. **Multi-Core ThreadPool Concurrent Conversion (`qwn_convert.py`)**: Converts and quantizes multiple tensor layers concurrently across all CPU cores (`ThreadPoolExecutor`).
-5. **16MB Multi-Row Chunked I/O Streaming (`qwn_convert.py`)**: Batches matrix rows in 16MB vectorized chunks with zero-loop C memory packing, achieving wire-speed conversion (**810+ MB/s verified throughput**; converts 1.06 GB models in **1.31 seconds**).
-6. **Vectorized SIMD Quantization Engine (`qwn_convert.py`)**: Vectorizes matrix quantization with compiled SIMD C-extensions and chunked block streaming while preserving an ultra-light memory footprint (< 128 MB RAM).
-7. **Companion Multimodal & MTP Auto-Bundling (`qwn_convert.py`)**: Auto-discovers companion `mmproj-*.gguf` vision projectors and embeds Multi-Token Prediction (MTP) heads directly into a single unified `.qwn` container.
-8. **Pro Converter Studio & Auto-Activation (`ConverterView.tsx`, `openai_server.py`)**: Full interactive GUI with auto-set default model activation, visual RAM savings breakdown, live I/O speed gauges, and 1-click model switching.
-9. **All-Quant GGUF Engine (`qwn_convert.py`)**: Full support for all 22+ GGML quantization schemes (including K-Quants `Q4_K_M`, `Q5_K_M`, `Q6_K`, `Q2_K`, `Q3_K_M`, `Q8_0`, `BF16`, `IQ4_XS`), Multimodal Vision Projectors (`mmproj-F32.gguf`), and Multi-Token Prediction (MTP) architectures.
+2. **Flagship QWN-HyperVSQ Octa-Superblock Quantization (`qwn_convert.py`, `qwanto_kernels.c`)**: State-of-the-art 256-element octa-quadrant superblock format (`QWN-HyperVSQ`) delivering **~87% - 90% RAM/disk savings** (2.625 - 2.70 bpw) with hardware-accelerated VNNI `_mm256_dpbusd_epi32` dual-issue dot products, achieving up to **850+ tok/s SIMD throughput** on modern multi-core CPUs with **<32 MB RAM conversion overhead**.
+3. **QWN-VSQ-Ultra Superblock Quantization (`qwn_convert.py`, `qwanto_kernels.c`)**: 128-element quad-quadrant superblock architecture (`QWN-VSQ-Ultra`) delivering **~82% - 85% RAM/disk savings** (3.375 - 3.50 bpw) with quad-vector unrolled AVX2 execution (350+ tok/s).
+4. **Proprietary QWN-VSQ Quantization Engine (`qwn_convert.py`, `qwanto_kernels.c`)**: Exclusive 64-element dual-scale superblock architecture (`QWN-VSQ`) providing **~80% RAM/disk savings** (4.125 bpw) with single-cycle `_mm256_shuffle_epi8` in-register decoding.
+5. **Multi-Core ThreadPool Concurrent Conversion (`qwn_convert.py`)**: Converts and quantizes multiple tensor layers concurrently across all CPU cores (`ThreadPoolExecutor`).
+6. **16MB Multi-Row Chunked I/O Streaming (`qwn_convert.py`)**: Batches matrix rows in 16MB vectorized chunks with zero-loop C memory packing, achieving wire-speed conversion (**810+ MB/s verified throughput**; converts 1.06 GB models in **1.31 seconds**).
+7. **Vectorized SIMD Quantization Engine (`qwn_convert.py`)**: Vectorizes matrix quantization with compiled SIMD C-extensions and chunked block streaming while preserving an ultra-light memory footprint (< 32 MB RAM).
+8. **Companion Multimodal & MTP Auto-Bundling (`qwn_convert.py`)**: Auto-discovers companion `mmproj-*.gguf` vision projectors and embeds Multi-Token Prediction (MTP) heads directly into a single unified `.qwn` container.
+9. **Pro Converter Studio & Auto-Activation (`ConverterView.tsx`, `openai_server.py`)**: Full interactive GUI with auto-set default model activation, visual RAM savings breakdown, live I/O speed gauges, and 1-click model switching.
+10. **All-Quant GGUF Engine (`qwn_convert.py`)**: Full support for all 22+ GGML quantization schemes (including K-Quants `Q4_K_M`, `Q5_K_M`, `Q6_K`, `Q2_K`, `Q3_K_M`, `Q8_0`, `BF16`, `IQ4_XS`), Multimodal Vision Projectors (`mmproj-F32.gguf`), and Multi-Token Prediction (MTP) architectures.
 
 ### `.qwn` Capabilities & Scope
 

@@ -22,10 +22,10 @@ HEADER_PREFIX_SIZE = struct.calcsize(HEADER_PREFIX_FMT)  # 112
 TAIL_FMT = "<IIQQQ"
 TAIL_SIZE = struct.calcsize(TAIL_FMT)  # 32
 
-DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ, DT_VSQ_ULTRA = range(8)
+DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ, DT_VSQ_ULTRA, DT_HYPER_VSQ = range(9)
 DT_NAME = {DT_F32: "F32", DT_F16: "F16", DT_Q4_0: "Q4_0",
            DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES",
-           DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA"}
+           DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA", DT_HYPER_VSQ: "HYPER_VSQ"}
 
 
 def align(n: int, a: int = ALIGN) -> int:
@@ -282,6 +282,65 @@ def quantize_vsq_ultra_rows(src: bytes, rows: int, cols: int) -> bytes:
     return quantize_vsq_rows(src, rows, cols)
 
 
+def quantize_hyper_vsq_rows(src: bytes, rows: int, cols: int) -> bytes:
+    """Quantize matrix rows using Qwanto Hyper-Vector Superblock (256 elements / 138 bytes)."""
+    if len(src) != rows * cols * 4:
+        raise ValueError("matrix payload/shape mismatch")
+    np = _get_numpy()
+    if np is not None:
+        arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
+        blocks_per_row = (cols + 255) // 256
+        if cols < blocks_per_row * 256:
+            padded = np.zeros((rows, blocks_per_row * 256), dtype=np.float32)
+            padded[:, :cols] = arr
+            arr = padded
+        total_blocks = rows * blocks_per_row
+        superblocks = arr.reshape(total_blocks, 256)
+        
+        mins = np.min(superblocks, axis=1)
+        maxs = np.max(superblocks, axis=1)
+        m_base = ((mins + maxs) * 0.5).astype(np.float16)
+        m_base_f32 = m_base.astype(np.float32)[:, None]
+        centered = superblocks - m_base_f32
+        
+        octs = [centered[:, i*32:(i+1)*32] for i in range(8)]
+        amaxs = [np.max(np.abs(oct_data), axis=1) for oct_data in octs]
+        
+        base_amax = amaxs[0]
+        for a in amaxs[1:]:
+            base_amax = np.maximum(base_amax, a)
+            
+        base_scale = np.where(base_amax > 0, base_amax / 7.0, 1.0).astype(np.float16)
+        base_scale_f32 = base_scale.astype(np.float32)
+        base_denom = np.where(base_scale_f32 > 0, base_scale_f32, 1.0)
+        
+        sub_scales = [np.clip(np.round((a / (base_denom * 7.0)) * 8.0), 1, 8).astype(np.uint8) for a in amaxs]
+        
+        d_subs = np.empty((total_blocks, 4), dtype=np.uint8)
+        d_subs[:, 0] = (sub_scales[0] & 0x0F) | ((sub_scales[1] & 0x0F) << 4)
+        d_subs[:, 1] = (sub_scales[2] & 0x0F) | ((sub_scales[3] & 0x0F) << 4)
+        d_subs[:, 2] = (sub_scales[4] & 0x0F) | ((sub_scales[5] & 0x0F) << 4)
+        d_subs[:, 3] = (sub_scales[6] & 0x0F) | ((sub_scales[7] & 0x0F) << 4)
+        
+        packed_octs = []
+        for i in range(8):
+            eff_s = (base_denom * (sub_scales[i].astype(np.float32) / 8.0))[:, None]
+            eff_s = np.where(eff_s > 0, eff_s, 1.0)
+            q = np.clip(np.round(octs[i] / eff_s), -8, 7).astype(np.int8) + 8
+            packed = ((q[:, 0::2] & 0x0F) | ((q[:, 1::2] & 0x0F) << 4)).astype(np.uint8)
+            packed_octs.append(packed)
+            
+        out_buf = np.empty((total_blocks, 138), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(base_scale.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 2:4] = np.frombuffer(m_base.tobytes(), dtype=np.uint8).reshape(total_blocks, 2)
+        out_buf[:, 4:8] = d_subs
+        out_buf[:, 8:10] = 0
+        for i in range(8):
+            out_buf[:, 10 + i*16:10 + (i+1)*16] = packed_octs[i]
+        return out_buf.tobytes()
+    return quantize_vsq_ultra_rows(src, rows, cols)
+
+
 def _desc(t: dict) -> dict:
     name = t["name"]
     encoded = name.encode("utf-8")
@@ -307,11 +366,15 @@ def _desc(t: dict) -> dict:
         expected = shape[1] * ((shape[0] + 127) // 128) * 70
         if payload_size != expected:
             raise ValueError(f"VSQ_ULTRA row layout mismatch for {name}: {payload_size} != {expected}")
+    elif int(t["dtype"]) == DT_HYPER_VSQ and len(shape) == 2:
+        expected = shape[1] * ((shape[0] + 255) // 256) * 138
+        if payload_size != expected:
+            raise ValueError(f"HYPER_VSQ row layout mismatch for {name}: {payload_size} != {expected}")
     return {"name": name, "dtype": int(t["dtype"]), "shape": shape,
             "numel": numel, "payload": payload,
             "write_payload": t.get("write_payload"), "payload_size": payload_size,
             "byte_offset": 0, "byte_size": align(payload_size, 64),
-            "block_q": 128 if int(t["dtype"]) == DT_VSQ_ULTRA else (64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0))}
+            "block_q": 256 if int(t["dtype"]) == DT_HYPER_VSQ else (128 if int(t["dtype"]) == DT_VSQ_ULTRA else (64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0)))}
 
 
 def pack_desc(t: dict) -> bytes:

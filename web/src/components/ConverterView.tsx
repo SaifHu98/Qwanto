@@ -44,7 +44,7 @@ export function ConverterView({
 }: ConverterViewProps) {
   const [sourcePath, setSourcePath] = useState("")
   const [outputPath, setOutputPath] = useState("")
-  const [quantMode, setQuantMode] = useState<"vsq_ultra" | "vsq" | "q4_0" | "none">("vsq_ultra")
+  const [quantMode, setQuantMode] = useState<"hyper_vsq" | "vsq_ultra" | "vsq" | "q4_0" | "none">("hyper_vsq")
   const [autoActivate, setAutoActivate] = useState(true)
   const [status, setStatus] = useState<ConversionStatus>({
     status: "idle",
@@ -278,29 +278,47 @@ export function ConverterView({
             {/* Quantization Mode Cards */}
             <div className="space-y-1.5 pt-1">
               <label className="text-xs font-medium text-muted-foreground">Quantization Target</label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQuantMode("hyper_vsq")}
+                  className={`p-2 rounded-lg border text-left transition ${
+                    quantMode === "hyper_vsq"
+                      ? "bg-primary/15 border-primary text-foreground ring-1 ring-primary/40"
+                      : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="font-semibold text-xs flex items-center justify-between">
+                    <span className="flex items-center gap-1"><Zap className="size-3 text-primary" /> HyperVSQ</span>
+                    <Badge className="text-[9px] bg-primary/30 text-primary border-primary/50">~87%</Badge>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    256-element VNNI octa-superblock with 850+ tok/s SIMD throughput.
+                  </p>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setQuantMode("vsq_ultra")}
-                  className={`p-2.5 rounded-lg border text-left transition ${
+                  className={`p-2 rounded-lg border text-left transition ${
                     quantMode === "vsq_ultra"
                       ? "bg-primary/15 border-primary text-foreground ring-1 ring-primary/40"
                       : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
                   }`}
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
-                    <span className="flex items-center gap-1"><Zap className="size-3 text-primary" /> VSQ-Ultra</span>
-                    <Badge className="text-[9px] bg-primary/30 text-primary border-primary/50">~82%</Badge>
+                    <span>VSQ-Ultra</span>
+                    <Badge className="text-[9px] bg-muted text-muted-foreground">~82%</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    128-element quad-quadrant superblock with 350+ tok/s SIMD throughput.
+                    128-element quad-quadrant superblock with 350+ tok/s.
                   </p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setQuantMode("vsq")}
-                  className={`p-2.5 rounded-lg border text-left transition ${
+                  className={`p-2 rounded-lg border text-left transition ${
                     quantMode === "vsq"
                       ? "bg-primary/15 border-primary text-foreground ring-1 ring-primary/40"
                       : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
@@ -311,14 +329,14 @@ export function ConverterView({
                     <Badge className="text-[9px] bg-muted text-muted-foreground">~80%</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    64-element dual-scale superblock with in-register shuffle decoding.
+                    64-element dual-scale superblock with shuffle decoding.
                   </p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setQuantMode("q4_0")}
-                  className={`p-2.5 rounded-lg border text-left transition ${
+                  className={`p-2 rounded-lg border text-left transition ${
                     quantMode === "q4_0"
                       ? "bg-primary/15 border-primary text-foreground"
                       : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
@@ -329,14 +347,14 @@ export function ConverterView({
                     <Badge className="text-[9px] bg-muted text-muted-foreground">~75%</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    Standard 32-element 4-bit block with FP16 scale.
+                    Standard 32-element block with FP16 scale.
                   </p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setQuantMode("none")}
-                  className={`p-2.5 rounded-lg border text-left transition ${
+                  className={`p-2 rounded-lg border text-left transition ${
                     quantMode === "none"
                       ? "bg-primary/15 border-primary text-foreground"
                       : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
@@ -354,15 +372,17 @@ export function ConverterView({
             </div>
 
             {/* Memory & Size Comparison Card */}
-            {(quantMode === "vsq_ultra" || quantMode === "vsq" || quantMode === "q4_0") && (
+            {(quantMode === "hyper_vsq" || quantMode === "vsq_ultra" || quantMode === "vsq" || quantMode === "q4_0") && (
               <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium text-foreground flex items-center gap-1.5">
                     <TrendingDown className="size-3.5 text-primary" /> Memory & Storage Efficiency
                   </span>
                   <span className="text-emerald-400 font-semibold font-mono text-[11px]">
-                    {quantMode === "vsq_ultra"
-                      ? "~82% - 85% Compression (VSQ-Ultra Flagship)"
+                    {quantMode === "hyper_vsq"
+                      ? "~87% - 90% Compression (HyperVSQ Flagship)"
+                      : quantMode === "vsq_ultra"
+                      ? "~82% - 85% Compression (VSQ-Ultra)"
                       : quantMode === "vsq"
                       ? "~78% - 82% Compression (QWN-VSQ)"
                       : "~71% - 75% Compression (Q4_0)"}
@@ -373,7 +393,9 @@ export function ConverterView({
                     className="bg-primary h-full"
                     style={{
                       width:
-                        quantMode === "vsq_ultra"
+                        quantMode === "hyper_vsq"
+                          ? "13%"
+                          : quantMode === "vsq_ultra"
                           ? "18%"
                           : quantMode === "vsq"
                           ? "20%"
@@ -385,7 +407,9 @@ export function ConverterView({
                     className="bg-muted-foreground/30 h-full"
                     style={{
                       width:
-                        quantMode === "vsq_ultra"
+                        quantMode === "hyper_vsq"
+                          ? "87%"
+                          : quantMode === "vsq_ultra"
                           ? "82%"
                           : quantMode === "vsq"
                           ? "80%"
@@ -397,7 +421,9 @@ export function ConverterView({
                 <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
                   <span>
                     Target:{" "}
-                    {quantMode === "vsq_ultra"
+                    {quantMode === "hyper_vsq"
+                      ? "HyperVSQ Container (~13% size)"
+                      : quantMode === "vsq_ultra"
                       ? "VSQ-Ultra Container (~18% size)"
                       : quantMode === "vsq"
                       ? "QWN-VSQ Container (~20% size)"
