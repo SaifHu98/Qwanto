@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef __CUDACC__
+#if defined(__NVCC__) || (defined(__CUDACC__) && defined(QWN_CUDA_ENABLED))
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 

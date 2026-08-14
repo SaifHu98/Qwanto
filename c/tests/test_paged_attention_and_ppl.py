@@ -12,10 +12,7 @@ if str(root_dir) not in sys.path:
 if str(tools_dir) not in sys.path:
     sys.path.insert(0, str(tools_dir))
 
-try:
-    from c.tools.qwn_ppl import evaluate_ppl_simulation, compute_perplexity_from_logits, WIKITEXT2_SAMPLE
-except ImportError:
-    from qwn_ppl import evaluate_ppl_simulation, compute_perplexity_from_logits, WIKITEXT2_SAMPLE
+from c.tools.qwn_ppl import evaluate_ppl_simulation, compute_perplexity_from_logits, WIKITEXT2_SAMPLE
 
 
 def test_ppl_simulation_hypervsq():

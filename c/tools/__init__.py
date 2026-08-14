@@ -1,1 +1,1 @@
-"""Offline conversion, fixture, benchmark, and evaluation utilities."""
+# Package marker for Qwanto tools
