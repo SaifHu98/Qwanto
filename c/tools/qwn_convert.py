@@ -349,6 +349,40 @@ def _q4_writer(meta):
     return write
 
 
+def map_gguf_tensor_name(name: str) -> str:
+    if name == "token_embd.weight":
+        return "model.embed_tokens.weight"
+    if name == "output_norm.weight":
+        return "model.norm.weight"
+    if name == "output.weight":
+        return "lm_head.weight"
+    if name.startswith("blk."):
+        parts = name.split(".")
+        if len(parts) >= 3:
+            layer = parts[1]
+            sub = ".".join(parts[2:])
+            name_map = {
+                "attn_norm.weight": "input_layernorm.weight",
+                "attn_q.weight": "self_attn.q_proj.weight",
+                "attn_k.weight": "self_attn.k_proj.weight",
+                "attn_v.weight": "self_attn.v_proj.weight",
+                "attn_output.weight": "self_attn.o_proj.weight",
+                "attn_q_norm.weight": "self_attn.q_norm.weight",
+                "attn_k_norm.weight": "self_attn.k_norm.weight",
+                "attn_q.bias": "self_attn.q_proj.bias",
+                "attn_k.bias": "self_attn.k_proj.bias",
+                "attn_v.bias": "self_attn.v_proj.bias",
+                "attn_output.bias": "self_attn.o_proj.bias",
+                "ffn_norm.weight": "post_attention_layernorm.weight",
+                "ffn_gate.weight": "mlp.gate_proj.weight",
+                "ffn_up.weight": "mlp.up_proj.weight",
+                "ffn_down.weight": "mlp.down_proj.weight",
+            }
+            if sub in name_map:
+                return f"model.layers.{layer}.{name_map[sub]}"
+    return name
+
+
 def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     GGUF_MAGIC = b"GGUF"
     SCALAR_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
@@ -401,7 +435,7 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
             dims = struct.unpack(f"<{n_dims}Q", f.read(8 * n_dims))
             (dtype,) = struct.unpack("<I", f.read(4))
             (offset,) = struct.unpack("<Q", f.read(8))
-            raw_tensors.append((name, dims, dtype, offset))
+            raw_tensors.append((map_gguf_tensor_name(name), dims, dtype, offset))
 
         # Tensor data begins aligned
         data_base = (f.tell() + alignment - 1) & ~(alignment - 1)
