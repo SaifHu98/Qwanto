@@ -384,8 +384,11 @@ int qwn_prefetch(const QwnModel *m, const QwnTensorDesc *t) {
     range.NumberOfBytes = (SIZE_T)t->byte_size;
     return cached_fn(GetCurrentProcess(), 1, &range, 0) ? 0 : -1;
 #else
-    return madvise(m->base + t->byte_offset, (size_t)t->byte_size,
-                   MADV_WILLNEED) == 0 ? 0 : -1;
+    uintptr_t addr = (uintptr_t)(m->base + t->byte_offset);
+    uintptr_t page_addr = addr & ~((uintptr_t)4095);
+    size_t len = (size_t)(addr + t->byte_size - page_addr);
+    madvise((void *)page_addr, len, MADV_WILLNEED);
+    return 0;
 #endif
 }
 
@@ -395,7 +398,10 @@ int qwn_drop_pages(const QwnModel *m, const QwnTensorDesc *t) {
     /* File-backed pages are naturally evicted by the Windows memory manager. */
     return 0;
 #else
-    return madvise(m->base + t->byte_offset, (size_t)t->byte_size,
-                   MADV_DONTNEED) == 0 ? 0 : -1;
+    uintptr_t addr = (uintptr_t)(m->base + t->byte_offset);
+    uintptr_t page_addr = addr & ~((uintptr_t)4095);
+    size_t len = (size_t)(addr + t->byte_size - page_addr);
+    madvise((void *)page_addr, len, MADV_DONTNEED);
+    return 0;
 #endif
 }
