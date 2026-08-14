@@ -341,6 +341,26 @@ def quantize_hyper_vsq_rows(src: bytes, rows: int, cols: int) -> bytes:
     return quantize_vsq_ultra_rows(src, rows, cols)
 
 
+def quantize_matrix_rows(raw_f32: bytes, rows: int, cols: int, quant_mode: str) -> bytes:
+    if quant_mode == "hyper_vsq":
+        return quantize_hyper_vsq_rows(raw_f32, rows, cols)
+    elif quant_mode == "vsq_ultra":
+        return quantize_vsq_ultra_rows(raw_f32, rows, cols)
+    elif quant_mode == "vsq":
+        return quantize_vsq_rows(raw_f32, rows, cols)
+    return quantize_q4_0_rows(raw_f32, rows, cols)
+
+
+def _get_quant_dtype_and_size(quant: str, rows: int, cols: int):
+    if quant == "hyper_vsq":
+        return DT_HYPER_VSQ, rows * ((cols + 255) // 256) * 138
+    elif quant == "vsq_ultra":
+        return DT_VSQ_ULTRA, rows * ((cols + 127) // 128) * 70
+    elif quant == "vsq":
+        return DT_VSQ, rows * ((cols + 63) // 64) * 36
+    return DT_Q4_0, rows * ((cols + 31) // 32) * 18
+
+
 def _desc(t: dict) -> dict:
     name = t["name"]
     encoded = name.encode("utf-8")
@@ -680,11 +700,10 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
 
         if dtype == 0:  # F32
             out_dtype = DT_F32
-            if quant == "q4_0" and len(shape) == 2:
-                out_dtype = DT_Q4_0
+            if quant in ("hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
+                out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])
                 cols, rows = shape[0], shape[1]
-                payload_size = rows * ((cols + 31) // 32) * 18
-                def make_writer(b_off, r, c):
+                def make_writer(b_off, r, c, qm):
                     row_b = c * 4
                     chunk_r = max(1, (16 * 1024 * 1024) // row_b)
                     def write(out):
@@ -693,19 +712,18 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                             for r_start in range(0, r, chunk_r):
                                 cur_r = min(chunk_r, r - r_start)
                                 raw = sf.read(cur_r * row_b)
-                                out.write(quantize_q4_0_rows(raw, cur_r, c))
+                                out.write(quantize_matrix_rows(raw, cur_r, c, qm))
                     return write
                 tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                                 "payload_size": payload_size,
-                                "write_payload": make_writer(byte_offset, rows, cols)})
+                                "write_payload": make_writer(byte_offset, rows, cols, quant)})
                 continue
         elif dtype == 1:  # F16
             out_dtype = DT_F16
-            if quant == "q4_0" and len(shape) == 2:
-                out_dtype = DT_Q4_0
+            if quant in ("hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
+                out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])
                 cols, rows = shape[0], shape[1]
-                payload_size = rows * ((cols + 31) // 32) * 18
-                def make_writer(b_off, r, c):
+                def make_writer(b_off, r, c, qm):
                     row_b = c * 2
                     chunk_r = max(1, (16 * 1024 * 1024) // row_b)
                     def write(out):
@@ -715,19 +733,18 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 cur_r = min(chunk_r, r - r_start)
                                 raw = sf.read(cur_r * row_b)
                                 raw_f32 = f16_payload_to_f32(raw)
-                                out.write(quantize_q4_0_rows(raw_f32, cur_r, c))
+                                out.write(quantize_matrix_rows(raw_f32, cur_r, c, qm))
                     return write
                 tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                                 "payload_size": payload_size,
-                                "write_payload": make_writer(byte_offset, rows, cols)})
+                                "write_payload": make_writer(byte_offset, rows, cols, quant)})
                 continue
         elif dtype == 28:  # BF16
             out_dtype = DT_BF16
-            if quant == "q4_0" and len(shape) == 2:
-                out_dtype = DT_Q4_0
+            if quant in ("hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
+                out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])
                 cols, rows = shape[0], shape[1]
-                payload_size = rows * ((cols + 31) // 32) * 18
-                def make_writer(b_off, r, c):
+                def make_writer(b_off, r, c, qm):
                     row_b = c * 2
                     chunk_r = max(1, (16 * 1024 * 1024) // row_b)
                     def write(out):
@@ -737,11 +754,11 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 cur_r = min(chunk_r, r - r_start)
                                 raw = sf.read(cur_r * row_b)
                                 raw_f32 = bf16_payload_to_f32(raw)
-                                out.write(quantize_q4_0_rows(raw_f32, cur_r, c))
+                                out.write(quantize_matrix_rows(raw_f32, cur_r, c, qm))
                     return write
                 tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                                 "payload_size": payload_size,
-                                "write_payload": make_writer(byte_offset, rows, cols)})
+                                "write_payload": make_writer(byte_offset, rows, cols, quant)})
                 continue
         elif dtype == 2:  # Q4_0
             out_dtype = DT_Q4_0
@@ -961,7 +978,7 @@ def main(argv=None):
     convert = sub.add_parser("convert")
     convert.add_argument("source")
     convert.add_argument("output")
-    convert.add_argument("--quant", choices=("q4_0", "none"), default="q4_0")
+    convert.add_argument("--quant", choices=("hyper_vsq", "vsq_ultra", "vsq", "q4_0", "none"), default="hyper_vsq")
     inspect = sub.add_parser("inspect")
     inspect.add_argument("model")
     args = parser.parse_args(argv)

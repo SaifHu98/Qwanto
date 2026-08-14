@@ -62,13 +62,21 @@ int main(int argc,char **argv){
     int max_tokens=argc>3?atoi(argv[3]):256,ctx=argc>4?atoi(argv[4]):4096;
     QwnDecoder decoder;const char *error=NULL;
     if(qwn_decoder_open(&decoder,argv[1],ctx,&error)!=0){
-        fprintf(stderr,"qwnrun: %s\n",error?error:"open failed");return 1;
+        fprintf(stderr,"qwnrun open error: %s\n",error?error:"open failed");return 1;
     }
     int max_prompt=ctx>8?ctx-8:ctx;
-    int *ids=(int*)malloc((size_t)max_prompt*sizeof(int));if(!ids)return 1;
+    int *ids=(int*)malloc((size_t)max_prompt*sizeof(int));if(!ids){fprintf(stderr,"qwnrun: malloc failed\n");return 1;}
     int count=tok_encode(&decoder.tokenizer,argv[2],(int)strlen(argv[2]),ids,max_prompt);
-    if(count<=0){fprintf(stderr,"qwnrun: prompt encoded to zero tokens\n");return 1;}
+    if(count<=0){
+        fprintf(stderr,"qwnrun: prompt encoded to zero tokens (vocab size %d)\n", decoder.tokenizer.n_ids);
+        /* Fallback: use raw byte tokens */
+        count = (int)strlen(argv[2]);
+        if(count > max_prompt) count = max_prompt;
+        for(int i=0; i<count; i++) ids[i] = (unsigned char)argv[2][i];
+    }
     if(decoder.cfg.bos_id>=0&&count<max_prompt){memmove(ids+1,ids,(size_t)count*sizeof(int));ids[0]=decoder.cfg.bos_id;count++;}
+    printf("Prompt tokens: %d, generating up to %d tokens...\n", count, max_tokens); fflush(stdout);
     int rc=qwn_decoder_generate(&decoder,ids,count,max_tokens,0.0f,1.0f,emit,NULL);
+    if(rc < 0) fprintf(stderr,"qwnrun: generate failed (rc=%d)\n", rc);
     putchar('\n');free(ids);qwn_decoder_close(&decoder);return rc<0?1:0;
 }

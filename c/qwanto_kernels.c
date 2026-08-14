@@ -208,6 +208,32 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
                         float *y) {
     if (!m || !weights || !x || !scratch || !y || M < 1 || K < 1 || N < 1)
         return -1;
+    if (weights->dtype == QWN_DT_BYTES && weights->n_dims == 2 &&
+        weights->shape[0] == (uint64_t)K && weights->shape[1] == (uint64_t)N) {
+        for (int t = 0; t < M; t++) {
+            const float *xt = x + (size_t)t * K;
+            float *yt = y + (size_t)t * N;
+            for (int r = 0; r < N; r++) {
+                if (qwn_row_f32(m, weights, r, scratch->row_f32, K) != 0) return -1;
+                float sum = 0.0f;
+                int k = 0;
+#if defined(__AVX2__)
+                __m256 vsum = _mm256_setzero_ps();
+                for (; k <= K - 8; k += 8) {
+                    __m256 vx = _mm256_loadu_ps(xt + k);
+                    __m256 vw = _mm256_loadu_ps(scratch->row_f32 + k);
+                    vsum = _mm256_fmadd_ps(vx, vw, vsum);
+                }
+                float tmp[8]; _mm256_storeu_ps(tmp, vsum);
+                sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
+#endif
+                for (; k < K; k++) sum += xt[k] * scratch->row_f32[k];
+                yt[r] = sum;
+            }
+        }
+        return 0;
+    }
+
     if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ && weights->dtype != QWN_DT_VSQ_ULTRA && weights->dtype != QWN_DT_HYPER_VSQ) || weights->n_dims != 2 ||
         weights->shape[0] != (uint64_t)K || weights->shape[1] != (uint64_t)N)
         return -1;
@@ -444,6 +470,29 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
             }
         }
         return 0;
+    }
+    if (t->dtype == QWN_DT_BYTES) {
+        size_t total_b = (size_t)t->byte_size;
+        size_t rows = t->shape[1] ? (size_t)t->shape[1] : 1;
+        size_t row_b = total_b / rows;
+        if (row_b >= (size_t)((width + 31) / 32) * 18) {
+            int blocks = (width + 31) / 32;
+            const uint8_t *p = raw + (size_t)row * row_b;
+            for (int b = 0; b < blocks; b++) {
+                uint16_t hs; memcpy(&hs, p + b * 18, 2);
+                float scale = half_to_float(hs);
+                for (int i = 0; i < 32 && b * 32 + i < width; i++) {
+                    uint8_t byte = p[b * 18 + 2 + (i >> 1)];
+                    int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
+                    out[b * 32 + i] = q * scale;
+                }
+            }
+            return 0;
+        } else if (row_b >= (size_t)width * 2) {
+            const uint16_t *p = (const uint16_t *)(raw + (size_t)row * row_b);
+            for (int i = 0; i < width; i++) out[i] = half_to_float(p[i]);
+            return 0;
+        }
     }
     if (t->dtype == QWN_DT_F32) {
         memcpy(out, raw + (size_t)row * width * 4, (size_t)width * 4);

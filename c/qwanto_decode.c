@@ -56,26 +56,46 @@ static float cfg_float(jval *root, const char *name, float fallback) {
 }
 
 static int load_config(QwnDecoder *d) {
-    const QwnTensorDesc *t=qwn_find(&d->model,"__qwn.config");
-    if(!t || t->dtype!=QWN_DT_BYTES || t->numel<2) return -1;
-    char *json=(char*)malloc((size_t)t->numel+1); if(!json)return -1;
-    memcpy(json,qwn_data(&d->model,t),(size_t)t->numel); json[t->numel]=0;
-    char *arena=NULL; jval *root=json_parse(json,&arena); if(!root){free(json);return -1;}
     QwnConfig *c=&d->cfg;
-    c->hidden=cfg_int(root,"hidden_size",0);
-    c->intermediate=cfg_int(root,"intermediate_size",0);
-    c->layers=cfg_int(root,"num_hidden_layers",0);
-    c->heads=cfg_int(root,"num_attention_heads",0);
-    c->kv_heads=cfg_int(root,"num_key_value_heads",c->heads);
-    c->head_dim=cfg_int(root,"head_dim",c->heads?c->hidden/c->heads:0);
-    c->vocab=cfg_int(root,"vocab_size",0);
-    c->max_ctx=cfg_int(root,"max_position_embeddings",4096);
-    c->bos_id=cfg_int(root,"bos_token_id",-1);
-    c->eos_id=cfg_int(root,"eos_token_id",-1);
-    c->rms_eps=cfg_float(root,"rms_norm_eps",1e-6f);
-    c->rope_theta=cfg_float(root,"rope_theta",10000.0f);
-    c->tie_embeddings=cfg_int(root,"tie_word_embeddings",0);
-    free(json);
+    if (d->model.hdr.arch_dims[0] > 0) {
+        c->hidden = (int)d->model.hdr.arch_dims[0];
+        c->intermediate = (int)d->model.hdr.arch_dims[1];
+        c->heads = (int)d->model.hdr.arch_dims[2];
+        c->kv_heads = (int)d->model.hdr.arch_dims[3];
+        c->head_dim = (int)d->model.hdr.arch_dims[4];
+        c->layers = (int)d->model.hdr.arch_dims[5];
+        c->vocab = (int)d->model.hdr.arch_dims[6];
+        c->max_ctx = (int)d->model.hdr.arch_dims[7];
+        if (c->max_ctx <= 0) c->max_ctx = 4096;
+        c->bos_id = -1;
+        c->eos_id = -1;
+        c->rms_eps = 1e-6f;
+        c->rope_theta = 10000.0f;
+    }
+    const QwnTensorDesc *t=qwn_find(&d->model,"__qwn.config");
+    if(t && t->dtype==QWN_DT_BYTES && t->numel>=2) {
+        char *json=(char*)malloc((size_t)t->numel+1);
+        if(json) {
+            memcpy(json,qwn_data(&d->model,t),(size_t)t->numel); json[t->numel]=0;
+            char *arena=NULL; jval *root=json_parse(json,&arena);
+            if(root) {
+                if (cfg_int(root,"hidden_size",0)>0) c->hidden=cfg_int(root,"hidden_size",c->hidden);
+                if (cfg_int(root,"intermediate_size",0)>0) c->intermediate=cfg_int(root,"intermediate_size",c->intermediate);
+                if (cfg_int(root,"num_hidden_layers",0)>0) c->layers=cfg_int(root,"num_hidden_layers",c->layers);
+                if (cfg_int(root,"num_attention_heads",0)>0) c->heads=cfg_int(root,"num_attention_heads",c->heads);
+                c->kv_heads=cfg_int(root,"num_key_value_heads",c->heads);
+                c->head_dim=cfg_int(root,"head_dim",c->heads?c->hidden/c->heads:0);
+                if (cfg_int(root,"vocab_size",0)>0) c->vocab=cfg_int(root,"vocab_size",c->vocab);
+                c->max_ctx=cfg_int(root,"max_position_embeddings",c->max_ctx);
+                c->bos_id=cfg_int(root,"bos_token_id",c->bos_id);
+                c->eos_id=cfg_int(root,"eos_token_id",c->eos_id);
+                c->rms_eps=cfg_float(root,"rms_norm_eps",c->rms_eps);
+                c->rope_theta=cfg_float(root,"rope_theta",c->rope_theta);
+                c->tie_embeddings=cfg_int(root,"tie_word_embeddings",0);
+            }
+            free(json);
+        }
+    }
     return c->hidden>0&&c->intermediate>0&&c->layers>0&&c->heads>0&&
            c->kv_heads>0&&c->head_dim>0&&c->vocab>0 ? 0:-1;
 }
