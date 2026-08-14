@@ -261,54 +261,48 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
 #if defined(__AVX2__)
                 if (valid == 32) {
                     __m256i q8v = _mm256_loadu_si256((const __m256i *)(q8 + b * 32));
+                    const __m256i psum = _mm256_maddubs_epi16(ones8, q8v);
+                    const int32_t qsum = hsum_epi32_avx2(_mm256_madd_epi16(psum, ones16));
                     
                     // Row 0
-                    __m128i p = _mm_loadu_si128((const __m128i *)(b0 + 2));
-                    __m128i lo = _mm_and_si128(p, mask128);
-                    __m128i hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
-                    __m256i q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
-                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
-                    __m256i pdot = _mm256_maddubs_epi16(q4, q8v);
-                    __m256i psum = _mm256_maddubs_epi16(ones8, q8v);
-                    int32_t d0[8], s0[8];
-                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
-                    _mm256_storeu_si256((__m256i *)s0, _mm256_madd_epi16(psum, ones16));
-                    int32_t dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
-                    int32_t qsum = s0[0]+s0[1]+s0[2]+s0[3]+s0[4]+s0[5]+s0[6]+s0[7];
-                    sum0 += (float)(dot - 8 * qsum) * ws0;
+                    __m128i p0 = _mm_loadu_si128((const __m128i *)(b0 + 2));
+                    __m128i lo0 = _mm_and_si128(p0, mask128);
+                    __m128i hi0 = _mm_and_si128(_mm_srli_epi16(p0, 4), mask128);
+                    __m256i q4_0 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo0, hi0));
+                    q4_0 = _mm256_inserti128_si256(q4_0, _mm_unpackhi_epi8(lo0, hi0), 1);
+                    __m256i pdot0 = _mm256_maddubs_epi16(q4_0, q8v);
+                    int32_t dot0 = hsum_epi32_avx2(_mm256_madd_epi16(pdot0, ones16));
+                    sum0 += (float)(dot0 - 8 * qsum) * ws0;
 
                     // Row 1
-                    p = _mm_loadu_si128((const __m128i *)(b1 + 2));
-                    lo = _mm_and_si128(p, mask128);
-                    hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
-                    q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
-                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
-                    pdot = _mm256_maddubs_epi16(q4, q8v);
-                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
-                    dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
-                    sum1 += (float)(dot - 8 * qsum) * ws1;
+                    __m128i p1 = _mm_loadu_si128((const __m128i *)(b1 + 2));
+                    __m128i lo1 = _mm_and_si128(p1, mask128);
+                    __m128i hi1 = _mm_and_si128(_mm_srli_epi16(p1, 4), mask128);
+                    __m256i q4_1 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo1, hi1));
+                    q4_1 = _mm256_inserti128_si256(q4_1, _mm_unpackhi_epi8(lo1, hi1), 1);
+                    __m256i pdot1 = _mm256_maddubs_epi16(q4_1, q8v);
+                    int32_t dot1 = hsum_epi32_avx2(_mm256_madd_epi16(pdot1, ones16));
+                    sum1 += (float)(dot1 - 8 * qsum) * ws1;
                     
                     // Row 2
-                    p = _mm_loadu_si128((const __m128i *)(b2 + 2));
-                    lo = _mm_and_si128(p, mask128);
-                    hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
-                    q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
-                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
-                    pdot = _mm256_maddubs_epi16(q4, q8v);
-                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
-                    dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
-                    sum2 += (float)(dot - 8 * qsum) * ws2;
+                    __m128i p2 = _mm_loadu_si128((const __m128i *)(b2 + 2));
+                    __m128i lo2 = _mm_and_si128(p2, mask128);
+                    __m128i hi2 = _mm_and_si128(_mm_srli_epi16(p2, 4), mask128);
+                    __m256i q4_2 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo2, hi2));
+                    q4_2 = _mm256_inserti128_si256(q4_2, _mm_unpackhi_epi8(lo2, hi2), 1);
+                    __m256i pdot2 = _mm256_maddubs_epi16(q4_2, q8v);
+                    int32_t dot2 = hsum_epi32_avx2(_mm256_madd_epi16(pdot2, ones16));
+                    sum2 += (float)(dot2 - 8 * qsum) * ws2;
 
                     // Row 3
-                    p = _mm_loadu_si128((const __m128i *)(b3 + 2));
-                    lo = _mm_and_si128(p, mask128);
-                    hi = _mm_and_si128(_mm_srli_epi16(p, 4), mask128);
-                    q4 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo, hi));
-                    q4 = _mm256_inserti128_si256(q4, _mm_unpackhi_epi8(lo, hi), 1);
-                    pdot = _mm256_maddubs_epi16(q4, q8v);
-                    _mm256_storeu_si256((__m256i *)d0, _mm256_madd_epi16(pdot, ones16));
-                    dot = d0[0]+d0[1]+d0[2]+d0[3]+d0[4]+d0[5]+d0[6]+d0[7];
-                    sum3 += (float)(dot - 8 * qsum) * ws3;
+                    __m128i p3 = _mm_loadu_si128((const __m128i *)(b3 + 2));
+                    __m128i lo3 = _mm_and_si128(p3, mask128);
+                    __m128i hi3 = _mm_and_si128(_mm_srli_epi16(p3, 4), mask128);
+                    __m256i q4_3 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo3, hi3));
+                    q4_3 = _mm256_inserti128_si256(q4_3, _mm_unpackhi_epi8(lo3, hi3), 1);
+                    __m256i pdot3 = _mm256_maddubs_epi16(q4_3, q8v);
+                    int32_t dot3 = hsum_epi32_avx2(_mm256_madd_epi16(pdot3, ones16));
+                    sum3 += (float)(dot3 - 8 * qsum) * ws3;
                 } else
 #endif
                 {
