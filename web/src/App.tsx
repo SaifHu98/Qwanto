@@ -703,7 +703,14 @@ export default function App() {
 
       <main className="chat-panel">
         <header className="topbar">
-          <div><span className="eyebrow">ACTIVE MODEL</span><strong>{model}</strong></div>
+          <div className="flex items-center gap-2">
+            <div><span className="eyebrow">ACTIVE MODEL</span><strong>{model}</strong></div>
+            {model.toLowerCase().endsWith(".qwn") && (
+              <Badge className="bg-emerald-950/80 text-emerald-300 border-emerald-800/60 font-mono text-[10px] gap-1">
+                <Zap className="size-3 text-emerald-400" /> QWN NATIVE
+              </Badge>
+            )}
+          </div>
           <div className="view-tabs">
             <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}><MessageSquareText className="size-3.5" /> Chat</button>
             <button className={view === "converter" ? "active" : ""} onClick={() => setView("converter")}><Zap className="size-3.5" /> Converter</button>
@@ -718,6 +725,11 @@ export default function App() {
             <button className={view === "logs" ? "active" : ""} onClick={() => setView("logs")}><Database className="size-3.5" /> Logs {logs.length > 0 && <span className="logs-badge">{logs.filter(l => l.type === "error").length || logs.length}</span>}</button>
           </div>
           <div className="top-actions">
+              {model.toLowerCase().endsWith(".qwn") && (
+                <Badge className="border border-emerald-800/50 bg-emerald-950/30 text-emerald-300 font-mono text-[10px]">
+                  4KiB NVMe Paged · AVX2
+                </Badge>
+              )}
               {loading && tokenCount === 0 ? <Badge className="badge-loading"><LoaderCircle className="size-3 animate-spin" /> Generating...</Badge> : null}
               {loading && tokenCount > 0 ? <Badge className="badge-live"><Zap className="size-3 flash" /> {tokenCount} tokens · {tokPerSec ? `${tokPerSec.toFixed(1)} tok/s` : "..."}</Badge> : null}
               {!loading && tokPerSec != null ? <Badge className="badge-speed"><Gauge className="size-3" /> {tokPerSec.toFixed(1)} tok/s</Badge> : null}

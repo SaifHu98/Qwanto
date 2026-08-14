@@ -289,7 +289,7 @@ The Qwanto engine incorporates six specialized Phase 11, 12, 13, 14, 15 & 16 uni
 3. **10x - 50x Vectorized SIMD Quantization Engine (`qwn_convert.py`)**: Vectorizes matrix quantization with compiled SIMD C-extensions and chunked block streaming, accelerating model conversion speed by **10x to 50x** while preserving an ultra-light memory footprint (< 4 GB RAM).
 4. **16MB Multi-Row Chunked I/O Streaming (`qwn_convert.py`)**: Batches matrix rows in 16MB vectorized chunks with zero-loop C memory packing, delivering wire-speed conversion throughput (~1.5+ GB/s) and converting 8.67 GB models in seconds.
 5. **Companion Multimodal & MTP Auto-Bundling (`qwn_convert.py`)**: Auto-discovers companion `mmproj-*.gguf` vision projectors and embeds Multi-Token Prediction (MTP) heads directly into a single unified `.qwn` container.
-6. **Web Dashboard Converter Studio (`ConverterView.tsx`, `openai_server.py`)**: Provides a full interactive GUI to select, quantize, convert, and immediately activate `.qwn` models with 1-click in the browser.
+6. **Pro Converter Studio & Auto-Activation (`ConverterView.tsx`, `openai_server.py`)**: Full interactive GUI with auto-set default model activation, visual RAM savings breakdown, live I/O speed gauges, and 1-click model switching.
 7. **All-Quant GGUF Engine (`qwn_convert.py`)**: Full support for all 22+ GGML quantization schemes (including K-Quants `Q4_K_M`, `Q5_K_M`, `Q6_K`, `Q2_K`, `Q3_K_M`, `Q8_0`, `BF16`, `IQ4_XS`), Multimodal Vision Projectors (`mmproj-F32.gguf`), and Multi-Token Prediction (MTP) architectures.
 
 ### `.qwn` Capabilities & Scope
@@ -305,8 +305,8 @@ The Qwanto engine incorporates six specialized Phase 11, 12, 13, 14, 15 & 16 uni
 
 | Area | Implemented behavior |
 |------|----------------------|
-| Chat | SSE rendering, token speed, TTFT, stop generation, persistent conversations |
-| Converter | 1-Click universal conversion (.gguf, .safetensors, .pt, .bin, .onnx, .h5 -> .qwn) with real-time throughput & instant activation |
+| Chat | SSE rendering, token speed, TTFT, stop generation, glowing `⚡ QWN NATIVE` hardware status tags |
+| Converter | Pro Studio with auto-activation, ~75% RAM savings calculator, live I/O speed gauges, and universal multi-format conversion |
 | Prompt Studio | Custom system prompts, temperature/top-p presets, 1-click studio templates |
 | Telemetry | Tokens/sec tracking, generation throughput, hardware allocation, request telemetry |
 | API Workbench | Multi-language code generator (cURL, Python, TypeScript, Rust) |

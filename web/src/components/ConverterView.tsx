@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Zap,
   RefreshCw,
@@ -9,7 +9,13 @@ import {
   Clock,
   Sparkles,
   SlidersHorizontal,
-  Play
+  Play,
+  ArrowRight,
+  TrendingDown,
+  Cpu,
+  Layers,
+  Activity,
+  Check
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +45,7 @@ export function ConverterView({
   const [sourcePath, setSourcePath] = useState("")
   const [outputPath, setOutputPath] = useState("")
   const [quantMode, setQuantMode] = useState<"q4_0" | "none">("q4_0")
+  const [autoActivate, setAutoActivate] = useState(true)
   const [status, setStatus] = useState<ConversionStatus>({
     status: "idle",
     progress: 0,
@@ -48,6 +55,7 @@ export function ConverterView({
   const [loadingModels, setLoadingModels] = useState(false)
   const [loadingAction, setLoadingAction] = useState(false)
   const [error, setError] = useState("")
+  const autoActivatedRef = useRef(false)
 
   const refreshDiscoveredModels = async () => {
     setLoadingModels(true)
@@ -65,7 +73,7 @@ export function ConverterView({
     refreshDiscoveredModels()
   }, [baseUrl, apiKey])
 
-  // Poll conversion status when active
+  // Poll conversion status when active and handle auto-activation
   useEffect(() => {
     let timer: any
     const poll = async () => {
@@ -73,7 +81,10 @@ export function ConverterView({
         const data = await getConversionStatus(baseUrl, apiKey)
         setStatus(data)
         if (data.status === "converting") {
-          timer = setTimeout(poll, 1000)
+          timer = setTimeout(poll, 800)
+        } else if (data.status === "done" && autoActivate && !autoActivatedRef.current) {
+          autoActivatedRef.current = true
+          handleLoadConvertedModel(data.output || outputPath)
         }
       } catch {
         // Ignored
@@ -81,7 +92,7 @@ export function ConverterView({
     }
     poll()
     return () => clearTimeout(timer)
-  }, [baseUrl, apiKey, status.status])
+  }, [baseUrl, apiKey, status.status, autoActivate, outputPath])
 
   const handleSelectModel = (model: DiscoveredModel) => {
     setSourcePath(model.path)
@@ -98,6 +109,7 @@ export function ConverterView({
     }
     setError("")
     setLoadingAction(true)
+    autoActivatedRef.current = false
     try {
       await startConversion(baseUrl, apiKey, sourcePath.trim(), outputPath.trim() || undefined, quantMode)
       const data = await getConversionStatus(baseUrl, apiKey)
@@ -109,8 +121,8 @@ export function ConverterView({
     }
   }
 
-  const handleLoadConvertedModel = async () => {
-    const targetModel = status.output || outputPath
+  const handleLoadConvertedModel = async (targetPath?: string) => {
+    const targetModel = targetPath || status.output || outputPath
     if (!targetModel) return
     setLoadingAction(true)
     try {
@@ -124,16 +136,29 @@ export function ConverterView({
     }
   }
 
+  // Model size estimation heuristics
+  const modelFormat = sourcePath.toLowerCase().endsWith(".gguf")
+    ? "GGUF"
+    : sourcePath.toLowerCase().endsWith(".safetensors") || sourcePath.includes("safetensors")
+    ? "Safetensors"
+    : sourcePath.toLowerCase().endsWith(".pt") || sourcePath.toLowerCase().endsWith(".pth") || sourcePath.toLowerCase().endsWith(".bin")
+    ? "PyTorch"
+    : sourcePath.toLowerCase().endsWith(".onnx")
+    ? "ONNX"
+    : sourcePath.toLowerCase().endsWith(".h5") || sourcePath.toLowerCase().endsWith(".keras")
+    ? "Keras"
+    : "Generic"
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border pb-4">
         <div>
           <h2 className="text-xl font-bold flex items-center gap-2">
-            <Zap className="size-5 text-primary" /> Universal Model Converter & Optimizer
+            <Zap className="size-5 text-primary" /> Qwanto Native (.qwn) Converter Studio
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Converts any model (.gguf, .safetensors, .pt/.bin, .onnx, .h5) into Qwanto Native (.qwn) with 10x-50x SIMD quantization and zero RAM bloat.
+            Transform any checkpoint (.gguf, .safetensors, .pt, .bin, .onnx, .h5) into ultra-fast 4KiB NVMe-aligned .qwn with SIMD quantization.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -142,6 +167,9 @@ export function ConverterView({
           </Badge>
           <Badge className="bg-emerald-950/80 text-emerald-300 border-emerald-800/60 text-xs">
             4KiB NVMe Paged
+          </Badge>
+          <Badge className="bg-blue-950/80 text-blue-300 border-blue-800/60 text-xs">
+            Zero RAM Bloat
           </Badge>
         </div>
       </div>
@@ -159,7 +187,7 @@ export function ConverterView({
         <div className="space-y-4 md:col-span-1">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold flex items-center gap-1.5">
-              <HardDrive className="size-4 text-muted-foreground" /> Available Models
+              <HardDrive className="size-4 text-muted-foreground" /> Discovered Models
             </h3>
             <Button
               size="sm"
@@ -175,7 +203,7 @@ export function ConverterView({
           <div className="border border-border/80 rounded-xl p-2 bg-card/40 max-h-96 overflow-y-auto space-y-1.5">
             {discoveredModels.length === 0 ? (
               <div className="text-center py-8 text-xs text-muted-foreground">
-                No raw models found in scanned directories.
+                No raw models found in scanned paths.
               </div>
             ) : (
               discoveredModels.map((m, idx) => (
@@ -201,12 +229,19 @@ export function ConverterView({
           </div>
         </div>
 
-        {/* Right Column: Configuration & Status */}
+        {/* Right Column: Configuration, Compression Bar & Status */}
         <div className="space-y-5 md:col-span-2">
           <div className="border border-border rounded-xl p-5 bg-card/60 space-y-4">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <SlidersHorizontal className="size-4 text-primary" /> Conversion Parameters
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <SlidersHorizontal className="size-4 text-primary" /> Model Transformation Settings
+              </h3>
+              {sourcePath && (
+                <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px] font-mono">
+                  Source Format: {modelFormat}
+                </Badge>
+              )}
+            </div>
 
             {/* Source Path Input */}
             <div className="space-y-1.5">
@@ -240,7 +275,7 @@ export function ConverterView({
               />
             </div>
 
-            {/* Quantization Mode */}
+            {/* Quantization Mode Cards */}
             <div className="space-y-1.5 pt-1">
               <label className="text-xs font-medium text-muted-foreground">Quantization Target</label>
               <div className="grid grid-cols-2 gap-3">
@@ -282,11 +317,38 @@ export function ConverterView({
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="pt-2 flex items-center justify-between border-t border-border/60">
-              <div className="text-[11px] text-muted-foreground">
-                Zero temporary heap allocations &bull; Instant OpenMP multi-core loading
+            {/* Memory & Size Comparison Card */}
+            {quantMode === "q4_0" && (
+              <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-foreground flex items-center gap-1.5">
+                    <TrendingDown className="size-3.5 text-primary" /> Memory & Storage Efficiency
+                  </span>
+                  <span className="text-emerald-400 font-semibold font-mono text-[11px]">~71% - 75% Compression</span>
+                </div>
+                <div className="w-full bg-muted/60 rounded-full h-2 overflow-hidden flex">
+                  <div className="bg-primary h-full" style={{ width: "27%" }} title="Q4_0 Size: ~27%" />
+                  <div className="bg-muted-foreground/30 h-full" style={{ width: "73%" }} title="Saved Space: ~73%" />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+                  <span>Target: Q4_0 Container (~27% size)</span>
+                  <span>Uncompressed Baseline (100%)</span>
+                </div>
               </div>
+            )}
+
+            {/* Auto-Activation Checkbox & Action Button */}
+            <div className="pt-2 flex items-center justify-between border-t border-border/60">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoActivate}
+                  onChange={(e) => setAutoActivate(e.target.checked)}
+                  className="rounded border-border text-primary focus:ring-0"
+                />
+                <span>Auto-set as default model & start chat on completion</span>
+              </label>
+
               <Button
                 onClick={handleStartConversion}
                 disabled={status.status === "converting" || loadingAction || !sourcePath}
@@ -309,7 +371,7 @@ export function ConverterView({
           <div className="border border-border rounded-xl p-5 bg-card/40 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Clock className="size-3.5" /> Conversion Console & Status
+                <Clock className="size-3.5" /> Conversion Telemetry
               </h3>
               <Badge
                 className={
@@ -331,19 +393,19 @@ export function ConverterView({
               <div className="w-full bg-muted/60 rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-primary h-full transition-all duration-300 animate-pulse"
-                  style={{ width: `${Math.max(status.progress, 10)}%` }}
+                  style={{ width: `${Math.max(status.progress, 15)}%` }}
                 />
               </div>
             )}
 
-            {/* Log Box */}
-            <div className="p-3 bg-black/40 rounded-lg border border-border/40 font-mono text-xs text-muted-foreground space-y-1">
+            {/* Log & Stats Box */}
+            <div className="p-3 bg-black/40 rounded-lg border border-border/40 font-mono text-xs text-muted-foreground space-y-1.5">
               <div className="text-foreground">{status.message}</div>
               {status.elapsed ? (
-                <div className="text-[11px] text-muted-foreground/80">
-                  Elapsed Time: <span className="text-foreground">{status.elapsed}s</span>
+                <div className="text-[11px] text-muted-foreground/80 flex items-center gap-2">
+                  <span>Elapsed Time: <strong className="text-foreground">{status.elapsed}s</strong></span>
                   {status.speed_mb_s ? (
-                    <> &bull; Throughput: <span className="text-emerald-400 font-semibold">{status.speed_mb_s} MB/s</span></>
+                    <> &bull; <span>Throughput: <strong className="text-emerald-400 font-semibold">{status.speed_mb_s} MB/s</strong></span></>
                   ) : null}
                 </div>
               ) : null}
@@ -359,7 +421,7 @@ export function ConverterView({
                 <Button
                   size="sm"
                   variant="default"
-                  onClick={handleLoadConvertedModel}
+                  onClick={() => handleLoadConvertedModel()}
                   disabled={loadingAction}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 h-8 text-xs"
                 >
