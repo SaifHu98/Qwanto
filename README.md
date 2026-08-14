@@ -1,14 +1,14 @@
 # Qwanto ⚡
 
-> Unified inference runtime that uses all your hardware — CPU, GPU, RAM, NVMe — to run any model larger than memory.
+Qwanto is an ultra-fast, hardware-saturating local AI execution runtime that tier weights across **GPU VRAM, System RAM, and High-Speed NVMe** so you can run 70B+ LLMs on consumer hardware.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-154%20Passed-brightgreen.svg)]()
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Tests](https://img.shields.io/badge/Tests-157%20Passed-brightgreen.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
 [![Web Dashboard](https://img.shields.io/badge/Web%20Dashboard-React%2019%20%7C%20Vite-blue.svg)]()
 [![Maintainer](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
 
-**Qwanto** is an ultra-fast, hardware-saturating local AI execution runtime that tier weights across **GPU VRAM, System RAM, and High-Speed NVMe** so you can run 70B+ LLMs on consumer hardware. It combines:
+It combines:
 
 * a proprietary `.qwn` SIMD/OpenMP container with native decoder
 * the OpenAI-compatible HTTP gateway in `openai_server.py`
@@ -41,7 +41,7 @@ All numbers below were produced by the experiment drivers under `experiments/`. 
 | `QWN-HyperVSQ-2`|          0.83 |        1060.33 |            5.003 |       19.12 |      1207.54 |          2.340 |
 
 Notes:
-* The 1.5B source is already Q4_K-M; the `.qwn` writer passes K-quants through unchanged, so all 6 formats produce identical `1060.33 MB` containers (the engine's quantizer cannot re-quantize a K-quant that has no F32/F16/BF16 sibling).  The 1.5B column therefore measures the **engine's container-write throughput** at the source size.
+* The 1.5B figures are from legacy containers produced before the K-quant safety fix. Current conversion dequantizes supported Q4_K/Q5_K/Q6_K blocks to FP32 before applying the selected QWN quantizer; unsupported K/IQ layouts fail explicitly.
 * The 4B is mostly Q4_0 with some F32/F16; the writer down-converts F32/F16 tensors into the requested quant format.  `HyperVSQ-2` shrinks the 4B container from 8.07 GB to **1.21 GB (2.34 bpw payload)** in 19 s.
 * `payload_bpw` is computed by `qwn_bpw_truth` from the real per-tensor byte sizes emitted by the writer — it is **not** a hand-written constant.
 
@@ -79,7 +79,7 @@ Honest measurement of the rebuilt binary on the two attached models:
 
 | Model (.qwn)                                  | qwnrun outcome | Real reason |
 |-----------------------------------------------|----------------|-------------|
-| `1.5B_q4_0.qwn` (from Q4_K_M source)          | **0.39 tok/s** | K-quant passthrough — `qwn_convert` stores K-quant blocks as opaque bytes with `dtype_id=DT_F16`; `qwnrun` reads them as float16 weights (garbage matrices) and the per-token decode loop runs against nonsense logits. No K-quant block decoder exists in this release. |
+| `1.5B_q4_0.qwn` (legacy artifact from Q4_K_M source) | **0.39 tok/s** | Historical pre-fix artifact: K-quant bytes were stored as opaque `DT_F16` data. Current conversion rejects that path and dequantizes supported K-quants before writing QWN. |
 | `4B_q4_0.qwn` (BF16 source re-quantized)      | **0.00 tok/s — fails immediately** | Qwen3.5 hybrid (`full_attention_interval=4`) — the per-layer `q_proj` output is 8192 (= 16 heads × 512 effective head_dim) but the GGUF metadata reports `key_length=256`. The native decoder uses a single global `head_dim` from the config, so the matmul shape check fails at layer 3 with `layer 3 attn matmul failed`. |
 | `4B_hyper_vsq2.qwn`                           | **0.00 tok/s — fails immediately** | Same Qwen3.5 head_dim bug. |
 
@@ -142,7 +142,7 @@ The CLI driver `c/tools/qwn_plan_cli.py` walks a model directory or single check
 
 | Subsystem | Status | Highlights |
 |-----------|--------|------------|
-| **Qwanto Native (`.qwn`)** | **Production-Ready** | 4 KiB header, 4 KiB-aligned tensor payloads, 64-byte padding, tail-block offset in last 8 bytes, F32/F16/BF16/Q4_0/VSQ/VSQ-Ultra/HyperVSQ/HyperVSQ-2 |
+| **Qwanto Native (`.qwn`)** | **Validated dense core** | Strict container validation, F32/F16/BF16/Q4_0/Q8_0/VSQ/VSQ-Ultra/HyperVSQ/HyperVSQ-2; Q4_K/Q5_K/Q6_K ingest is dequantized before conversion |
 | **QWN-HyperVSQ-2 Engine**  | **Production-Ready** | 256-element superblocks, 74-byte blocks (2.3125 bpw payload) |
 | **Model Ingestion Pipeline** | **Wire-Speed** | 1265 MB/s on 1.5B, 60–130 MB/s on 4B (numpy-vectorised `bf16_payload_to_f32`, ThreadPoolExecutor streaming, 16 MiB chunks) |
 | **OpenAI Gateway (`/v1`)** | **Production-Ready** | `ThreadingHTTPServer`, SSE streaming, multi-key auth, CORS, defense headers, path-traversal guard |
@@ -161,7 +161,7 @@ The CLI driver `c/tools/qwn_plan_cli.py` walks a model directory or single check
 | Model/input                        | Backend                       | Hardware use                    | Notes |
 |------------------------------------|-------------------------------|---------------------------------|-------|
 | GGUF (Q4_K, Q5_K, Q6_K, …)         | `llama-server` (llama.cpp)    | CPU and supported GPU backends  | Recommended general-purpose local path |
-| `.qwn` (HyperVSQ-2, HyperVSQ, …)   | `qwnrun`                      | CPU AVX2/FMA/OpenMP             | Native dense decoder; CUDA Q4_0 matmul optional |
+| `.qwn` (HyperVSQ-2, HyperVSQ, …)   | `qwnrun`                      | CPU AVX2/FMA/OpenMP; optional multi-GPU CUDA | Native dense decoder; CUDA Q4_0 matmul is budgeted per selected device |
 | GLM / DeepSeek / OLMoE directory   | Native MoE runtime            | CPU/RAM/NVMe, async I/O         | Architecture-specific |
 | Ollama model name                  | Ollama                        | Ollama-controlled               | OpenAI-style passthrough |
 
@@ -186,7 +186,7 @@ Opens `http://127.0.0.1:8000/` after the API reports the model loaded.
 ### Convert to `.qwn`
 
 ```powershell
-# Passthrough (any input format → .qwn container)
+# Passthrough for supported native inputs → .qwn container
 python c\coli pack D:\models\model.gguf D:\models\model.qwn --quant none
 
 # Re-quantize 4 KiB-aligned F32/F16/BF16 tensors into HyperVSQ-2
@@ -260,7 +260,7 @@ python experiments/run_empirical_report.py
 ## Build and test
 
 ```bash
-# Python & integration tests (154 passed, 12 skipped in the workspace)
+# Python & integration tests (157 passed, 12 skipped in the workspace)
 python -m pytest c/tests/ -q
 
 # Native C tests
@@ -287,4 +287,6 @@ The pytest suite covers:
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+Apache License 2.0 — see [`LICENSE`](LICENSE).
+
+> SaifHu98/Qwanto is licensed under the Apache License 2.0.

@@ -19,6 +19,8 @@ DESC_FMT = "<64sIII4Q3QI"
 DESC_SIZE = struct.calcsize(DESC_FMT)  # 136
 HEADER_PREFIX_FMT = "<16sIIIIIIQ8Q"
 HEADER_PREFIX_SIZE = struct.calcsize(HEADER_PREFIX_FMT)  # 112
+HEADER_EXT_OFFSET = HEADER_PREFIX_SIZE + INLINE_MAX * DESC_SIZE
+HEADER_EXT_FMT = "<3Q"
 TAIL_FMT = "<IIQQQ"
 TAIL_SIZE = struct.calcsize(TAIL_FMT)  # 32
 
@@ -27,6 +29,8 @@ DT_NAME = {DT_F32: "F32", DT_F16: "F16", DT_Q4_0: "Q4_0",
            DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES",
            DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA", DT_HYPER_VSQ: "HYPER_VSQ",
            DT_HYPER_VSQ2: "HYPER_VSQ2"}
+QUANT_BLOCK_SIZES = {"q4_0": 32, "vsq": 64, "vsq_ultra": 128,
+                     "hyper_vsq": 256, "hyper_vsq2": 256}
 
 
 def align(n: int, a: int = ALIGN) -> int:
@@ -465,6 +469,8 @@ def quantize_hyper_vsq2_rows(src: bytes, rows: int, cols: int) -> bytes:
 
 
 def quantize_matrix_rows(raw_f32: bytes, rows: int, cols: int, quant_mode: str) -> bytes:
+    if quant_mode != "q4_0" and _get_numpy() is None:
+        raise RuntimeError(f"NumPy is required for quantization mode {quant_mode}")
     if quant_mode == "hyper_vsq2":
         return quantize_hyper_vsq2_rows(raw_f32, rows, cols)
     elif quant_mode == "hyper_vsq":
@@ -536,14 +542,29 @@ def unpack_desc(data: bytes, offset: int) -> dict:
     row = struct.unpack_from(DESC_FMT, data, offset)
     name = row[0].split(b"\0", 1)[0].decode("utf-8")
     n_dims = row[3]
-    return {"name": name, "name_len": row[1], "dtype": row[2],
+    dtype = row[2]
+    shape = tuple(row[4:4 + n_dims])
+    numel = 1
+    for dim in shape:
+        numel *= dim
+    payload_sizes = {
+        DT_F32: numel * 4, DT_F16: numel * 2, DT_BF16: numel * 2,
+        DT_BYTES: numel, DT_Q4_0: ((numel + 31) // 32) * 18,
+        DT_Q8_0: ((numel + 31) // 32) * 34,
+        DT_VSQ: ((numel + 63) // 64) * 36,
+        DT_VSQ_ULTRA: ((numel + 127) // 128) * 70,
+        DT_HYPER_VSQ: ((numel + 255) // 256) * 138,
+        DT_HYPER_VSQ2: ((numel + 255) // 256) * 74,
+    }
+    return {"name": name, "name_len": row[1], "dtype": dtype,
             "n_dims": n_dims, "shape": tuple(row[4:4 + n_dims]),
             "numel": row[8], "byte_offset": row[9],
-            "byte_size": row[10], "block_q": row[11]}
+            "byte_size": row[10], "payload_size": payload_sizes.get(dtype, 0),
+            "block_q": row[11]}
 
 
-def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
-              arch_code: int = 1) -> int:
+def _write_qwn_in_place(path: str, tensors: list[dict], arch_dims=(0,) * 8,
+                        arch_code: int = 1) -> int:
     layout = [_desc(t) for t in tensors]
     cursor = HEADER_SIZE
     for tensor in layout:
@@ -559,13 +580,17 @@ def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
     file_size = index_offset + len(overflow) * 16 + 8
 
     header = bytearray(HEADER_SIZE)
-    dims = tuple(int(x) for x in tuple(arch_dims)[:8]) + (0,) * max(0, 8 - len(tuple(arch_dims)))
+    arch_values = tuple(int(x) for x in arch_dims)
+    dims = arch_values[:8] + (0,) * max(0, 8 - len(arch_values))
     struct.pack_into(HEADER_PREFIX_FMT, header, 0, MAGIC, VERSION, 0,
                      arch_code, len(layout), inline_count, 0,
                      sum(t["numel"] for t in layout), *dims[:8])
     for i, tensor in enumerate(layout[:inline_count]):
         start = HEADER_PREFIX_SIZE + i * DESC_SIZE
         header[start:start + DESC_SIZE] = pack_desc(tensor)
+    q_dim, k_dim, v_dim = (arch_values[8:11] + (0, 0, 0))[:3]
+    struct.pack_into(HEADER_EXT_FMT, header, HEADER_EXT_OFFSET,
+                     q_dim, k_dim, v_dim)
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -617,6 +642,23 @@ def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
     return file_size
 
 
+def write_qwn(path: str, tensors: list[dict], arch_dims=(0,) * 8,
+              arch_code: int = 1) -> int:
+    """Write a QWN container atomically, never publishing a partial file."""
+    target = Path(path)
+    partial = target.with_name(target.name + ".partial")
+    try:
+        size = _write_qwn_in_place(str(partial), tensors, arch_dims, arch_code)
+        os.replace(partial, target)
+        return size
+    except Exception:
+        try:
+            partial.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def inspect_qwn(path: str) -> dict:
     with open(path, "rb") as f:
         header = f.read(HEADER_SIZE)
@@ -637,9 +679,11 @@ def inspect_qwn(path: str) -> dict:
         f.seek(desc_offset)
         for _ in range(count):
             tensors.append(unpack_desc(f.read(DESC_SIZE), 0))
+    q_dim, k_dim, v_dim = struct.unpack_from(HEADER_EXT_FMT, header, HEADER_EXT_OFFSET)
     return {"version": version, "arch_code": arch_code,
             "n_tensors": n_tensors, "inline_count": inline_count,
             "n_params": prefix[7], "arch_dims": tuple(prefix[8:16]),
+            "q_dim": q_dim, "k_dim": k_dim, "v_dim": v_dim,
             "tail_offset": tail_offset, "tensors": tensors}
 
 
@@ -677,6 +721,10 @@ def _copy_writer(meta):
 
 
 def _q4_writer(meta):
+    return _matrix_quant_writer(meta, "q4_0")
+
+
+def _matrix_quant_writer(meta, quant):
     rows, cols = meta["shape"]
     item_bytes = 4 if meta["dtype"] == "F32" else 2
     row_bytes = cols * item_bytes
@@ -693,7 +741,7 @@ def _q4_writer(meta):
                     raw = f16_payload_to_f32(raw)
                 elif meta["dtype"] == "BF16":
                     raw = bf16_payload_to_f32(raw)
-                out.write(quantize_q4_0_rows(raw, cur_rows, cols))
+                out.write(quantize_matrix_rows(raw, cur_rows, cols, quant))
     return write
 
 
@@ -731,11 +779,195 @@ def map_gguf_tensor_name(name: str) -> str:
     return name
 
 
+def _k4_scale_min(scales):
+    """Unpack llama.cpp's eight 6-bit K-quant scale/min pairs."""
+    np = _get_numpy()
+    if np is None:
+        raise RuntimeError("NumPy is required for K-quant dequantization")
+    values = np.asarray(scales, dtype=np.uint8)
+    scale = np.empty(values.shape[:-1] + (8,), dtype=np.uint8)
+    minimum = np.empty_like(scale)
+    scale[..., :4] = values[..., :4] & 0x3F
+    minimum[..., :4] = values[..., 4:8] & 0x3F
+    scale[..., 4:] = (values[..., 8:12] & 0x0F) | ((values[..., :4] >> 6) << 4)
+    minimum[..., 4:] = (values[..., 8:12] >> 4) | ((values[..., 4:8] >> 6) << 4)
+    return scale, minimum
+
+
+def _dequantize_q4_k_block(block_bytes: bytes, numel: int = 256):
+    np = _get_numpy()
+    if np is None or len(block_bytes) != 144 or not 0 < numel <= 256:
+        raise ValueError("invalid Q4_K block")
+    d = np.frombuffer(block_bytes[0:2], dtype=np.float16)[0].astype(np.float32)
+    dmin = np.frombuffer(block_bytes[2:4], dtype=np.float16)[0].astype(np.float32)
+    scales, minimum = _k4_scale_min(np.frombuffer(block_bytes[4:16], dtype=np.uint8))
+    qs = np.frombuffer(block_bytes[16:144], dtype=np.uint8)
+    out = np.empty(256, dtype=np.float32)
+    for segment in range(4):
+        q = qs[segment * 32:(segment + 1) * 32]
+        first = q & 0x0F
+        second = q >> 4
+        s0, s1 = scales[segment * 2:segment * 2 + 2].astype(np.float32)
+        m0, m1 = minimum[segment * 2:segment * 2 + 2].astype(np.float32)
+        out[segment * 64:segment * 64 + 32] = d * s0 * first - dmin * m0
+        out[segment * 64 + 32:segment * 64 + 64] = d * s1 * second - dmin * m1
+    return out[:numel]
+
+
+def _dequantize_q5_k_block(block_bytes: bytes, numel: int = 256):
+    np = _get_numpy()
+    if np is None or len(block_bytes) != 176 or not 0 < numel <= 256:
+        raise ValueError("invalid Q5_K block")
+    d = np.frombuffer(block_bytes[0:2], dtype=np.float16)[0].astype(np.float32)
+    dmin = np.frombuffer(block_bytes[2:4], dtype=np.float16)[0].astype(np.float32)
+    scales, minimum = _k4_scale_min(np.frombuffer(block_bytes[4:16], dtype=np.uint8))
+    qh = np.frombuffer(block_bytes[16:48], dtype=np.uint8)
+    qs = np.frombuffer(block_bytes[48:176], dtype=np.uint8)
+    out = np.empty(256, dtype=np.float32)
+    for segment in range(4):
+        q = qs[segment * 32:(segment + 1) * 32]
+        low = (q & 0x0F).astype(np.float32) + (((qh >> (2 * segment)) & 1) * 16)
+        high = (q >> 4).astype(np.float32) + (((qh >> (2 * segment + 1)) & 1) * 16)
+        s0, s1 = scales[segment * 2:segment * 2 + 2].astype(np.float32)
+        m0, m1 = minimum[segment * 2:segment * 2 + 2].astype(np.float32)
+        out[segment * 64:segment * 64 + 32] = d * s0 * low - dmin * m0
+        out[segment * 64 + 32:segment * 64 + 64] = d * s1 * high - dmin * m1
+    return out[:numel]
+
+
+def _dequantize_q6_k_block(block_bytes: bytes, numel: int = 256):
+    np = _get_numpy()
+    if np is None or len(block_bytes) != 210 or not 0 < numel <= 256:
+        raise ValueError("invalid Q6_K block")
+    ql = np.frombuffer(block_bytes[0:128], dtype=np.uint8)
+    qh = np.frombuffer(block_bytes[128:192], dtype=np.uint8)
+    scales = np.frombuffer(block_bytes[192:208], dtype=np.int8).astype(np.float32)
+    d = np.frombuffer(block_bytes[208:210], dtype=np.float16)[0].astype(np.float32)
+    out = np.empty(256, dtype=np.float32)
+    for chunk in range(2):
+        ql_chunk = ql[chunk * 64:(chunk + 1) * 64]
+        qh_chunk = qh[chunk * 32:(chunk + 1) * 32]
+        sc = scales[chunk * 8:(chunk + 1) * 8]
+        q1 = ((ql_chunk[:32] & 0x0F) | ((qh_chunk & 0x03) << 4)).astype(np.int16) - 32
+        q2 = ((ql_chunk[32:64] & 0x0F) | (((qh_chunk >> 2) & 0x03) << 4)).astype(np.int16) - 32
+        q3 = ((ql_chunk[:32] >> 4) | (((qh_chunk >> 4) & 0x03) << 4)).astype(np.int16) - 32
+        q4 = ((ql_chunk[32:64] >> 4) | (((qh_chunk >> 6) & 0x03) << 4)).astype(np.int16) - 32
+        for index, values in enumerate((q1, q2, q3, q4)):
+            base = chunk * 128 + index * 32
+            scale = np.repeat(sc[index * 2:index * 2 + 2], 16)
+            out[base:base + 32] = d * scale * values
+    return out[:numel]
+
+
+def _dequantize_k_payload(raw: bytes, dtype: int):
+    """Vectorized dequantization of a contiguous GGML K-quant payload."""
+    np = _get_numpy()
+    specs = {12: (144, _dequantize_q4_k_block),
+             13: (176, _dequantize_q5_k_block),
+             14: (210, _dequantize_q6_k_block)}
+    if np is None or dtype not in specs:
+        raise ValueError(f"unsupported K-quant dtype {dtype}")
+    block_bytes, _ = specs[dtype]
+    if len(raw) == 0 or len(raw) % block_bytes:
+        raise ValueError(f"invalid K-quant payload length for dtype {dtype}")
+    blocks = np.frombuffer(raw, dtype=np.uint8).reshape(-1, block_bytes)
+    count = blocks.shape[0]
+    out = np.empty((count, 256), dtype=np.float32)
+    if dtype in (12, 13):
+        d = blocks[:, 0:2].copy().view(np.float16).reshape(count).astype(np.float32)
+        dmin = blocks[:, 2:4].copy().view(np.float16).reshape(count).astype(np.float32)
+        scales, minimum = _k4_scale_min(blocks[:, 4:16])
+        qs_offset = 16 if dtype == 12 else 48
+        qs = blocks[:, qs_offset:qs_offset + 128]
+        qh = blocks[:, 16:48] if dtype == 13 else None
+        for segment in range(4):
+            q = qs[:, segment * 32:(segment + 1) * 32]
+            low = (q & 0x0F).astype(np.float32)
+            high = (q >> 4).astype(np.float32)
+            if qh is not None:
+                low += (((qh >> (2 * segment)) & 1) * 16).astype(np.float32)
+                high += (((qh >> (2 * segment + 1)) & 1) * 16).astype(np.float32)
+            s0 = scales[:, segment * 2].astype(np.float32)[:, None]
+            s1 = scales[:, segment * 2 + 1].astype(np.float32)[:, None]
+            m0 = minimum[:, segment * 2].astype(np.float32)[:, None]
+            m1 = minimum[:, segment * 2 + 1].astype(np.float32)[:, None]
+            out[:, segment * 64:segment * 64 + 32] = d[:, None] * s0 * low - dmin[:, None] * m0
+            out[:, segment * 64 + 32:segment * 64 + 64] = d[:, None] * s1 * high - dmin[:, None] * m1
+    else:
+        ql = blocks[:, 0:128]
+        qh = blocks[:, 128:192]
+        scales = blocks[:, 192:208].view(np.int8).astype(np.float32)
+        d = blocks[:, 208:210].copy().view(np.float16).reshape(count).astype(np.float32)
+        for chunk in range(2):
+            ql_chunk = ql[:, chunk * 64:(chunk + 1) * 64]
+            qh_chunk = qh[:, chunk * 32:(chunk + 1) * 32]
+            sc = scales[:, chunk * 8:(chunk + 1) * 8]
+            q_values = (
+                ((ql_chunk[:, :32] & 0x0F) | ((qh_chunk & 0x03) << 4)).astype(np.int16) - 32,
+                ((ql_chunk[:, 32:64] & 0x0F) | (((qh_chunk >> 2) & 0x03) << 4)).astype(np.int16) - 32,
+                ((ql_chunk[:, :32] >> 4) | (((qh_chunk >> 4) & 0x03) << 4)).astype(np.int16) - 32,
+                ((ql_chunk[:, 32:64] >> 4) | (((qh_chunk >> 6) & 0x03) << 4)).astype(np.int16) - 32,
+            )
+            for index, values in enumerate(q_values):
+                scale = np.repeat(sc[:, index * 2:index * 2 + 2], 16, axis=1)
+                base = chunk * 128 + index * 32
+                out[:, base:base + 32] = d[:, None] * scale * values
+    return out.reshape(-1)
+
+
+def _make_k_quant_writer(source_path: str, byte_offset: int, rows: int,
+                         cols: int, dtype: int, quant: str, name: str = "tensor"):
+    np = _get_numpy()
+    if np is None:
+        raise RuntimeError("NumPy is required to convert GGUF K-quants")
+    block_bytes = {12: 144, 13: 176, 14: 210}[dtype]
+    if cols <= 0 or cols % 256 != 0:
+        raise ValueError(f"K-quant tensor width must be a multiple of 256: {cols}")
+    blocks_per_row = cols // 256
+    source_row_bytes = blocks_per_row * block_bytes
+    chunk_rows = max(1, (16 << 20) // source_row_bytes)
+
+    if quant == "none":
+        out_dtype = DT_F32
+        payload_size = rows * cols * 4
+    else:
+        out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
+
+    def write(out):
+        with open(source_path, "rb") as source:
+            source.seek(byte_offset)
+            for row_start in range(0, rows, chunk_rows):
+                cur_rows = min(chunk_rows, rows - row_start)
+                raw = source.read(cur_rows * source_row_bytes)
+                if len(raw) != cur_rows * source_row_bytes:
+                    raise ValueError("truncated GGUF K-quant payload")
+                f32 = _dequantize_k_payload(raw, dtype).reshape(cur_rows, cols)
+                if not np.isfinite(f32).all():
+                    raise ValueError(f"non-finite values after GGUF K-quant dequantization: {name}")
+                if quant == "none":
+                    out.write(f32.astype(np.float32, copy=False).tobytes())
+                else:
+                    out.write(quantize_matrix_rows(f32.tobytes(), cur_rows, cols, quant))
+
+    return out_dtype, payload_size, write
+
+
 def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     GGUF_MAGIC = b"GGUF"
     SCALAR_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
     SCALAR_FMT = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i",
                   6: "<f", 7: "<B", 10: "<Q", 11: "<q", 12: "<d"}
+
+    # Quantizer block sizes; a tensor with fewer rows than this cannot
+    # be quantized (the writer will keep it at its source precision).
+    _BLOCK_SIZES = {
+        "q4_0":       32,
+        "vsq":        64,
+        "vsq_ultra":  128,
+        "hyper_vsq":  256,
+        "hyper_vsq2": 256,
+    }
+    _block = _BLOCK_SIZES.get(quant, 32)
 
     def read_str(f):
         (n,) = struct.unpack("<Q", f.read(8))
@@ -767,11 +999,17 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                 (etype,) = struct.unpack("<I", f.read(4))
                 (count,) = struct.unpack("<Q", f.read(8))
                 if etype in SCALAR_SIZES:
-                    f.seek(SCALAR_SIZES[etype] * count, 1)
+                    if key.startswith("tokenizer.ggml."):
+                        metadata[key] = [read_scalar(f, etype) for _ in range(count)]
+                    else:
+                        f.seek(SCALAR_SIZES[etype] * count, 1)
                 elif etype == 8:
+                    values = []
                     for _ in range(count):
                         (n,) = struct.unpack("<Q", f.read(8))
-                        f.seek(n, 1)
+                        values.append(f.read(n).decode("utf-8", "replace"))
+                    if key.startswith("tokenizer.ggml."):
+                        metadata[key] = values
                 else:
                     f.seek(count * 4, 1)
 
@@ -816,7 +1054,10 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
 
     # GGML dtypes: 0=F32, 1=F16, 2=Q4_0, 7/8=Q8_0, 28/29/30=BF16, 10..15=K-Quants, 16..21=IQ-Quants
     for name, dims, dtype, offset in raw_tensors:
-        # dims in GGUF is fastest dimension first (already matching .qwn)
+        # GGUF dimensions are already stored fastest-dimension first. This
+        # is the QWN convention too: shape[0] is the input width and
+        # shape[1] is the output row count. The payload is not transposed,
+        # so reversing dimensions here corrupts every non-square matrix.
         shape = tuple(dims)
         byte_offset = data_base + offset
         
@@ -828,11 +1069,35 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         block_elems, block_bytes = GGML_BLOCK_SIZES.get(dtype, (1, 2))
         byte_len = ((numel + block_elems - 1) // block_elems) * block_bytes
 
+        # The native decoder currently has exact implementations only for
+        # F32/F16/BF16 and GGML Q4_0. Reject every other source block ABI
+        # before a container is created; an apparently valid .qwn with an
+        # opaque payload is worse than a conversion error.
+        if dtype not in (0, 1, 2, 8, 12, 13, 14, 28, 29, 30):
+            raise ValueError(
+                f"unsupported GGUF dtype {dtype} for {name}; "
+                "convert from F32/F16/BF16/Q4_0/Q8_0/Q4_K/Q5_K/Q6_K or add a verified decoder"
+            )
+        if dtype == 8 and quant not in ("none", "q8_0"):
+            raise ValueError(
+                f"cannot re-quantize GGUF Q8_0 tensor {name} without a "
+                "verified dequantization path; use --quant none"
+            )
+
+        if dtype in (12, 13, 14):
+            out_dtype, payload_size, writer = _make_k_quant_writer(
+                path, byte_offset, shape[1] if len(shape) == 2 else 1,
+                shape[0] if len(shape) == 2 else numel, dtype, quant, name)
+            tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                            "payload_size": payload_size, "write_payload": writer})
+            continue
+
         if dtype == 0:  # F32
             out_dtype = DT_F32
-            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
-                out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])
-                cols, rows = shape[0], shape[1]
+            _ok_2d = (len(shape) == 2 and shape[0] >= _block)
+            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and _ok_2d:
+                rows, cols = shape[1], shape[0]
+                out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
                 def make_writer(b_off, r, c, qm):
                     row_b = c * 4
                     chunk_r = max(1, (16 * 1024 * 1024) // row_b)
@@ -850,9 +1115,10 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                 continue
         elif dtype == 1:  # F16
             out_dtype = DT_F16
-            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
-                out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])
-                cols, rows = shape[0], shape[1]
+            _ok_2d = (len(shape) == 2 and shape[0] >= _block)
+            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and _ok_2d:
+                rows, cols = shape[1], shape[0]
+                out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
                 def make_writer(b_off, r, c, qm):
                     row_b = c * 2
                     chunk_r = max(1, (16 * 1024 * 1024) // row_b)
@@ -871,9 +1137,10 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                 continue
         elif dtype in (28, 29, 30):  # BF16
             out_dtype = DT_BF16
-            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and len(shape) == 2:
-                out_dtype, payload_size = _get_quant_dtype_and_size(quant, shape[1], shape[0])
-                cols, rows = shape[0], shape[1]
+            _ok_2d = (len(shape) == 2 and shape[0] >= _block)
+            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and _ok_2d:
+                rows, cols = shape[1], shape[0]
+                out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
                 def make_writer(b_off, r, c, qm):
                     row_b = c * 2
                     chunk_r = max(1, (16 * 1024 * 1024) // row_b)
@@ -891,20 +1158,27 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 "write_payload": make_writer(byte_offset, rows, cols, quant)})
                 continue
         elif dtype == 2:  # Q4_0
+            if len(shape) != 2 or shape[0] % 32 != 0:
+                raise ValueError(
+                    f"Q4_0 tensor {name} is not a row-wise matrix with a "
+                    f"32-element row width: shape={shape}"
+                )
             out_dtype = DT_Q4_0
-        elif dtype in (7, 8):  # Q8_0
+        elif dtype == 8:  # Q8_0
             out_dtype = DT_Q8_0
         else:
-            out_dtype = DT_BYTES if dtype not in (0, 1, 28) else DT_F16
-
-        def make_copy(b_off, b_len):
+            out_dtype = (DT_F32 if dtype == 0 else
+                         DT_F16 if dtype == 1 else
+                         DT_BF16 if dtype in (28, 29, 30) else DT_BYTES)
+        def make_copy(b_off, b_len, tensor_name=name):
             def write(out):
                 with open(path, "rb") as sf:
                     sf.seek(b_off)
                     rem = b_len
                     while rem > 0:
                         chunk = sf.read(min(8 << 20, rem))
-                        if not chunk: break
+                        if not chunk:
+                            raise ValueError(f"truncated GGUF tensor payload: {tensor_name}")
                         out.write(chunk)
                         rem -= len(chunk)
             return write
@@ -923,11 +1197,14 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     # The previous default (hidden // heads) is wrong for Qwen3.5 (real
     # head_dim=256 vs. computed 160) and produced .qwn files that the
     # native decoder refused to load.
-    head_dim = metadata.get(
-        f"{arch_prefix}.attention.head_dim",
-        metadata.get(f"{arch_prefix}.attention.key_length", 0))
-    if not head_dim and heads:
-        head_dim = hidden // max(1, heads)
+    q_head_dim = metadata.get(f"{arch_prefix}.attention.head_dim", 0)
+    if not q_head_dim:
+        q_head_dim = metadata.get(f"{arch_prefix}.attention.query_length", 0)
+    if not q_head_dim and heads:
+        q_head_dim = hidden // max(1, heads)
+    k_head_dim = metadata.get(f"{arch_prefix}.attention.key_length", q_head_dim)
+    v_head_dim = metadata.get(f"{arch_prefix}.attention.value_length", k_head_dim)
+    head_dim = q_head_dim
     layers = metadata.get(f"{arch_prefix}.block_count", 0)
     vocab = metadata.get(f"{arch_prefix}.vocab_size", 0)
     if not vocab:
@@ -940,36 +1217,46 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     config_data = json.dumps({
         "hidden_size": hidden, "intermediate_size": inter,
         "num_attention_heads": heads, "num_key_value_heads": kv_heads,
-        "head_dim": head_dim, "num_hidden_layers": layers,
-        "vocab_size": vocab, "max_position_embeddings": ctx
-    }).encode("utf-8")
+        "head_dim": head_dim, "q_head_dim": q_head_dim,
+        "k_head_dim": k_head_dim, "v_head_dim": v_head_dim,
+        "q_dim": heads * q_head_dim if heads and q_head_dim else 0,
+        "k_dim": kv_heads * k_head_dim if kv_heads and k_head_dim else 0,
+        "v_dim": kv_heads * v_head_dim if kv_heads and v_head_dim else 0,
+        "num_hidden_layers": layers,
+        "vocab_size": vocab, "max_position_embeddings": ctx,
+        "bos_token_id": int(metadata.get("tokenizer.ggml.bos_token_id", -1)),
+        "eos_token_id": int(metadata.get("tokenizer.ggml.eos_token_id", -1)),
+    }, ensure_ascii=False).encode("utf-8")
     tensors.append({"name": "__qwn.config", "dtype": DT_BYTES,
                     "shape": (len(config_data),), "payload": config_data})
 
-    isdir = [False] * 256
-    for b in range(33, 127): isdir[b] = True
-    for b in range(161, 173): isdir[b] = True
-    for b in range(174, 256): isdir[b] = True
-    n = 0
-    vocab_map = {}
-    for b in range(256):
-        cp = b if isdir[b] else (256 + n)
-        if not isdir[b]: n += 1
-        vocab_map[chr(cp)] = b
+    token_list = metadata.get("tokenizer.ggml.tokens")
+    merge_list = metadata.get("tokenizer.ggml.merges", [])
+    if not token_list:
+        raise ValueError("GGUF tokenizer tokens are missing; refusing to emit a fake tokenizer")
+    vocab_map = {str(token): index for index, token in enumerate(token_list)}
+    merge_pairs = []
+    for merge in merge_list:
+        parts = str(merge).split(" ", 1)
+        if len(parts) == 2:
+            merge_pairs.append(parts)
 
     tok_data = json.dumps({
         "version": "1.0",
         "model": {
             "type": "BPE",
             "vocab": vocab_map,
-            "merges": []
+            "merges": merge_pairs
         },
         "added_tokens": []
-    }).encode("utf-8")
+    }, ensure_ascii=False).encode("utf-8")
     tensors.append({"name": "__qwn.tokenizer", "dtype": DT_BYTES,
                     "shape": (len(tok_data),), "payload": tok_data})
 
-    dims = (hidden, inter, heads, kv_heads, head_dim, layers, vocab, ctx)
+    dims = (hidden, inter, heads, kv_heads, head_dim, layers, vocab, ctx,
+            heads * q_head_dim if heads and q_head_dim else 0,
+            kv_heads * k_head_dim if kv_heads and k_head_dim else 0,
+            kv_heads * v_head_dim if kv_heads and v_head_dim else 0)
     return tensors, dims
 
 
@@ -988,15 +1275,13 @@ def _read_pytorch_tensors(path: str, quant: str = "q4_0"):
             continue
         arr = tensor.detach().float().numpy()
         shape = tuple(reversed(arr.shape))
-        if quant == "q4_0" and arr.ndim == 2:
-            out_dtype = DT_Q4_0
+        if quant in QUANT_BLOCK_SIZES and arr.ndim == 2 and arr.shape[1] >= QUANT_BLOCK_SIZES[quant]:
             rows, cols = arr.shape
-            payload_size = rows * ((cols + 31) // 32) * 18
+            out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
             def make_writer(a):
                 def write(out):
-                    for r in range(a.shape[0]):
-                        row_bytes = struct.pack(f"<{a.shape[1]}f", *a[r])
-                        out.write(quantize_q4_0(row_bytes))
+                    out.write(quantize_matrix_rows(a.astype("float32", copy=False).tobytes(),
+                                                   a.shape[0], a.shape[1], quant))
                 return write
             tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
                             "payload_size": payload_size, "write_payload": make_writer(arr)})
@@ -1010,14 +1295,26 @@ def _read_pytorch_tensors(path: str, quant: str = "q4_0"):
     dims = (0,) * 8
     if config_file.is_file():
         cfg = json.loads(config_file.read_text("utf-8"))
-        dims = (cfg.get("hidden_size", 0), cfg.get("intermediate_size", 0),
-                cfg.get("num_attention_heads", 0), cfg.get("num_key_value_heads", 0),
-                cfg.get("head_dim", 0) or (cfg.get("hidden_size", 0) // max(1, cfg.get("num_attention_heads", 1))),
-                cfg.get("num_hidden_layers", 0), cfg.get("vocab_size", 0),
-                cfg.get("max_position_embeddings", 0))
+        hidden = cfg.get("hidden_size", 0)
+        heads = cfg.get("num_attention_heads", 0)
+        kv_heads = cfg.get("num_key_value_heads", heads)
+        q_head_dim = cfg.get("q_head_dim", cfg.get("head_dim", 0) or hidden // max(1, heads))
+        k_head_dim = cfg.get("k_head_dim", cfg.get("key_length", q_head_dim))
+        v_head_dim = cfg.get("v_head_dim", cfg.get("value_length", k_head_dim))
+        dims = (hidden, cfg.get("intermediate_size", 0), heads, kv_heads,
+                q_head_dim, cfg.get("num_hidden_layers", 0), cfg.get("vocab_size", 0),
+                cfg.get("max_position_embeddings", 0),
+                heads * q_head_dim if heads else 0,
+                kv_heads * k_head_dim if kv_heads else 0,
+                kv_heads * v_head_dim if kv_heads else 0)
         data = config_file.read_bytes()
         tensors.append({"name": "__qwn.config", "dtype": DT_BYTES,
                         "shape": (len(data),), "payload": data})
+        tokenizer_file = root / "tokenizer.json"
+        if tokenizer_file.is_file():
+            tokenizer = tokenizer_file.read_bytes()
+            tensors.append({"name": "__qwn.tokenizer", "dtype": DT_BYTES,
+                            "shape": (len(tokenizer),), "payload": tokenizer})
     return tensors, dims
 
 
@@ -1058,11 +1355,11 @@ def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
         name, dtype, shape = meta["name"], meta["dtype"], meta["shape"]
         # Safetensors is row-major [N,K]; .qwn stores fastest dimension first.
         qwn_shape = tuple(reversed(shape))
-        if quant == "q4_0" and dtype in ("F32", "F16", "BF16") and len(shape) == 2:
-            out_dtype = DT_Q4_0
-            payload_size = shape[0] * ((shape[1] + 31) // 32) * 18
+        if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and dtype in ("F32", "F16", "BF16") and len(shape) == 2 and shape[1] >= QUANT_BLOCK_SIZES.get(quant, 32):
+            rows, cols = shape
+            out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
             tensor = {"name": name, "dtype": out_dtype, "shape": qwn_shape,
-                      "payload_size": payload_size, "write_payload": _q4_writer(meta)}
+                      "payload_size": payload_size, "write_payload": _matrix_quant_writer(meta, quant)}
         elif dtype == "F32":
             out_dtype = DT_F32
             tensor = {"name": name, "dtype": out_dtype, "shape": qwn_shape,

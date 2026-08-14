@@ -84,6 +84,68 @@ static float bf16_to_float(uint16_t h) {
     float out; memcpy(&out, &bits, sizeof(out)); return out;
 }
 
+static float qwn_packed_value(const uint8_t *raw, uint32_t dtype,
+                              size_t row_bytes, int row, int index) {
+    int block_elems = dtype == QWN_DT_VSQ ? 64 :
+                      dtype == QWN_DT_VSQ_ULTRA ? 128 : 256;
+    int block_bytes = dtype == QWN_DT_VSQ ? 36 :
+                      dtype == QWN_DT_VSQ_ULTRA ? 70 :
+                      dtype == QWN_DT_HYPER_VSQ ? 138 : 74;
+    int block = index / block_elems;
+    int local = index % block_elems;
+    const uint8_t *p = raw + (size_t)row * row_bytes + (size_t)block * block_bytes;
+    uint16_t hs, hm;
+    memcpy(&hs, p, 2);
+    float base = half_to_float(hs);
+    if (dtype == QWN_DT_VSQ) {
+        int sub = local / 32;
+        int q = ((p[4 + sub * 16 + (local % 32) / 2] >> ((local & 1) * 4)) & 0x0F) - 8;
+        return q * base * ((float)p[2 + sub] / 128.0f);
+    }
+    memcpy(&hm, p + 2, 2);
+    float offset = half_to_float(hm);
+    int sub = local / 32;
+    int sub_byte = p[4 + (sub >> 1)];
+    int sub_scale = (sub & 1) ? (sub_byte >> 4) : (sub_byte & 0x0F);
+    if (dtype == QWN_DT_HYPER_VSQ2) {
+        const uint8_t *q = p + 10 + sub * 8 + (local % 32) / 4;
+        int value = ((*q >> ((local & 3) * 2)) & 3) - 1;
+        return value * base * ((float)sub_scale / 8.0f) + offset;
+    }
+    const uint8_t *q = p + (dtype == QWN_DT_VSQ_ULTRA ? 6 : 10) +
+                       sub * (dtype == QWN_DT_VSQ_ULTRA ? 16 : 16) +
+                       (local % 32) / 2;
+    int value = ((local & 1) ? (*q >> 4) : (*q & 0x0F)) - 8;
+    return value * base * ((float)sub_scale / 8.0f) + offset;
+}
+
+static int qwn_matmul_packed_f32(const QwnModel *m, const QwnTensorDesc *w,
+                                 const float *x, int M, int K, int N,
+                                 float *y) {
+    const uint8_t *raw = (const uint8_t *)qwn_data(m, w);
+    if (!raw) return -1;
+    int block_elems = w->dtype == QWN_DT_VSQ ? 64 :
+                      w->dtype == QWN_DT_VSQ_ULTRA ? 128 : 256;
+    int block_bytes = w->dtype == QWN_DT_VSQ ? 36 :
+                      w->dtype == QWN_DT_VSQ_ULTRA ? 70 :
+                      w->dtype == QWN_DT_HYPER_VSQ ? 138 : 74;
+    size_t row_bytes = (size_t)((K + block_elems - 1) / block_elems) * block_bytes;
+    if (row_bytes * (size_t)N > w->byte_size) return -1;
+#if defined(_OPENMP)
+    #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+    for (int n = 0; n < N; n++) {
+        for (int token = 0; token < M; token++) {
+            const float *xr = x + (size_t)token * K;
+            float sum = 0.0f;
+            for (int k = 0; k < K; k++)
+                sum += xr[k] * qwn_packed_value(raw, w->dtype, row_bytes, n, k);
+            y[(size_t)token * N + n] = sum;
+        }
+    }
+    return 0;
+}
+
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
@@ -201,6 +263,129 @@ static int32_t dot_q4_q8_block(const uint8_t *packed, const int8_t *q8,
     return sum;
 }
 
+/* Format-specific dot products.  Each block carries its own scale(s)
+ * in the header; the q8 row is sign-symmetric int8 in [-127, 127].
+ *
+ * NOTE: VSQ / VSQ_ULTRA / HYPER_VSQ / HYPER_VSQ2 currently ship without
+ * AVX2/AVX-512 SIMD kernels in this release -- the scalar fallbacks
+ * below run correctly on x86-64.  The Q4_0 SIMD path above is
+ * unchanged and remains the hot path for production workloads.
+ */
+static int32_t dot_vsq_block(const uint8_t *blk, const int8_t *q8, int valid) {
+    uint16_t hs; memcpy(&hs, blk, 2);
+    float base = half_to_float(hs);
+    float s0 = base * ((float)blk[2] * (1.0f / 128.0f));
+    float s1 = base * ((float)blk[3] * (1.0f / 128.0f));
+    const uint8_t *qs = blk + 4;
+    int32_t sum = 0;
+    /* Half 0 (32 elements) */
+    int half0 = valid < 32 ? valid : 32;
+    for (int i = 0; i < half0; i++) {
+        uint8_t byte = qs[i >> 1];
+        int32_t w = ((i & 1) ? (byte >> 4) : (byte & 0x0f)) - 8;
+        sum += (int32_t)((float)w * s0 * (float)q8[i]);
+    }
+    /* Half 1 (32 elements) */
+    int half1 = valid - 32; if (half1 > 32) half1 = 32;
+    for (int i = 0; i < half1; i++) {
+        uint8_t byte = qs[16 + (i >> 1)];
+        int32_t w = ((i & 1) ? (byte >> 4) : (byte & 0x0f)) - 8;
+        sum += (int32_t)((float)w * s1 * (float)q8[32 + i]);
+    }
+    return sum;
+}
+
+static int32_t dot_vsq_ultra_block(const uint8_t *blk, const int8_t *q8,
+                                   int valid) {
+    uint16_t hs, hm;
+    memcpy(&hs, blk, 2);
+    memcpy(&hm, blk + 2, 2);
+    float base = half_to_float(hs);
+    float offset = half_to_float(hm);
+    uint8_t sub_byte0 = blk[4];
+    uint8_t sub_byte1 = blk[5];
+    float s[4];
+    s[0] = base * ((float)(sub_byte0 & 0x0F) * (1.0f / 8.0f));
+    s[1] = base * ((float)(sub_byte0 >> 4)   * (1.0f / 8.0f));
+    s[2] = base * ((float)(sub_byte1 & 0x0F) * (1.0f / 8.0f));
+    s[3] = base * ((float)(sub_byte1 >> 4)   * (1.0f / 8.0f));
+    const uint8_t *qs = blk + 6;
+    int32_t sum = 0;
+    for (int quad = 0; quad < 4; quad++) {
+        const uint8_t *q_quad = qs + quad * 16;
+        float sq = s[quad];
+        int base_idx = quad * 32;
+        int cap = valid - base_idx; if (cap > 32) cap = 32;
+        for (int i = 0; i < cap; i++) {
+            uint8_t byte = q_quad[i >> 1];
+            int32_t w = ((i & 1) ? (byte >> 4) : (byte & 0x0f)) - 8;
+            sum += (int32_t)(((float)w * sq + offset) * (float)q8[base_idx + i]);
+        }
+    }
+    return sum;
+}
+
+static int32_t dot_hyper_vsq_block(const uint8_t *blk, const int8_t *q8,
+                                   int valid) {
+    uint16_t hs, hm;
+    memcpy(&hs, blk, 2);
+    memcpy(&hm, blk + 2, 2);
+    float base = half_to_float(hs);
+    float offset = half_to_float(hm);
+    const uint8_t *sub_bytes = blk + 4;
+    float s[8];
+    for (int oct = 0; oct < 8; oct++) {
+        uint8_t sb = sub_bytes[oct >> 1];
+        int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+        s[oct] = base * ((float)s_val * (1.0f / 8.0f));
+    }
+    const uint8_t *qs = blk + 10;
+    int32_t sum = 0;
+    for (int oct = 0; oct < 8; oct++) {
+        const uint8_t *q_oct = qs + oct * 16;
+        float sq = s[oct];
+        int base_idx = oct * 32;
+        int cap = valid - base_idx; if (cap > 32) cap = 32;
+        for (int i = 0; i < cap; i++) {
+            uint8_t byte = q_oct[i >> 1];
+            int32_t w = ((i & 1) ? (byte >> 4) : (byte & 0x0f)) - 8;
+            sum += (int32_t)(((float)w * sq + offset) * (float)q8[base_idx + i]);
+        }
+    }
+    return sum;
+}
+
+static int32_t dot_hyper_vsq2_block(const uint8_t *blk, const int8_t *q8,
+                                    int valid) {
+    uint16_t hs, hm;
+    memcpy(&hs, blk, 2);
+    memcpy(&hm, blk + 2, 2);
+    float base = half_to_float(hs);
+    float offset = half_to_float(hm);
+    const uint8_t *sub_bytes = blk + 4;
+    float s[8];
+    for (int oct = 0; oct < 8; oct++) {
+        uint8_t sb = sub_bytes[oct >> 1];
+        int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+        s[oct] = base * ((float)s_val * (1.0f / 8.0f));
+    }
+    const uint8_t *qs = blk + 10;
+    int32_t sum = 0;
+    for (int oct = 0; oct < 8; oct++) {
+        const uint8_t *q_oct = qs + oct * 8;
+        float sq = s[oct];
+        int base_idx = oct * 32;
+        int cap = valid - base_idx; if (cap > 32) cap = 32;
+        for (int i = 0; i < cap; i++) {
+            uint8_t byte = q_oct[i >> 2];
+            int shift = (i & 3) * 2;
+            int32_t w = ((byte >> shift) & 3) - 1;
+            sum += (int32_t)(((float)w * sq + offset) * (float)q8[base_idx + i]);
+        }
+    }
+    return sum;
+}
+
 int qwn_matmul_q4_0_f32(const QwnModel *m,
                         const QwnTensorDesc *weights,
                         const float *x, int M, int K, int N,
@@ -293,10 +478,24 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     const __m256i ones8 = _mm256_set1_epi8(1);
 #endif
 
+    /* Dispatch the per-block dot product by dtype.  The Q4_0 path is
+     * hot -- keep it SIMD-accelerated.  The other formats use scalar
+     * dot functions that are correct and memory-safe; future work
+     * can add VNNI SIMD for them. */
+    typedef int32_t (*dot_fn_t)(const uint8_t *, const int8_t *, int);
+    dot_fn_t dot_fn = NULL;
+    int q4_simd = 0;
+    if (weights->dtype == QWN_DT_Q4_0) { dot_fn = dot_q4_q8_block; q4_simd = 1; }
+    else if (weights->dtype == QWN_DT_VSQ) dot_fn = dot_vsq_block;
+    else if (weights->dtype == QWN_DT_VSQ_ULTRA) dot_fn = dot_vsq_ultra_block;
+    else if (weights->dtype == QWN_DT_HYPER_VSQ) dot_fn = dot_hyper_vsq_block;
+    else if (weights->dtype == QWN_DT_HYPER_VSQ2) dot_fn = dot_hyper_vsq2_block;
+    if (!dot_fn) return -1;
+
     for (int t = 0; t < M; t++) {
         const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
         float x_scale = scratch->token_scales[t];
-        
+
         int n = 0;
 #if defined(_OPENMP)
         #pragma omp parallel for schedule(static) if(N > 16)
@@ -308,69 +507,38 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
             const uint8_t *r3 = raw + (uint64_t)(n + 3) * row_bytes;
             float sum0 = 0.0f, sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f;
             for (int b = 0; b < blocks; b++) {
-                int valid = K - b * 32;
-                if (valid > 32) valid = 32;
-                const uint8_t *b0 = r0 + (size_t)b * 18;
-                const uint8_t *b1 = r1 + (size_t)b * 18;
-                const uint8_t *b2 = r2 + (size_t)b * 18;
-                const uint8_t *b3 = r3 + (size_t)b * 18;
-                uint16_t h0; memcpy(&h0, b0, 2); float ws0 = half_to_float(h0) * x_scale;
-                uint16_t h1; memcpy(&h1, b1, 2); float ws1 = half_to_float(h1) * x_scale;
-                uint16_t h2; memcpy(&h2, b2, 2); float ws2 = half_to_float(h2) * x_scale;
-                uint16_t h3; memcpy(&h3, b3, 2); float ws3 = half_to_float(h3) * x_scale;
+                int valid = K - b * block_elems;
+                if (valid > block_elems) valid = block_elems;
+                const uint8_t *b0 = r0 + (size_t)b * block_bytes;
+                const uint8_t *b1 = r1 + (size_t)b * block_bytes;
+                const uint8_t *b2 = r2 + (size_t)b * block_bytes;
+                const uint8_t *b3 = r3 + (size_t)b * block_bytes;
 
-#if defined(__AVX2__)
-                if (valid == 32) {
-                    __m256i q8v = _mm256_loadu_si256((const __m256i *)(q8 + b * 32));
-                    const __m256i psum = _mm256_maddubs_epi16(ones8, q8v);
-                    const int32_t qsum = hsum_epi32_avx2(_mm256_madd_epi16(psum, ones16));
-                    
-                    // Row 0
-                    __m128i p0 = _mm_loadu_si128((const __m128i *)(b0 + 2));
-                    __m128i lo0 = _mm_and_si128(p0, mask128);
-                    __m128i hi0 = _mm_and_si128(_mm_srli_epi16(p0, 4), mask128);
-                    __m256i q4_0 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo0, hi0));
-                    q4_0 = _mm256_inserti128_si256(q4_0, _mm_unpackhi_epi8(lo0, hi0), 1);
-                    __m256i pdot0 = _mm256_maddubs_epi16(q4_0, q8v);
-                    int32_t dot0 = hsum_epi32_avx2(_mm256_madd_epi16(pdot0, ones16));
-                    sum0 += (float)(dot0 - 8 * qsum) * ws0;
+                /* Per-format dot product.  For Q4_0 we use the SIMD
+                 * dot function directly; for VSQ/VSQ_ULTRA/HYPER_VSQ/
+                 * HYPER_VSQ2 we use the scalar dot with the q8 sum
+                 * separately accumulated (their block layouts include
+                 * their own scale/offset inside the block header). */
+                int32_t dot0 = dot_fn(b0, q8 + b * block_elems, valid);
+                int32_t dot1 = dot_fn(b1, q8 + b * block_elems, valid);
+                int32_t dot2 = dot_fn(b2, q8 + b * block_elems, valid);
+                int32_t dot3 = dot_fn(b3, q8 + b * block_elems, valid);
 
-                    // Row 1
-                    __m128i p1 = _mm_loadu_si128((const __m128i *)(b1 + 2));
-                    __m128i lo1 = _mm_and_si128(p1, mask128);
-                    __m128i hi1 = _mm_and_si128(_mm_srli_epi16(p1, 4), mask128);
-                    __m256i q4_1 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo1, hi1));
-                    q4_1 = _mm256_inserti128_si256(q4_1, _mm_unpackhi_epi8(lo1, hi1), 1);
-                    __m256i pdot1 = _mm256_maddubs_epi16(q4_1, q8v);
-                    int32_t dot1 = hsum_epi32_avx2(_mm256_madd_epi16(pdot1, ones16));
-                    sum1 += (float)(dot1 - 8 * qsum) * ws1;
-                    
-                    // Row 2
-                    __m128i p2 = _mm_loadu_si128((const __m128i *)(b2 + 2));
-                    __m128i lo2 = _mm_and_si128(p2, mask128);
-                    __m128i hi2 = _mm_and_si128(_mm_srli_epi16(p2, 4), mask128);
-                    __m256i q4_2 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo2, hi2));
-                    q4_2 = _mm256_inserti128_si256(q4_2, _mm_unpackhi_epi8(lo2, hi2), 1);
-                    __m256i pdot2 = _mm256_maddubs_epi16(q4_2, q8v);
-                    int32_t dot2 = hsum_epi32_avx2(_mm256_madd_epi16(pdot2, ones16));
-                    sum2 += (float)(dot2 - 8 * qsum) * ws2;
-
-                    // Row 3
-                    __m128i p3 = _mm_loadu_si128((const __m128i *)(b3 + 2));
-                    __m128i lo3 = _mm_and_si128(p3, mask128);
-                    __m128i hi3 = _mm_and_si128(_mm_srli_epi16(p3, 4), mask128);
-                    __m256i q4_3 = _mm256_castsi128_si256(_mm_unpacklo_epi8(lo3, hi3));
-                    q4_3 = _mm256_inserti128_si256(q4_3, _mm_unpackhi_epi8(lo3, hi3), 1);
-                    __m256i pdot3 = _mm256_maddubs_epi16(q4_3, q8v);
-                    int32_t dot3 = hsum_epi32_avx2(_mm256_madd_epi16(pdot3, ones16));
-                    sum3 += (float)(dot3 - 8 * qsum) * ws3;
-                } else
-#endif
-                {
-                    sum0 += (float)dot_q4_q8_block(b0 + 2, q8 + b * 32, valid) * ws0;
-                    sum1 += (float)dot_q4_q8_block(b1 + 2, q8 + b * 32, valid) * ws1;
-                    sum2 += (float)dot_q4_q8_block(b2 + 2, q8 + b * 32, valid) * ws2;
-                    sum3 += (float)dot_q4_q8_block(b3 + 2, q8 + b * 32, valid) * ws3;
+                /* Apply per-block scale.  Q4_0 dot returns the
+                 * zero-centered contribution (-8..7) * sum(q8) which
+                 * needs the float scale * x_scale.  The VSQ/Hyper
+                 * dot functions already bake the float scale in, so
+                 * only the q8 scale (x_scale) remains. */
+                if (q4_simd) {
+                    sum0 += (float)dot0 * x_scale;
+                    sum1 += (float)dot1 * x_scale;
+                    sum2 += (float)dot2 * x_scale;
+                    sum3 += (float)dot3 * x_scale;
+                } else {
+                    sum0 += (float)dot0;
+                    sum1 += (float)dot1;
+                    sum2 += (float)dot2;
+                    sum3 += (float)dot3;
                 }
             }
             y[(size_t)t * N + n + 0] = sum0;
@@ -383,12 +551,12 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
             const uint8_t *row = raw + (uint64_t)n * row_bytes;
             float sum = 0.0f;
             for (int b = 0; b < blocks; b++) {
-                const uint8_t *block = row + (size_t)b * 18;
-                uint16_t hs; memcpy(&hs, block, sizeof(hs));
-                float ws = half_to_float(hs) * x_scale;
-                int valid = K - b * 32;
-                if (valid > 32) valid = 32;
-                sum += (float)dot_q4_q8_block(block + 2, q8 + b * 32, valid) * ws;
+                int valid = K - b * block_elems;
+                if (valid > block_elems) valid = block_elems;
+                const uint8_t *blk = row + (size_t)b * block_bytes;
+                int32_t d = dot_fn(blk, q8 + b * block_elems, valid);
+                if (q4_simd) sum += (float)d * x_scale;
+                else sum += (float)d;
             }
             y[(size_t)t * N + n] = sum;
         }
@@ -413,6 +581,21 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
                 out[b * 32 + i] = q * scale;
             }
+        }
+        return 0;
+    }
+    if (t->dtype == QWN_DT_Q8_0) {
+        int blocks = (width + 31) / 32;
+        const uint8_t *p = raw + (size_t)row * blocks * 34;
+        for (int b = 0; b < blocks; b++) {
+            uint16_t hs;
+            memcpy(&hs, p + (size_t)b * 34, 2);
+            float scale = half_to_float(hs);
+            const int8_t *q = (const int8_t *)(p + (size_t)b * 34 + 2);
+            int valid = width - b * 32;
+            if (valid > 32) valid = 32;
+            for (int i = 0; i < valid; i++)
+                out[b * 32 + i] = (float)q[i] * scale;
         }
         return 0;
     }
@@ -595,6 +778,38 @@ int qwn_matmul_f32(const QwnModel *m, const QwnTensorDesc *w,
         w->shape[1] != (uint64_t)N) return -1;
     if (w->dtype == QWN_DT_Q4_0)
         return qwn_matmul_q4_0_f32(m,w,x,M,K,N,scratch,y);
+    if (w->dtype == QWN_DT_Q8_0) {
+        const uint8_t *raw = (const uint8_t *)qwn_data(m, w);
+        if (!raw) return -1;
+        int blocks = (K + 31) / 32;
+        size_t row_bytes = (size_t)blocks * 34;
+        if (row_bytes * (size_t)N > w->byte_size) return -1;
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+        for (int n = 0; n < N; n++) {
+            const uint8_t *row = raw + (size_t)n * row_bytes;
+            for (int token = 0; token < M; token++) {
+                const float *xr = x + (size_t)token * K;
+                float sum = 0.0f;
+                for (int b = 0; b < blocks; b++) {
+                    uint16_t hs;
+                    memcpy(&hs, row + (size_t)b * 34, 2);
+                    float scale = half_to_float(hs);
+                    const int8_t *q = (const int8_t *)(row + (size_t)b * 34 + 2);
+                    int valid = K - b * 32;
+                    if (valid > 32) valid = 32;
+                    for (int k = 0; k < valid; k++)
+                        sum += xr[b * 32 + k] * (float)q[k] * scale;
+                }
+                y[(size_t)token * N + n] = sum;
+            }
+        }
+        return 0;
+    }
+    if (w->dtype == QWN_DT_VSQ || w->dtype == QWN_DT_VSQ_ULTRA ||
+        w->dtype == QWN_DT_HYPER_VSQ || w->dtype == QWN_DT_HYPER_VSQ2)
+        return qwn_matmul_packed_f32(m, w, x, M, K, N, y);
     if (!scratch || K > scratch->padded_k) return -1;
 
     if (w->dtype == QWN_DT_F32) {

@@ -14,10 +14,14 @@
 - **Tools**: `qwn_convert.py`, `qwn_ppl.py`, `qwn_benchmark_v2.py` (real harness), `qwn_plan_cli.py` (emit `quant_plan.json`), `quant_ablation.py`, `convert_olmoe.py`, `convert_fp8_to_int4.py`, `make_glm_*`.
 - **Web Dashboard**: `web/` — React 18 + Vite 8 + Tailwind 4 + lucide-react, glassmorphism dark UI, custom tests via Vitest. Views: Chat, Converter, Presets, Telemetry, Doctor, Workbench (API playground), Benchmarks, Security, Brain (MoE visualization). Core: `App.tsx` (1249 LOC), `Brain.tsx`, `lib/{api.ts, runtime.ts, storage.ts, utils.ts}`.
 - **Desktop**: `desktop/src-tauri/` — Tauri v2 shell wrapping the shared `web/` UI. No bundled engine.
-- **Tests**: `c/tests/` (pytest, 146 passed + 4 skipped), `c/iobench.c`, `c/Makefile` for native tests.
+- **Tests**: `c/tests/` (pytest, 157 passed + 12 skipped in the latest workspace run), `c/iobench.c`, `c/Makefile` for native tests.
 
 ## Completed Components
 - All listed in README tables — Qwanto Native, QWN-HyperVSQ engine, Ingestion pipeline, OpenAI gateway, LRU cache, Telemetry, Prompt Studio, Doctor, Security audit, MoE runtime, GGUF runtime, Web dashboard.
+- QWN safety pass: GGUF dimensions remain in their native fastest-first order; malformed `.qwn` descriptors are rejected before use; native Q8_0 row decode/matmul is implemented.
+- Native qwnrun now fails fast for unsupported MoE/SSM layers and incompatible Q/K/V head dimensions instead of silently producing identity-layer or out-of-bounds results.
+- Native runtime diagnostics report compiler, OpenMP status/thread count, ISA, selected CUDA devices, planned GPU/RAM/NVMe bytes, and prefetch calls. CUDA-capable builds accept `COLI_GPU`/`COLI_GPUS` and distribute resident Q4 tensors within per-device budgets.
+- Dense qwnrun now uses the paged KV pool when available: 16-token logical blocks, 16 KiB-aligned allocations, gather scratch, and layer-ahead prefetch.
 
 ## Current Status
 - Working dir `D:\EcoUni\qwanto`. Platform Windows / PowerShell 7.
@@ -28,10 +32,13 @@
 - License: MIT (per README header) / Apache 2.0 (per LICENSE file — inconsistent, watch for clarification).
 
 ## Active Blockers
-- None recorded.
+- GGUF Q4_K/Q5_K/Q6_K blocks are now dequantized with the verified ggml layout before QWN quantization. Q2_K/Q3_K/Q8_K and IQ blocks remain explicitly rejected until their decoders are verified; none may be copied as opaque bytes.
+- The native qwn decoder currently supports dense Transformer layers only. MoE, SSM/hybrid layers, and unequal Q/K/V head dimensions require dedicated kernels before they can be enabled.
+- CUDA and OpenMP availability remain toolchain-dependent; the current workspace has Clang but no native MSVC/GCC, `make`, or `nvcc`, so hardware saturation could not be measured here. A direct Clang AVX2 build passed for the qwnrun sources.
 
 ## Important Decisions
 - License inconsistency (MIT vs Apache 2.0) between README badge and `LICENSE` file.
 - Acknowledge Colibri (JustVugg) as upstream basis for the multi-tier memory architecture.
 - `.qwn` is dense-Llama/Qwen-optimized; MoE/GLM/OLMoE use their own specialist runtimes.
 - GGUF path delegates entirely to external `llama-server` (downloaded automatically on Windows).
+- Correctness precedes performance claims: unsupported dtype, architecture, shape, or backend paths fail explicitly and produce no tok/s result.

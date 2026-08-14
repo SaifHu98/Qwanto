@@ -4,6 +4,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifdef _WIN32
+#include <malloc.h>
+#endif
+
 #if defined(__AVX2__)
 #include <immintrin.h>
 #endif
@@ -26,6 +30,15 @@ static uint16_t float_to_half(float f) {
     return (uint16_t)((sign << 15) | ((uint32_t)e << 10) | (mant >> 13));
 }
 
+static void *kv_page_alloc(size_t bytes) {
+#ifdef _WIN32
+    return _aligned_malloc(bytes, QWN_KV_PAGE_BYTES);
+#else
+    void *ptr = NULL;
+    return posix_memalign(&ptr, QWN_KV_PAGE_BYTES, bytes) == 0 ? ptr : NULL;
+#endif
+}
+
 int qwn_kv_pool_init(QwnKVBlockPool *pool, int total_blocks, int layers, int kv_heads, int head_dim) {
     if (!pool || total_blocks < 1 || layers < 1 || kv_heads < 1 || head_dim < 1) return -1;
     memset(pool, 0, sizeof(*pool));
@@ -34,18 +47,29 @@ int qwn_kv_pool_init(QwnKVBlockPool *pool, int total_blocks, int layers, int kv_
     pool->kv_heads = kv_heads;
     pool->head_dim = head_dim;
 
+    if ((size_t)layers > SIZE_MAX / (size_t)kv_heads ||
+        (size_t)layers * (size_t)kv_heads > SIZE_MAX / QWN_PAGE_BLOCK_SIZE ||
+        (size_t)layers * (size_t)kv_heads * QWN_PAGE_BLOCK_SIZE >
+            SIZE_MAX / (size_t)head_dim) return -1;
     size_t elems_per_block = (size_t)layers * kv_heads * QWN_PAGE_BLOCK_SIZE * head_dim;
+    if (elems_per_block > SIZE_MAX / (size_t)total_blocks) {
+        return -1;
+    }
     size_t total_elems = (size_t)total_blocks * elems_per_block;
+    if (total_elems > SIZE_MAX / sizeof(uint16_t) ||
+        (size_t)total_blocks > SIZE_MAX / sizeof(int)) return -1;
     pool->block_bytes = elems_per_block * sizeof(uint16_t);
 
-    pool->key_data = (uint16_t *)calloc(total_elems, sizeof(uint16_t));
-    pool->val_data = (uint16_t *)calloc(total_elems, sizeof(uint16_t));
+    pool->key_data = (uint16_t *)kv_page_alloc(total_elems * sizeof(uint16_t));
+    pool->val_data = (uint16_t *)kv_page_alloc(total_elems * sizeof(uint16_t));
     pool->free_stack = (int *)malloc((size_t)total_blocks * sizeof(int));
 
     if (!pool->key_data || !pool->val_data || !pool->free_stack) {
         qwn_kv_pool_free(pool);
         return -1;
     }
+    memset(pool->key_data, 0, total_elems * sizeof(uint16_t));
+    memset(pool->val_data, 0, total_elems * sizeof(uint16_t));
 
     /* Initialize free stack with all block indices */
     for (int i = 0; i < total_blocks; i++) {
@@ -57,8 +81,13 @@ int qwn_kv_pool_init(QwnKVBlockPool *pool, int total_blocks, int layers, int kv_
 
 void qwn_kv_pool_free(QwnKVBlockPool *pool) {
     if (!pool) return;
+#ifdef _WIN32
+    _aligned_free(pool->key_data);
+    _aligned_free(pool->val_data);
+#else
     free(pool->key_data);
     free(pool->val_data);
+#endif
     free(pool->free_stack);
     memset(pool, 0, sizeof(*pool));
 }
@@ -121,11 +150,14 @@ void qwn_block_table_free(QwnKVBlockPool *pool, QwnBlockTable *bt) {
 
 int qwn_paged_kv_write(QwnKVBlockPool *pool, const QwnBlockTable *bt, int layer,
                        int token_pos, const float *k, const float *v) {
-    if (!pool || !bt || token_pos < 0 || token_pos >= bt->num_tokens) return -1;
+    if (!pool || !bt || !k || !v || layer < 0 || layer >= pool->layers ||
+        token_pos < 0 || token_pos >= bt->num_tokens) return -1;
     int block_idx = token_pos / QWN_PAGE_BLOCK_SIZE;
     int offset_in_block = token_pos % QWN_PAGE_BLOCK_SIZE;
 
-    if (block_idx >= bt->block_count) return -1;
+    if (!bt->block_ids || block_idx >= bt->block_count ||
+        bt->block_ids[block_idx] < 0 ||
+        bt->block_ids[block_idx] >= pool->total_blocks) return -1;
     int phys_block = bt->block_ids[block_idx];
 
     int HD = pool->head_dim;
@@ -178,12 +210,26 @@ static void softmax_inplace(float *x, int n) {
     for (int i = 0; i < n; i++) x[i] *= inv;
 }
 
+static int valid_block_table(const QwnKVBlockPool *pool, const QwnBlockTable *bt) {
+    if (!pool || !bt || !bt->block_ids || bt->num_tokens < 0 ||
+        bt->block_count < 0 || bt->block_count > bt->block_capacity) return 0;
+    int required = (int)(((size_t)bt->num_tokens + QWN_PAGE_BLOCK_SIZE - 1) /
+                         QWN_PAGE_BLOCK_SIZE);
+    if (required > bt->block_count) return 0;
+    for (int i = 0; i < required; i++) {
+        if (bt->block_ids[i] < 0 || bt->block_ids[i] >= pool->total_blocks) return 0;
+    }
+    return 1;
+}
+
 void qwn_paged_attention_head(const QwnKVBlockPool *pool, const QwnBlockTable *bt,
                               int layer, int head_idx, int kv_head_idx,
                               const float *q_head, float *scores_scratch,
                               float *out_ctx_head) {
     (void)head_idx;
-    if (!pool || !bt || bt->num_tokens <= 0) return;
+    if (!valid_block_table(pool, bt) || !q_head || !scores_scratch || !out_ctx_head ||
+        layer < 0 || layer >= pool->layers || kv_head_idx < 0 ||
+        kv_head_idx >= pool->kv_heads || bt->num_tokens <= 0) return;
     int num_tokens = bt->num_tokens;
     int HD = pool->head_dim;
     int HK = pool->kv_heads;
@@ -256,7 +302,9 @@ void qwn_paged_attention_gather_head(const QwnKVBlockPool *pool, const QwnBlockT
                                      uint16_t *v_gather_scratch, float *scores_scratch,
                                      float *out_ctx_head) {
     (void)head_idx;
-    if (!pool || !bt || bt->num_tokens <= 0) return;
+    if (!valid_block_table(pool, bt) || !q_head || !k_gather_scratch || !v_gather_scratch ||
+        !scores_scratch || !out_ctx_head || layer < 0 || layer >= pool->layers ||
+        kv_head_idx < 0 || kv_head_idx >= pool->kv_heads || bt->num_tokens <= 0) return;
     int num_tokens = bt->num_tokens;
     int HD = pool->head_dim;
     int HK = pool->kv_heads;

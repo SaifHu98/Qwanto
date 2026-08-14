@@ -182,7 +182,7 @@ def inspect_qwn_payloads(path: Path) -> List[TensorByteBreakdown]:
     return out
 
 
-DESC_SIZE_BUDGET = 96
+DESC_SIZE_BUDGET = 136
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +254,7 @@ class BenchmarkRunner:
         self.repo = (cfg.repo_root or Path(__file__).resolve().parents[2])
         self.tensors: List[TensorByteBreakdown] = []
         self.failures: List[Dict[str, Any]] = []
+        self.engine = None
 
     # ------------------------------------------------------------------
     def run(self) -> BenchmarkReport:
@@ -273,14 +274,20 @@ class BenchmarkRunner:
         report = bpw_report(self.tensors) if self.tensors else None
 
         rounds: List[RoundMetric] = []
-        for i in range(cfg.warmup + cfg.rounds):
-            r = self._measure_round(i)
-            rounds.append(r)
-            if r.error:
-                self.failures.append({
-                    "round": i, "code": "round.failed",
-                    "error": r.error,
-                })
+        self.engine = self._start_persistent_engine()
+        try:
+            for i in range(cfg.warmup + cfg.rounds):
+                r = self._measure_round(i)
+                rounds.append(r)
+                if r.error:
+                    self.failures.append({
+                        "round": i, "code": "round.failed",
+                        "error": r.error,
+                    })
+        finally:
+            if self.engine is not None:
+                self.engine.close()
+                self.engine = None
 
         aggregate = self._aggregate(rounds)
         return BenchmarkReport(
@@ -333,6 +340,30 @@ class BenchmarkRunner:
         return meta
 
     # ------------------------------------------------------------------
+    def _start_persistent_engine(self):
+        if self.cfg.backend == "openai_server":
+            return None
+        qwnrun = self.repo / "c" / ("qwnrun.exe" if os.name == "nt" else "qwnrun")
+        if not qwnrun.exists():
+            return None
+        try:
+            probe = subprocess.run([str(qwnrun), "--build-info"], capture_output=True,
+                                   text=True, check=False, timeout=10)
+            if probe.returncode != 0 or "qwnrun build:" not in (probe.stderr or ""):
+                self.failures.append({"code": "engine.protocol_missing",
+                                      "error": "qwnrun lacks --build-info"})
+                return None
+            sys.path.insert(0, str(self.repo / "c"))
+            from openai_server import Engine
+            env = os.environ.copy()
+            env.update(self.cfg.extra_env)
+            env["CTX"] = env.get("CTX", "4096")
+            return Engine(qwnrun, self.cfg.model_path, 1, self.cfg.n_gen, env, 1)
+        except Exception as exc:
+            self.failures.append({"code": "engine.start_failed", "error": repr(exc)})
+            return None
+
+    # ------------------------------------------------------------------
     def _measure_round(self, round_index: int) -> RoundMetric:
         """Single round of measurement.
 
@@ -342,6 +373,28 @@ class BenchmarkRunner:
         "عدم استبدال الفشل بقيمة افتراضية أو mock".
         """
         cfg = self.cfg
+        if self.engine is not None:
+            started = time.perf_counter()
+            first_token = [None]
+            try:
+                def on_text(text):
+                    if first_token[0] is None and text:
+                        first_token[0] = time.perf_counter()
+                stats = self.engine.generate(cfg.prompt, cfg.n_gen, cfg.temperature,
+                                             0.95, on_text)
+            except Exception as exc:
+                return RoundMetric(round_index, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                   current_rss_mb(), error=f"engine failed: {exc!r}")
+            elapsed = time.perf_counter() - started
+            tokens = int(stats.get("completion_tokens", 0))
+            if tokens <= 0:
+                return RoundMetric(round_index, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                   current_rss_mb(), error="engine returned no measured tokens")
+            latency = (elapsed / tokens) * 1000.0
+            ttft = ((first_token[0] - started) * 1000.0
+                    if first_token[0] is not None else 0.0)
+            return RoundMetric(round_index, ttft, tokens / max(elapsed, 1e-9),
+                               latency, latency, latency, current_rss_mb())
         qwnrun = self.repo / "c" / ("qwnrun.exe" if os.name == "nt" else "qwnrun")
         if not qwnrun.exists():
             return RoundMetric(
@@ -349,13 +402,27 @@ class BenchmarkRunner:
                 latency_p50_ms=0.0, latency_p95_ms=0.0, latency_p99_ms=0.0,
                 rss_mb=current_rss_mb(),
                 error=f"qwnrun not found at {qwnrun}")
+        try:
+            probe = subprocess.run([str(qwnrun), "--build-info"], capture_output=True,
+                                   text=True, check=False)
+        except OSError as exc:
+            return RoundMetric(
+                round_index=round_index, ttft_ms=0.0, tok_per_sec=0.0,
+                latency_p50_ms=0.0, latency_p95_ms=0.0, latency_p99_ms=0.0,
+                rss_mb=current_rss_mb(), error=f"qwnrun probe failed: {exc}")
+        if probe.returncode != 0 or "qwnrun build:" not in (probe.stderr or ""):
+            return RoundMetric(
+                round_index=round_index, ttft_ms=0.0, tok_per_sec=0.0,
+                latency_p50_ms=0.0, latency_p95_ms=0.0, latency_p99_ms=0.0,
+                rss_mb=current_rss_mb(), error="qwnrun binary lacks benchmark protocol")
 
         env = os.environ.copy()
         env["QWANTO_SEED"] = str(cfg.seed)
         env["QWANTO_TEMP"] = f"{cfg.temperature:.4f}"
         env.update(cfg.extra_env)
-        cmd = [str(qwnrun), "--model", str(cfg.model_path),
-               "--ngen", str(cfg.n_gen), "--prompt", cfg.prompt]
+        ctx = cfg.extra_env.get("CTX", "4096")
+        cmd = [str(qwnrun), str(cfg.model_path), cfg.prompt,
+               str(cfg.n_gen), str(ctx)]
         try:
             t0 = time.perf_counter()
             proc = subprocess.run(cmd, env=env, capture_output=True,
@@ -376,15 +443,14 @@ class BenchmarkRunner:
         # Parse qwnrun's stderr/stdout line protocol.
         ttft_ms, tok_per_sec, latencies = _parse_qwnrun_output(proc.stdout,
                                                                proc.stderr)
-        # If parsing found no latencies, infer per-token latency from
-        # total time / n_gen so the p50/p95/p99 still has meaning.
+        tokens = _parse_qwnrun_tokens(proc.stdout, proc.stderr)
+        if tokens <= 0:
+            return RoundMetric(round_index, 0.0, 0.0, 0.0, 0.0, 0.0,
+                               current_rss_mb(), error="missing measured token count")
+        if tok_per_sec == 0.0:
+            tok_per_sec = tokens / max(t_total, 1e-6)
         if not latencies:
-            per_tok = (t_total / max(cfg.n_gen, 1)) * 1000.0
-            latencies = [per_tok] * cfg.n_gen
-            if ttft_ms == 0.0:
-                ttft_ms = per_tok
-        if tok_per_sec == 0.0 and cfg.n_gen > 0:
-            tok_per_sec = cfg.n_gen / max(t_total, 1e-6)
+            latencies = [(t_total / tokens) * 1000.0] * tokens
         latencies.sort()
         return RoundMetric(
             round_index=round_index,
@@ -397,10 +463,9 @@ class BenchmarkRunner:
         )
 
     # ------------------------------------------------------------------
-    @staticmethod
-    def _aggregate(rounds: List[RoundMetric]) -> Dict[str, Any]:
+    def _aggregate(self, rounds: List[RoundMetric]) -> Dict[str, Any]:
         # Drop warmup rounds from the aggregate (default 3).
-        keep = [r for r in rounds if r.error is None]
+        keep = [r for r in rounds if r.error is None and r.round_index >= self.cfg.warmup]
         if not keep:
             return {"status": "error",
                     "reason": "no successful rounds"}
@@ -444,6 +509,14 @@ def _parse_qwnrun_output(stdout: str, stderr: str
     latencies: List[float] = []
     text = (stdout or "") + "\n" + (stderr or "")
     for line in text.splitlines():
+        if line.startswith("qwnrun result:"):
+            fields = dict(part.split("=", 1) for part in line.split() if "=" in part)
+            try:
+                ttft = float(fields.get("ttft_ms", "0"))
+                tps = float(fields.get("tok_per_sec", "0"))
+            except ValueError:
+                pass
+            continue
         if not line.startswith("[QWANTO-BENCH]"):
             continue
         body = line[len("[QWANTO-BENCH]"):].strip()
@@ -462,6 +535,21 @@ def _parse_qwnrun_output(stdout: str, stderr: str
         except ValueError:
             continue
     return ttft, tps, latencies
+
+
+def _parse_qwnrun_tokens(stdout: str, stderr: str) -> int:
+    text = (stdout or "") + "\n" + (stderr or "")
+    for line in text.splitlines():
+        if not line.startswith("qwnrun result:"):
+            continue
+        fields = dict(part.split("=", 1) for part in line.split() if "=" in part)
+        if fields.get("status") != "ok":
+            return 0
+        try:
+            return int(fields.get("tokens", "0"))
+        except ValueError:
+            return 0
+    return 0
 
 
 def _percentile(sorted_values: Sequence[float], p: float) -> float:

@@ -8,6 +8,12 @@
 extern "C" {
 #endif
 
+#if defined(_WIN32) && defined(QWN_CUDA_BUILDING_DLL)
+#define QWN_CUDA_API __declspec(dllexport)
+#else
+#define QWN_CUDA_API
+#endif
+
 typedef struct {
     void *dev_weights;      /* GPU VRAM pointer to quantized weights */
     void *dev_x;            /* GPU VRAM pointer to input activations */
@@ -19,22 +25,37 @@ typedef struct {
     int num_layers;
     void *stream_compute;   /* cudaStream_t handle for compute warps */
     void *stream_prefetch;  /* cudaStream_t handle for async DMA transfers */
+    size_t weight_bytes;
+    size_t x_capacity;
+    size_t y_capacity;
+    const void *cached_weights;
+    int device_id;
 } QwnCUDALayerContext;
 
 /* Initialize CUDA device and allocate stream buffers with pinned memory */
-int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int device_id);
+QWN_CUDA_API int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int device_id);
 
 /* Execute QWN-HyperVSQ dequantization and GEMV dot product on GPU with zero-copy stream sync */
-int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N);
+QWN_CUDA_API int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N);
+
+/* Process-wide API used by qwnrun's dynamic loader. The functions keep the
+ * quantized tensor in VRAM between token calls and use separate transfer and
+ * compute streams for the activation/output path. */
+QWN_CUDA_API int qwn_cuda_init(int gpu_id);
+QWN_CUDA_API int qwn_cuda_gemv_hypervsq(int rows, int cols, const void *weights,
+                                       const float *x, float *out);
+QWN_CUDA_API int qwn_cuda_gemv_q4_0(int rows, int cols, const void *weights,
+                                    const float *x, float *out);
+QWN_CUDA_API void qwn_cuda_shutdown(void);
 
 /* Allocate page-locked pinned memory on host */
-void *qwn_cuda_host_alloc_pinned(size_t bytes);
+QWN_CUDA_API void *qwn_cuda_host_alloc_pinned(size_t bytes);
 
 /* Free page-locked pinned memory on host */
-void qwn_cuda_host_free_pinned(void *ptr);
+QWN_CUDA_API void qwn_cuda_host_free_pinned(void *ptr);
 
 /* Free CUDA layer resources */
-void qwn_cuda_layer_free(QwnCUDALayerContext *ctx);
+QWN_CUDA_API void qwn_cuda_layer_free(QwnCUDALayerContext *ctx);
 
 #ifdef __cplusplus
 }

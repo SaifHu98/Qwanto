@@ -77,6 +77,10 @@ const char *qwn_dtype_name(uint32_t dt) {
         case QWN_DT_Q8_0: return "Q8_0";
         case QWN_DT_BF16: return "BF16";
         case QWN_DT_BYTES:return "BYTES";
+        case QWN_DT_VSQ: return "VSQ";
+        case QWN_DT_VSQ_ULTRA: return "VSQ_ULTRA";
+        case QWN_DT_HYPER_VSQ: return "HYPER_VSQ";
+        case QWN_DT_HYPER_VSQ2: return "HYPER_VSQ2";
         default: return "?";
     }
 }
@@ -95,6 +99,10 @@ uint64_t qwn_block_bytes(uint32_t dt, uint64_t numel) {
             uint64_t blocks = (numel + 31) / 32;
             return blocks * (2 + 32);
         }
+        case QWN_DT_VSQ: return ((numel + 63) / 64) * 36;
+        case QWN_DT_VSQ_ULTRA: return ((numel + 127) / 128) * 70;
+        case QWN_DT_HYPER_VSQ: return ((numel + 255) / 256) * 138;
+        case QWN_DT_HYPER_VSQ2: return ((numel + 255) / 256) * 74;
         default: return 0;
     }
 }
@@ -103,9 +111,46 @@ static const char *ERR_BAD_MAGIC = "not a Qwanto .qwn file (bad magic)";
 static const char *ERR_TRUNC     = "file truncated below header";
 static const char *ERR_VERSION   = "unsupported .qwn version";
 static const char *ERR_NO_TAIL   = "file too small for overflow index";
-static const char *ERR_ALIGN     = "tensor payload is not 64-byte aligned";
-static const char *ERR_DESC      = "invalid tensor descriptor";
+static const char *ERR_DTYPE     = "unsupported or inconsistent tensor dtype";
 static const char *ERR_IO        = "I/O error";
+
+static uint64_t qwn_expected_payload(const QwnTensorDesc *t) {
+    if (!t) return 0;
+    uint64_t n = t->numel;
+    switch (t->dtype) {
+        case QWN_DT_F32: return n * 4;
+        case QWN_DT_F16:
+        case QWN_DT_BF16: return n * 2;
+        case QWN_DT_BYTES: return n;
+        case QWN_DT_Q4_0: return ((n + 31) / 32) * 18;
+        case QWN_DT_Q8_0: return ((n + 31) / 32) * 34;
+        case QWN_DT_VSQ: return ((n + 63) / 64) * 36;
+        case QWN_DT_VSQ_ULTRA: return ((n + 127) / 128) * 70;
+        case QWN_DT_HYPER_VSQ: return ((n + 255) / 256) * 138;
+        case QWN_DT_HYPER_VSQ2: return ((n + 255) / 256) * 74;
+        default: return 0;
+    }
+}
+
+static int qwn_validate_desc(const QwnTensorDesc *t, size_t file_size) {
+    if (!t || t->name_len == 0 || t->name_len > 63 ||
+        t->name[t->name_len] != '\0' || t->n_dims == 0 || t->n_dims > 4 ||
+        t->numel == 0 || t->byte_size == 0 ||
+        (t->byte_size & 63ULL) != 0 ||
+        t->byte_offset < QWN_HEADER_SIZE ||
+        (t->byte_offset & (QWN_ALIGN - 1)) != 0 ||
+        t->byte_offset > file_size ||
+        t->byte_size > file_size - t->byte_offset) return -1;
+    uint64_t numel = 1;
+    for (uint32_t i = 0; i < t->n_dims; i++) {
+        if (t->shape[i] == 0 || numel > UINT64_MAX / t->shape[i]) return -1;
+        numel *= t->shape[i];
+    }
+    if (numel != t->numel) return -1;
+    uint64_t expected = qwn_expected_payload(t);
+    if (expected == 0 || t->byte_size < expected) return -1;
+    return 0;
+}
 
 int qwn_open(const char *path, QwnModel *m, const char **err) {
     if (err) *err = NULL;
@@ -157,19 +202,11 @@ int qwn_open(const char *path, QwnModel *m, const char **err) {
     if (m->hdr.inline_count > QWN_INLINE_MAX) m->hdr.inline_count = QWN_INLINE_MAX;
     for (uint32_t i = 0; i < m->hdr.inline_count; i++) {
         QwnTensorDesc *t = &m->hdr.inline_index[i];
-        if (t->name_len == 0 || t->name_len > 63 || t->name[t->name_len] != '\0' ||
-            t->n_dims == 0 || t->n_dims > 4) {
+        if (qwn_validate_desc(t, m->file_size) != 0 ||
+            t->byte_offset >= m->tail_offset) {
             qwn_unmap(m->base, m->file_size); m->base = NULL;
             qwn_close_fd(m->fd); m->fd = QWN_BAD_FD;
-            if (err) *err = ERR_DESC;
-            return -1;
-        }
-        if ((t->byte_offset & 63ULL) != 0 ||
-            t->byte_offset > m->file_size ||
-            t->byte_size > m->file_size - t->byte_offset) {
-            qwn_unmap(m->base, m->file_size); m->base = NULL;
-            qwn_close_fd(m->fd); m->fd = QWN_BAD_FD;
-            if (err) *err = ERR_ALIGN;
+            if (err) *err = ERR_DTYPE;
             return -1;
         }
         m->inline_hashes[i] = qwn_hash_name(t->name);
@@ -229,13 +266,10 @@ int qwn_open(const char *path, QwnModel *m, const char **err) {
             }
             memcpy(&m->overflow_descs[i], m->base + off, sizeof(QwnTensorDesc));
             const QwnTensorDesc *t = &m->overflow_descs[i];
-            if (t->name_len == 0 || t->name_len > 63 || t->name[t->name_len] != '\0' ||
-                t->n_dims == 0 || t->n_dims > 4 ||
-                (t->byte_offset & 63ULL) != 0 ||
-                t->byte_offset > m->file_size ||
-                t->byte_size > m->file_size - t->byte_offset) {
+            if (qwn_validate_desc(t, m->file_size) != 0 ||
+                t->byte_offset >= m->tail_offset) {
                 qwn_close(m);
-                if (err) *err = ERR_ALIGN;
+                if (err) *err = ERR_DTYPE;
                 return -1;
             }
         }
@@ -303,7 +337,7 @@ const void *qwn_data(const QwnModel *m, const QwnTensorDesc *t) {
     return m->base + t->byte_offset;
 }
 
-static const QwnTensorDesc *tensor_at(const QwnModel *m, uint32_t i) {
+const QwnTensorDesc *qwn_tensor_at(const QwnModel *m, uint32_t i) {
     if (i < m->hdr.inline_count) return &m->hdr.inline_index[i];
     i -= m->hdr.inline_count;
     return i < m->overflow_count ? &m->overflow_descs[i] : NULL;
@@ -337,7 +371,7 @@ int qwn_plan_residency(const QwnModel *m, uint64_t gpu_budget,
     plan->count = m->hdr.n_tensors;
     plan->gpu_bytes = plan->ram_bytes = plan->nvme_bytes = 0;
     for (uint32_t i = 0; i < plan->count; i++) {
-        const QwnTensorDesc *t = tensor_at(m, i);
+        const QwnTensorDesc *t = qwn_tensor_at(m, i);
         if (!t) return -1;
         QwnPlacement *p = &plan->items[i];
         p->name_hash = qwn_hash_name(t->name);

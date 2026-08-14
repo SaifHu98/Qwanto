@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 #define QWN_PAGE_BLOCK_SIZE 16  /* Tokens per physical block page */
+#define QWN_KV_PAGE_BYTES 16384 /* Allocation/page alignment, not token capacity */
 
 typedef struct {
     uint16_t *key_data;    /* [block_capacity, layers, kv_heads, block_size, head_dim] */

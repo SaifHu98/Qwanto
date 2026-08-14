@@ -125,6 +125,11 @@ typedef struct QWN_PACKED {
     uint64_t n_params;            /* sum of numel across all tensors */
     uint64_t arch_dims[8];        /* hidden,intermediate,heads,kv_heads,head_dim,layers,vocab,ctx */
     QwnTensorDesc inline_index[QWN_INLINE_MAX];
+    /* Optional explicit projection dimensions. These live after the inline
+     * descriptor area so version-1 files keep the same descriptor offsets. */
+    uint64_t q_dim;
+    uint64_t k_dim;
+    uint64_t v_dim;
 } QwnHeader;
 
 _Static_assert(sizeof(QwnTensorDesc) == 136, "QwnTensorDesc disk ABI changed");
@@ -189,6 +194,7 @@ void qwn_close(QwnModel *m);
  * Search order: inline index (no I/O), then sorted overflow index
  * (one binary search, one page fault on cold). */
 const QwnTensorDesc *qwn_find(const QwnModel *m, const char *name);
+const QwnTensorDesc *qwn_tensor_at(const QwnModel *m, uint32_t index);
 
 /* Read tensor payload into a caller-provided buffer.
  * For F32/F16: exact copy of byte_size.

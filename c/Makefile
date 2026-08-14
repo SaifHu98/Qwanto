@@ -106,6 +106,10 @@ EXE     =
 endif
 endif
 
+ifneq (,$(LINUX))
+LDFLAGS += -ldl
+endif
+
 # --- install ---
 PREFIX     ?= /usr/local
 BINDIR     ?= $(PREFIX)/bin
@@ -142,6 +146,11 @@ endif
 else
 CUDA_HOME ?= /usr/local/cuda
 NVCC      ?= $(CUDA_HOME)/bin/nvcc
+endif
+ifneq (,$(IS_WIN))
+CUDA_LIBDIR ?= $(CUDA_HOME)/lib/x64
+else
+CUDA_LIBDIR ?= $(CUDA_HOME)/lib64
 endif
 CUDA_ARCH ?= native
 ifneq ($(IS_WIN),)
@@ -215,8 +224,8 @@ glm: glm$(EXE)
 glm$(EXE): glm.c st.h uring.h json.h tok.h tok_unicode.h compat.h grammar.h $(CUDA_OBJ) $(METAL_OBJ)
 	$(CC) $(CFLAGS) glm.c $(CUDA_OBJ) $(METAL_OBJ) -o glm$(EXE) $(LDFLAGS)
 
-qwnrun$(EXE): qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_decode.h qwanto_native.h qwanto_kernels.h tok.h json.h tok_unicode.h $(CUDA_OBJ)
-	$(CC) $(CFLAGS) qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
+qwnrun$(EXE): qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwn_paged_kv.c qwanto_decode.h qwanto_native.h qwanto_kernels.h qwn_paged_kv.h tok.h json.h tok_unicode.h $(CUDA_OBJ)
+	$(CC) $(CFLAGS) qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwn_paged_kv.c $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
 
 qwnrun: qwnrun$(EXE)
 
@@ -235,6 +244,12 @@ cuda-dll: backend_cuda.cu backend_cuda.h
 	$(NVCC) $(NVCCFLAGS) -shared -DCOLI_CUDA_BUILDING_DLL \
 		-L"$(CUDA_HOME)/lib/x64" -lcudart \
 		backend_cuda.cu -o coli_cuda.dll
+
+qwn-cuda-dll: cuda/qwn_hypervsq_cuda.cu cuda/qwn_hypervsq_cuda.h
+	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
+	$(NVCC) $(NVCCFLAGS) -shared -DQWN_CUDA_BUILDING_DLL \
+		-L"$(CUDA_LIBDIR)" -lcublas -lcudart \
+		cuda/qwn_hypervsq_cuda.cu -o qwn_cuda.dll
 
 backend_cuda.o: backend_cuda.cu backend_cuda.h
 	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
@@ -357,4 +372,4 @@ clean:
 
 bench: iobench$(EXE)
 	@if [ -n "$(ARGS)" ]; then ./iobench$(EXE) $(ARGS); else echo "built iobench$(EXE) — run: ./iobench$(EXE) <file> <MB> <iters> <threads> <direct 0|1>"; fi
-.PHONY: all glm qwnrun cuda-test cuda-bench cuda-dll portable test-c test-python test check clean install uninstall bench
+.PHONY: all glm qwnrun cuda-test cuda-bench cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench
