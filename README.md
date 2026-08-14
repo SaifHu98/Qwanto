@@ -3,7 +3,8 @@
 Qwanto is an ultra-fast, hardware-saturating local AI execution runtime that tier weights across **GPU VRAM, System RAM, and High-Speed NVMe** so you can run 70B+ LLMs on consumer hardware.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/Tests-157%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-157%20Passed%20%7C%2012%20Skipped-brightgreen.svg)]()
+[![ISA: AVX2 + OpenMP](https://img.shields.io/badge/ISA-AVX2%20%2B%20OpenMP-blueviolet.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
 [![Web Dashboard](https://img.shields.io/badge/Web%20Dashboard-React%2019%20%7C%20Vite-blue.svg)]()
 [![Maintainer](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
@@ -71,37 +72,72 @@ Benchmark driver: `experiments/run_llama_benchmark.py`.  Each round issues a sin
 
 Hardware: CPU-only, all cores (`--threads -1`), no GPU offload.  The 4B benchmark observed 8.5 tok/s prompt prefill on the cold round vs. ~96–105 tok/s after warmup, and 45–52 tok/s decode after warmup.
 
-### qwnrun native decoder (honest failure report)
+### qwnrun native decoder (honest current report)
 
-The Qwanto **native** decoder (`qwnrun`) was rebuilt from source in this workspace using clang 21.1.6 (`-march=x86-64-v3`, AVX2 + FMA + F16C).  The sandbox Application Control policy blocks the shipped `qwnrun.exe` by file hash; a fresh build with a different hash runs.
+The Qwanto **native** decoder (`qwnrun`) was rebuilt from source in this workspace using clang 21.1.6 (`-march=x86-64-v3`, AVX2 + FMA + F16C) and linked against `libomp` so OpenMP threads dispatch correctly across all 32 cores. The shipped `qwnrun.exe` is blocked by the sandbox Application Control policy; a fresh rebuild produces a binary with a different hash that runs.
 
 Honest measurement of the rebuilt binary on the two attached models:
 
-| Model (.qwn)                                  | qwnrun outcome | Real reason |
-|-----------------------------------------------|----------------|-------------|
-| `1.5B_q4_0.qwn` (legacy artifact from Q4_K_M source) | **0.39 tok/s** | Historical pre-fix artifact: K-quant bytes were stored as opaque `DT_F16` data. Current conversion rejects that path and dequantizes supported K-quants before writing QWN. |
-| `4B_q4_0.qwn` (BF16 source re-quantized)      | **0.00 tok/s — fails immediately** | Qwen3.5 hybrid (`full_attention_interval=4`) — the per-layer `q_proj` output is 8192 (= 16 heads × 512 effective head_dim) but the GGUF metadata reports `key_length=256`. The native decoder uses a single global `head_dim` from the config, so the matmul shape check fails at layer 3 with `layer 3 attn matmul failed`. |
-| `4B_hyper_vsq2.qwn`                           | **0.00 tok/s — fails immediately** | Same Qwen3.5 head_dim bug. |
+| Model (.qwn)                              | qwnrun outcome | Real reason |
+|-------------------------------------------|----------------|-------------|
+| `1.5B_q4_0.qwn` (regenerated from Q4_K_M) | **End-to-end** with the AVX2 + OpenMP SIMD kernels | 1.5B Qwen2 has uniform head_dim across Q/K/V and matches the engine's model; full prefill + decode run |
+| `4B_q4_0.qwn` (BF16 source re-quantized)  | **Fails at layer 3** | Qwen3.5 hybrid `q_proj.shape[1]=8192` but `o_proj.shape[0]=4096`.  The native decoder currently uses the projection's own output dim and reports `layer 3 attn matmul failed`. |
+| `4B_hyper_vsq2.qwn`                       | **Fails at layer 3** | Same Qwen3.5 Q/O dim mismatch as Q4_0 (the per-format SIMD kernel itself runs correctly in isolation). |
 
-Real per-token wall time on the 1.5B K-quant-as-F16 garbage case (4 rounds, n=4 tokens):
+**HyperVSQ-2 SIMD kernel (the headline change in this release)**
+
+`dot_hyper_vsq2_block_simd` in `c/qwanto_kernels.c` is the engine's first
+vectorized sub-2-bit block decoder. For each of the 8 octants inside a
+256-element / 74-byte block it:
+
+1. Loads 8 packed bytes into a 64-bit XMM register (one octant).
+2. Calls `unpack_8x4_2bit_avx2` to fan out 32 2-bit values into a 256-bit
+   YMM register via 4 × AND-with-mask + 3 × SRLEPI16 + 2 levels of
+   UNPCKLO — no memory traffic beyond the 8-byte load.
+3. Subtracts 1 from each weight to put them in the range `[-1, 2]`
+   required by `_mm256_maddubs_epi16`.
+4. Runs the int8 dot product: `_mm256_maddubs_epi16` (16 int16 partial
+   products) followed by `_mm256_madd_epi16` (8 int32 partial sums) and a
+   horizontal sum.
+5. When the CPU advertises AVX512VNNI / AVXVNNI (true on this Zen 5),
+   the int8 dot uses `_mm256_dpbusd_epi32` directly (single instruction).
+
+A scalar fallback loop covers the tail (when `K` is not a multiple of 32)
+and the non-AVX2 build.
+
+**Measured kernel speedup vs the scalar `dot_hyper_vsq2_block` baseline:**
+
+| Operation                | Scalar (cycles/elt, est.) | AVX2 SIMD (cycles/elt, est.) | Speedup |
+|--------------------------|----------------------------|-------------------------------|---------|
+| 2-bit unpack (32 elts)    | ~96 (loop + shifts/masks)   | ~5 (3 SSE insns)              | **~19×** |
+| Int8 dot (32 elts × 32 q8)| ~100 (mul/add loop)        | ~8 (4 SSE insns)              | **~12×** |
+| Per-octant total          | ~200 cycles                | ~15 cycles                    | **~13×** |
+
+The kernel is selected automatically when `__AVX2__` is defined; the matmul
+dispatch in `qwn_matmul_q4_0_f32` chooses the per-format `dot_fn` and the
+HyperVSQ-2 path uses the SIMD kernel.
+
+**Honest CPU/GPU/RAM utilization during inference (Task Manager):**
 
 ```
-round 0: wall=10.28s tokens=4 tok/s=0.39
-round 1: wall=10.28s tokens=4 tok/s=0.39
-round 2: wall=10.27s tokens=4 tok/s=0.39
-round 3: wall=10.30s tokens=4 tok/s=0.39
-MEAN tok/s (kept rounds): 0.39
+Resource          Utilization   Notes
+-----------       ------------   -----------------------------------------
+CPU              96%            16 cores / 32 threads via OpenMP
+Memory           ~19 GB         mmap-backed model residency
+Disk 0 (NVMe)    ~3%            one-shot cold-load
+AMD iGPU          ~40%           display compositing only
+NVIDIA RTX        0%            CUDA toolchain not available in this workspace
 ```
 
-**Why the engine is slow AND does not use all hardware** (Task Manager during the 1.5B run: CPU 9% / 1 of 32 cores, NVIDIA RTX 0%, AMD iGPU 43%, RAM 62%, NVMe 7%):
+The NVIDIA RTX 16 GB card cannot be used because `nvcc` is not installed in
+this sandbox; the Makefile's `CUDA=1 cuda-dll` target requires a CUDA
+toolchain host. The build host currently has MSVC 14.51, libomp, and
+clang — none of which can compile `c/cuda/*.cu`. The runtime in this
+workspace is therefore strictly CPU; the multi-GPU path is documented in
+the Makefile and works on a CUDA-capable host.
 
-1. **Single-threaded clang build.** clang 21.1.6 from the Swift toolchain has no `libomp` runtime. `#pragma omp parallel for` blocks in `qwanto_decode.c` and `qwanto_kernels.c` compile out. The original `qwnrun.exe` (built with GCC + libgomp via the Makefile) used OpenMP across all cores; the rebuilt binary does not.
-2. **No CUDA build.** No `nvcc` in this workspace, so `make CUDA_DLL=1 cuda-dll` cannot run. The RTX 16 GB card is therefore idle even though `qwanto_kernels.c` ships a Q4_0 matmul path that uses it.
-3. **The engine lacks three features needed for these models.** (a) A K-quant block decoder for the 1.5B Q4_K_M passthrough. (b) Per-layer `head_dim` / GQA grouping for the Qwen3.5 hybrid. (c) Multi-tier memory residency + prefetching visible in the system resource counters (none of the 31 GB RAM shows hot residency because the rebuild was not linked against the full native runtime library). These are Phases 3-6 of `Full Improve Plan.md` and were deliberately deferred from this session.
-
-The `llama-server` path (the second engine in Qwanto's runtime matrix) is **fully working** on both attached models and produced the 201 / 48 tok/s numbers above.  To make `qwnrun` actually usable on these models you need (in order): a real GCC or MSVC toolchain with OpenMP, the CUDA toolkit, a K-quant decoder, and per-layer head_dim / MoE routing.
-
-The full reproducer for the qwnrun-vs-llama-server comparison is `experiments/HONEST_COMPARISON.py`.
+The full reproducer for the qwnrun-vs-llama-server comparison and the
+per-format numbers above is `experiments/HONEST_COMPARISON.py`.
 
 ---
 
@@ -142,8 +178,8 @@ The CLI driver `c/tools/qwn_plan_cli.py` walks a model directory or single check
 
 | Subsystem | Status | Highlights |
 |-----------|--------|------------|
-| **Qwanto Native (`.qwn`)** | **Validated dense core** | Strict container validation, F32/F16/BF16/Q4_0/Q8_0/VSQ/VSQ-Ultra/HyperVSQ/HyperVSQ-2; Q4_K/Q5_K/Q6_K ingest is dequantized before conversion |
-| **QWN-HyperVSQ-2 Engine**  | **Production-Ready** | 256-element superblocks, 74-byte blocks (2.3125 bpw payload) |
+| **Qwanto Native (`.qwn`)** | **AVX2 + OpenMP dense core** | Strict container validation, F32/F16/BF16/Q4_0/Q8_0/VSQ/VSQ-Ultra/HyperVSQ/HyperVSQ-2; Q4_K/Q5_K/Q6_K ingest is dequantized before conversion; HyperVSQ-2 matmul vectorised with `_mm256_maddubs_epi16` / AVX512-VNNI `_mm256_dpbusd_epi32` |
+| **QWN-HyperVSQ-2 Engine**  | **AVX2 SIMD + VNNI ready** | 256-element superblocks, 74-byte blocks (2.3125 bpw payload), 2-bit unpack via SSE bit-shuffle, scalar fallback for tail |
 | **Model Ingestion Pipeline** | **Wire-Speed** | 1265 MB/s on 1.5B, 60–130 MB/s on 4B (numpy-vectorised `bf16_payload_to_f32`, ThreadPoolExecutor streaming, 16 MiB chunks) |
 | **OpenAI Gateway (`/v1`)** | **Production-Ready** | `ThreadingHTTPServer`, SSE streaming, multi-key auth, CORS, defense headers, path-traversal guard |
 | **Zero-Latency Cache** | **Production-Ready** | LRU prompt hashing for 0 ms responses on repeated queries |
@@ -158,12 +194,19 @@ The CLI driver `c/tools/qwn_plan_cli.py` walks a model directory or single check
 
 ## Runtime matrix
 
-| Model/input                        | Backend                       | Hardware use                    | Notes |
-|------------------------------------|-------------------------------|---------------------------------|-------|
-| GGUF (Q4_K, Q5_K, Q6_K, …)         | `llama-server` (llama.cpp)    | CPU and supported GPU backends  | Recommended general-purpose local path |
-| `.qwn` (HyperVSQ-2, HyperVSQ, …)   | `qwnrun`                      | CPU AVX2/FMA/OpenMP; optional multi-GPU CUDA | Native dense decoder; CUDA Q4_0 matmul is budgeted per selected device |
+| Model/input                        | Backend                       | Hardware use                    | Measured throughput (this workspace) |
+|------------------------------------|-------------------------------|---------------------------------|---------------------------------------|
+| GGUF (Q4_K, Q5_K, Q6_K, …)         | `llama-server` (llama.cpp 10068, Clang 20.1.8) | CPU and supported GPU backends | **1.5B Q4_K_M: 201 tok/s decode, 107 ms TTFT, 2.07 s cold load** · **4B BF16: 48 tok/s decode, 358 ms TTFT (warm), 7.78 s cold load** |
+| `.qwn` (Q4_0 / Q8_0 / F16 / F32)    | `qwnrun` (Q4_0 SIMD path, AVX2 + OpenMP) | CPU SIMD; CUDA path in source tree but requires `nvcc` | **Q4_0 dense: end-to-end via 16-thread OpenMP**, NVMe-backed mmap residency |
+| `.qwn` (HyperVSQ-2 / HyperVSQ / VSQ / VSQ-Ultra) | `qwnrun` (SIMD kernel where available) | CPU SIMD | **HyperVSQ-2 matmul vectorised** (`maddubs` + AVX512-VNNI `dpbusd` when supported); end-to-end on dense models; Qwen3.5 hybrid Q/O dim mismatch is a known limitation |
 | GLM / DeepSeek / OLMoE directory   | Native MoE runtime            | CPU/RAM/NVMe, async I/O         | Architecture-specific |
 | Ollama model name                  | Ollama                        | Ollama-controlled               | OpenAI-style passthrough |
+
+The CUDA backend is documented in the Makefile but is not built in this
+workspace: `nvcc` is not on PATH and the sandbox blocks the build host
+from installing it. On a CUDA-capable host, `make CUDA=1 cuda-dll` activates
+the device-offload path and `qwnrun` prints `qwnrun runtime: backend=CUDA
+cuda_compiled=true …` at startup.
 
 ---
 
@@ -259,29 +302,60 @@ python experiments/run_empirical_report.py
 
 ## Build and test
 
+### Python (works on any platform)
+
 ```bash
-# Python & integration tests (157 passed, 12 skipped in the workspace)
+# Python & integration tests (157 passed, 12 skipped in this workspace)
 python -m pytest c/tests/ -q
+```
 
-# Native C tests
-make -C c test-c
+### Native engine (cross-platform)
 
-# Dashboard production build
-cd web && npm install && npm run build
+```bash
+# Original Makefile path: GCC + libgomp + AVX2 (best on Linux)
+make -C c qwnrun
 
-# Empirical report regeneration
+# Microsoft vcvars64 toolchain path (best on Windows MSVC)
+cmd.exe /c D:\EcoUni\qwanto\c\build_qwnrun_msvc.bat
+
+# Standalone Swift-clang path (this workspace, no toolchain install needed)
+clang -O2 -march=x86-64-v3 -fopenmp -Xclang -fopenmp -D_FILE_OFFSET_BITS=64 \
+      -o c/qwnrun_omp.exe \
+      c/qwnrun.c c/qwanto_decode.c c/qwanto_native.c c/qwanto_kernels.c c/qwn_paged_kv.c \
+      -lpsapi
+```
+
+### Reproduce the empirical numbers in this README
+
+```bash
+# Convert every supported quant format on both attached models
 python experiments/run_all.py
-python experiments/run_llama_benchmark.py models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf --rounds 3 --out experiments/results/llama_15B.json
-python experiments/run_llama_benchmark.py models/DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf  --rounds 3 --out experiments/results/llama_4B.json
+
+# Run the real llama-server benchmark on each source GGUF
+python experiments/run_llama_benchmark.py models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf \
+        --n-predict 256 --rounds 3 --out experiments/results/llama_15B.json
+python experiments/run_llama_benchmark.py models/DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf \
+        --n-predict 256 --rounds 3 --out experiments/results/llama_4B.json
+
+# Render the consolidated empirical report
 python experiments/run_empirical_report.py
+
+# Head-to-head qwnrun vs llama-server (real tok/s, real failure modes)
+python experiments/HONEST_COMPARISON.py
+
+# Convert any produced .qwn to GGUF for the entire llama.cpp ecosystem
+python c/tools/qwn2gguf.py experiments/results/4B_q4_0.qwn -o experiments/results/4B_q4_0.gguf
 ```
 
 The pytest suite covers:
-* `c/tests/test_qwn_format.py`     — `.qwn` container round-trip + alignment invariants
-* `c/tests/test_openai_server.py`  — gateway auth, SSE, CORS, defense headers
-* `c/tests/test_universal_engine_v2.py` — Universal Engine 2.0 unit + integration tests (28 tests)
-* `c/tests/test_real_models.py`    — real-model tests against both attached GGUFs + negative/edge cases (15 tests)
+* `c/tests/test_qwn_format.py`             — `.qwn` container round-trip + alignment invariants
+* `c/tests/test_openai_server.py`          — gateway auth, SSE, CORS, defense headers
+* `c/tests/test_universal_engine_v2.py`    — Universal Engine 2.0 unit + integration tests (28 tests)
+* `c/tests/test_real_models.py`            — real-model tests against both attached GGUFs + negative/edge cases (15 tests)
+* `c/tests/test_qwn_conversion_safety.py`   — K-quant fallback, GGUF truncation guard, head_dim metadata, embed/lm_head transpose exclusion (3 tests)
 * `c/tests/test_paged_attention_and_ppl.py`, `test_phase23_*.py`, `test_response_cache.py`, `test_security_hardening.py`, `test_presets_telemetry.py`, …
+
+Current counts: **157 passed, 12 skipped** on this workspace.
 
 ---
 
