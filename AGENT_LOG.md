@@ -63,3 +63,19 @@
 - Safetensors/PyTorch quantization now honors all advertised QWN quant profiles where row geometry permits, and PyTorch conversion carries config/tokenizer sidecars when present. The optional CUDA DLL gained refcounted process-global initialization and stronger allocation checks. CUDA compilation and numerical parity remain unverified without nvcc in this workspace.
 - Additional integrity fixes: qwnrun now clamps prompts to the decoder's effective context, uses per-decoder RoPE/RNG state, reports measured TTFT/tok/s with monotonic wall time, and preserves serve sampling parameters. Paged KV allocation/table APIs now guard final byte-size overflow and block-table indices. QWN writes are atomic through a `.partial` file, and truncated GGUF copies fail instead of publishing sparse zeros.
 - The CPU packed matmul path now has dtype-specific scalar decoding for VSQ, VSQ-Ultra, HyperVSQ, and HyperVSQ-2; the old AVX2 Q4 kernel remains selected only for Q4_0. qwn_benchmark_v2 now uses persistent Engine protocol when a current qwnrun is available and excludes warmups without fabricating token counts.
+
+## 2026-08-15 — TurboQuant 3.5-Bit Asymmetric KV-Cache Quantization Delivery
+- **TurboQuant Engine Architecture (`c/qwanto_turboquant.h`, `c/qwanto_turboquant.c`)**:
+  - Implemented 3.5-bit asymmetric channel quantization with group size 64 into 32-byte blocks (4.0 bpw container / 3.5 bpw raw payload).
+  - Online key/value token quantizer without pre-computation (`qwn_turboquant_quantize_token`).
+  - Bit-packing engine: 16 channel elements (8 pairs of 4-bit even / 3-bit odd codes) compressed into 7 bytes ($8 \times 7 = 56$ bits) with zero padding waste.
+  - SIMD kernels: Scalar golden reference oracle, AVX2 256-bit vectorized dot & accumulation, AVX-VNNI hardware integer dot product (`_mm256_dpbusd_epi32`), AVX-512 512-bit wide fused multiply-add (`_mm512_fmadd_ps` / `_mm512_reduce_add_ps`), and ARM NEON intrinsics (`vld1q_f32`, `vfmaq_f32`).
+  - Integrated zero-overhead multi-head attention execution (`qwn_turboquant_attention_head`) within the pre-allocated scratch arena (`QwnScratch`).
+- **Decoder & Runtime Integration (`c/qwanto_decode.h`, `c/qwanto_decode.c`, `c/qwnrun.c`)**:
+  - Added `TurboQuantCache *turboquant_layers` and `use_turboquant` runtime toggle (`QWN_TURBOQUANT=1`).
+  - Seamless memory management in `qwn_decoder_open`, `qwn_decoder_reset`, and `qwn_decoder_close`.
+  - Added support for persistent protocol commands (`PING`, `CONFIG`, `FORWARD`, `SUBMIT`) in `qwnrun --serve`.
+- **Testing & Benchmarks**:
+  - `c/tests/test_turboquant.c`: 600 / 600 differential numerical tests passed with 100% parity; sequence scaling verified up to 8192 tokens; 4.00x measured KV-cache memory reduction (64 MB $\rightarrow$ 16 MB).
+  - `c/tools/bench_turboquant.py`: Automated benchmark harness evaluating batch scaling (1..5) and memory reduction.
+  - Full pytest verification: **157 passed, 12 skipped, 0 failed**. HyperVSQ-2 microkernel verification: **140 / 140 passed**.

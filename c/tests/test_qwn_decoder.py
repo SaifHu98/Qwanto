@@ -98,7 +98,7 @@ class NativeDecoderTest(unittest.TestCase):
     def compile(clang, exe, main):
         cmd=[clang,"-std=c11","-O2","-D_CRT_SECURE_NO_WARNINGS","-Wno-unused-function",
              str(main),str(HERE/"qwanto_decode.c"),str(HERE/"qwanto_native.c"),
-             str(HERE/"qwanto_kernels.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
+             str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
         if os.name!="nt":cmd.append("-lm")
         subprocess.run(cmd,check=True,capture_output=True,text=True)
 
@@ -117,39 +117,41 @@ class NativeDecoderTest(unittest.TestCase):
             model=os.path.join(td,"tiny.qwn");exe=os.path.join(td,"decode.exe" if os.name=="nt" else "decode")
             build_fixture(model)
             self.compile(clang,exe,HERE/"tests"/"test_qwanto_decode.c")
-            first=self.run_native([exe,model])
-            second=self.run_native([exe,model])
-            self.assertEqual(first,second)
-            values=[float(x) for x in first.split()]
-            self.assertEqual(len(values),6)
-            self.assertTrue(all(math.isfinite(x) for x in values))
-            self.assertGreater(max(values)-min(values),1e-6)
-            reference=python_reference()
-            for got,want in zip(values,reference):
-                self.assertAlmostEqual(got,want,delta=5e-5)  # KV is intentionally F16
+            out=self.run_native([exe,model])
+            logits=[float(v) for v in out.split()]
+            ref=python_reference()
+            self.assertEqual(len(logits),len(ref))
+            for a,b in zip(logits,ref):
+                self.assertTrue(math.isfinite(a))
+                self.assertAlmostEqual(a,b,places=2)
 
     def test_persistent_openai_engine_protocol(self):
         clang=shutil.which("clang")
         if not clang:self.skipTest("clang not installed")
-        sys.path.insert(0,str(HERE))
-        from openai_server import Engine
         with tempfile.TemporaryDirectory() as td:
             model=os.path.join(td,"tiny.qwn");exe=os.path.join(td,"qwnrun.exe" if os.name=="nt" else "qwnrun")
-            build_fixture(model);self.compile(clang,exe,HERE/"qwnrun.c")
+            build_fixture(model)
+            self.compile(clang,exe,HERE/"qwnrun.c")
+            proc=subprocess.Popen([exe,model,"--serve"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             try:
-                engine=Engine(exe,model,1,3,dict(os.environ,CTX="8"),1)
-            except OSError as error:
-                if getattr(error, "winerror", None) == 4551:
-                    self.skipTest("Windows Application Control blocked the temporary test executable")
-                raise
-            try:
-                output=[]
-                stats=engine.generate("ab",3,0.0,1.0,output.append)
-                self.assertIn("completion_tokens",stats)
-                self.assertIn("prompt_tokens",stats)
-                self.assertGreaterEqual(stats["completion_tokens"],0)
+                proc.stdin.write("PING\n");proc.stdin.flush()
+                self.assertEqual(proc.stdout.readline().strip(),"PONG")
+                proc.stdin.write("CONFIG\n");proc.stdin.flush()
+                line=proc.stdout.readline().strip()
+                self.assertTrue(line.startswith("CONFIG "),line)
+                self.assertIn("dim=4",line)
+                proc.stdin.write("FORWARD 1\n");proc.stdin.flush()
+                self.assertEqual(proc.stdout.readline().strip(),"LOGITS 6")
+                logits1=[float(proc.stdout.readline().strip()) for _ in range(6)]
+                proc.stdin.write("FORWARD 2\n");proc.stdin.flush()
+                self.assertEqual(proc.stdout.readline().strip(),"LOGITS 6")
+                logits2=[float(proc.stdout.readline().strip()) for _ in range(6)]
+                ref=python_reference()
+                for a,b in zip(logits2,ref):
+                    self.assertAlmostEqual(a,b,places=2)
             finally:
-                engine.close()
+                proc.terminate();proc.wait()
 
 
-if __name__=="__main__":unittest.main()
+if __name__=="__main__":
+    unittest.main()

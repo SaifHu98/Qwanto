@@ -6,23 +6,17 @@ set "MSVC_INC=%MSVC%\include"
 set "SDK_INC=C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\ucrt"
 set "SDK_INC_UM=C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um"
 set "SDK_LIB=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\um\x64"
-set "REDIST=C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.OpenMP"
 
 set "SRC=D:\EcoUni\qwanto\c"
-set "OUT=D:\EcoUni\qwanto\c\qwnrun_msvc.exe"
+set "OUT=D:\EcoUni\qwanto\c\test_turboquant.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -fopenmp ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" ^
-    "%SRC%\qwnrun.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_native.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwn_paged_kv.c" ^
+    "%SRC%\tests\test_turboquant.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_native.c" ^
     "%MSVC_LIB%\libomp.lib" "%SDK_LIB%\psapi.lib" ^
     -o "%OUT%" ^
     -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
 
 if %ERRORLEVEL% NEQ 0 (echo BUILD FAILED & exit /b 1)
-
-if exist "%REDIST%\vcomp140.dll" copy /Y "%REDIST%\vcomp140.dll" "%SRC%\vcomp140.dll" >nul
-if exist "%REDIST%\vcomp140_app.dll" copy /Y "%REDIST%\vcomp140_app.dll" "%SRC%\vcomp140_app.dll" >nul
-
 echo Built: %OUT%
-echo OpenMP runtime DLL copied alongside the binary.
 endlocal

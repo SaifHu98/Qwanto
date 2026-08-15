@@ -48,6 +48,8 @@ typedef int (*QwnCudaGemvFn)(int rows, int cols, const void *weights,
                             const float *x, float *out);
 typedef void (*QwnCudaShutdownFn)(void);
 
+#include "qwanto_turboquant.h"
+
 typedef struct {
     void *handle;
     QwnCudaInitFn init;
@@ -84,6 +86,8 @@ typedef struct {
     uint16_t *kv_gather_value;
     size_t kv_gather_stride;
     int use_paged_kv;
+    TurboQuantCache *turboquant_layers;
+    int use_turboquant;
     float *rope_cos_cache;
     float *rope_sin_cache;
     int rope_cache_ctx;

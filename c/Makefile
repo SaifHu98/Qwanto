@@ -224,8 +224,8 @@ glm: glm$(EXE)
 glm$(EXE): glm.c st.h uring.h json.h tok.h tok_unicode.h compat.h grammar.h $(CUDA_OBJ) $(METAL_OBJ)
 	$(CC) $(CFLAGS) glm.c $(CUDA_OBJ) $(METAL_OBJ) -o glm$(EXE) $(LDFLAGS)
 
-qwnrun$(EXE): qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwn_paged_kv.c qwanto_decode.h qwanto_native.h qwanto_kernels.h qwn_paged_kv.h tok.h json.h tok_unicode.h $(CUDA_OBJ)
-	$(CC) $(CFLAGS) qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwn_paged_kv.c $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
+qwnrun$(EXE): qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwn_paged_kv.c qwanto_decode.h qwanto_native.h qwanto_kernels.h qwanto_turboquant.h qwn_paged_kv.h tok.h json.h tok_unicode.h $(CUDA_OBJ)
+	$(CC) $(CFLAGS) qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwn_paged_kv.c $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
 
 qwnrun: qwnrun$(EXE)
 

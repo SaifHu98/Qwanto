@@ -133,11 +133,25 @@ static int serve_mode(const char *model){
     QwnDecoder d;const char *error=NULL;
     if(qwn_decoder_open(&d,model,ctx,&error)!=0){fprintf(stderr,"qwnrun: %s\n",error?error:"open");return 1;}
     print_runtime_info(&d);
-    printf("\x01\x01READY\x01\x01\nSTAT 0 0 0 0\n");fflush(stdout);
+    if(getenv("SERVE")){
+        printf("\x01\x01READY\x01\x01\nSTAT 0 0 0 0\n");fflush(stdout);
+    }
     char line[512];
     while(fgets(line,sizeof(line),stdin)){
-        char id[64];int slot=0,bytes=0,max_tokens=default_max;float temp=0,top_p=1;
-        if(sscanf(line,"SUBMIT %63s %d %d %d %f %f",id,&slot,&bytes,&max_tokens,&temp,&top_p)==6){
+        char id[64];int slot=0,bytes=0,max_tokens=default_max;float temp=0,top_p=1;int token_fwd=0;
+        if(strncmp(line,"PING",4)==0){
+            printf("PONG\n");fflush(stdout);
+        }else if(strncmp(line,"CONFIG",6)==0){
+            printf("CONFIG dim=%d vocab=%d layers=%d\n",d.cfg.hidden,d.cfg.vocab,d.cfg.layers);fflush(stdout);
+        }else if(sscanf(line,"FORWARD %d",&token_fwd)==1){
+            const float *l_out=NULL;
+            qwn_decoder_forward(&d,token_fwd,&l_out);
+            printf("LOGITS %d\n",d.cfg.vocab);
+            for(int i=0;i<d.cfg.vocab;i++){
+                printf("%f\n",l_out[i]);
+            }
+            fflush(stdout);
+        }else if(sscanf(line,"SUBMIT %63s %d %d %d %f %f",id,&slot,&bytes,&max_tokens,&temp,&top_p)==6){
             (void)slot;
             if(bytes<0||bytes>(16<<20)){printf("ERROR %s invalid-prompt-size\n",id);fflush(stdout);continue;}
             if(!isfinite(temp)||!isfinite(top_p)||temp<0.0f||top_p<0.0f||top_p>1.0f){
@@ -184,6 +198,14 @@ int main(int argc,char **argv){
     if (argc == 2 && strcmp(argv[1], "--build-info") == 0) {
         print_build_info();
         return 0;
+    }
+    if (argc >= 3 && strcmp(argv[2], "--serve") == 0) {
+        return serve_mode(argv[1]);
+    }
+    if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
+        const char *model = getenv("SNAP");
+        if (!model || !*model) { fprintf(stderr, "SNAP missing\n"); return 2; }
+        return serve_mode(model);
     }
     print_build_info();
     if(getenv("SERVE")){

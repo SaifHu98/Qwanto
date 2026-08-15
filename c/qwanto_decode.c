@@ -778,6 +778,17 @@ for (int l = 0; l < d->cfg.layers; l++) {
     d->rng_state = seed_text && *seed_text ? strtoull(seed_text, NULL, 10)
                                            : 0x9e3779b97f4a7c15ULL;
     if (d->rng_state == 0) d->rng_state = 0x9e3779b97f4a7c15ULL;
+    const char *tq_env = getenv("QWN_TURBOQUANT");
+    if (tq_env && (strcmp(tq_env, "1") == 0 || strcmp(tq_env, "true") == 0 || strcmp(tq_env, "auto") == 0)) {
+        d->use_turboquant = 1;
+        d->turboquant_layers = (TurboQuantCache*)malloc(sizeof(TurboQuantCache) * (size_t)d->cfg.layers);
+        if (d->turboquant_layers) {
+            for (int l = 0; l < d->cfg.layers; l++) {
+                int kv_hd = d->cfg.kv_heads ? max_kv_out / d->cfg.kv_heads : 0;
+                qwn_turboquant_init(&d->turboquant_layers[l], d->cfg.max_ctx, d->cfg.kv_heads, kv_hd);
+            }
+        }
+    }
     qwn_cuda_load(d);
     init_residency(d);
     /* Precompute RoPE table once at load time */
@@ -788,12 +799,17 @@ fail:qwn_decoder_close(d);return -1;
 
 void qwn_decoder_reset(QwnDecoder *d){
     if (!d) return;
-    d->position=0;
+    d->position = 0;
     if (d->use_paged_kv) {
         qwn_block_table_free(&d->paged_kv, &d->paged_table);
         qwn_block_table_init(&d->paged_table, 0,
                              (d->cfg.max_ctx + QWN_PAGE_BLOCK_SIZE - 1) /
                              QWN_PAGE_BLOCK_SIZE);
+    }
+    if (d->use_turboquant && d->turboquant_layers) {
+        for (int l = 0; l < d->cfg.layers; l++) {
+            d->turboquant_layers[l].n_tokens = 0;
+        }
     }
 }
 
@@ -812,6 +828,13 @@ void qwn_decoder_close(QwnDecoder *d){
     free64(d->kv_gather_value);
     qwn_block_table_free(&d->paged_kv, &d->paged_table);
     qwn_kv_pool_free(&d->paged_kv);
+    if (d->turboquant_layers) {
+        for (int l = 0; l < d->cfg.layers; l++) {
+            qwn_turboquant_free(&d->turboquant_layers[l]);
+        }
+        free(d->turboquant_layers);
+        d->turboquant_layers = NULL;
+    }
     free64(d->kv_allocation);qwn_close(&d->model);memset(d,0,sizeof(*d));
 }
 
@@ -910,7 +933,30 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
             if(lt->k_norm&&hd_this&&vector_f32(&d->model,lt->k_norm,d->scratch.row_f32,hd_this)==0)
                 head_rmsnorm(d->k,HK,hd_this,d->scratch.row_f32,c->rms_eps);
             rope(d,d->q,H,hd_this,pos,c->rope_theta);rope(d,d->k,HK,hd_this,pos,c->rope_theta);
-            if (d->use_paged_kv) {
+            if (d->use_turboquant && d->turboquant_layers) {
+                qwn_turboquant_quantize_token(d->k, d->turboquant_layers[l].packed_k + (size_t)pos * d->turboquant_layers[l].token_stride_k, KV);
+                qwn_turboquant_quantize_token(d->v, d->turboquant_layers[l].packed_v + (size_t)pos * d->turboquant_layers[l].token_stride_v, KV);
+                memset(d->ctx, 0, (size_t)Q * sizeof(float));
+                float scale = 1.0f / sqrtf((float)hd_this);
+                float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;
+#if defined(_OPENMP)
+                #pragma omp parallel for schedule(static) if(H > 1)
+#endif
+                for (int h = 0; h < H; h++) {
+                    int kh = (int)((float)h / ratio);
+                    qwn_turboquant_attention_head(
+                        d->q + h * hd_this,
+                        &d->turboquant_layers[l],
+                        l, h, kh, pos, scale,
+                        d->att + (size_t)h * c->max_ctx,
+                        d->ctx + h * hd_this
+                    );
+                }
+                if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
+                    add_bias(d, lt->o_bias, d->xb, D);
+                    vec_add(d->x, d->xb, D);
+                }
+            } else if (d->use_paged_kv) {
                 if (qwn_paged_kv_write(&d->paged_kv, &d->paged_table, l, pos,
                                        d->k, d->v) != 0) return -1;
                 memset(d->ctx, 0, (size_t)Q * sizeof(float));

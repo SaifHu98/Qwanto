@@ -1,0 +1,114 @@
+{
+  "benchmark_timestamp": "2026-08-15 18:51:58",
+  "model": "experiments\\results\\4B_hyper_vsq2.qwn",
+  "kv_cache_specs": {
+    "fp16_bits_per_channel": 16.0,
+    "turboquant_bits_per_channel": 3.5,
+    "group_size": 64,
+    "theoretical_memory_reduction": "4.57x",
+    "effective_block_footprint": "4.00 bpw"
+  },
+  "experiments": [
+    {
+      "tokens": 64,
+      "batch_size": 1,
+      "fp16_kv_cache_mb": 4.12,
+      "turboquant_kv_cache_mb": 1.03,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 6.958,
+      "status": "ok"
+    },
+    {
+      "tokens": 64,
+      "batch_size": 2,
+      "fp16_kv_cache_mb": 8.25,
+      "turboquant_kv_cache_mb": 2.06,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 6.914,
+      "status": "ok"
+    },
+    {
+      "tokens": 64,
+      "batch_size": 3,
+      "fp16_kv_cache_mb": 12.38,
+      "turboquant_kv_cache_mb": 3.09,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 6.749,
+      "status": "ok"
+    },
+    {
+      "tokens": 64,
+      "batch_size": 4,
+      "fp16_kv_cache_mb": 16.5,
+      "turboquant_kv_cache_mb": 4.12,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 7.501,
+      "status": "ok"
+    },
+    {
+      "tokens": 64,
+      "batch_size": 5,
+      "fp16_kv_cache_mb": 20.62,
+      "turboquant_kv_cache_mb": 5.16,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 7.285,
+      "status": "ok"
+    },
+    {
+      "tokens": 128,
+      "batch_size": 1,
+      "fp16_kv_cache_mb": 8.25,
+      "turboquant_kv_cache_mb": 2.06,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 10.959,
+      "status": "ok"
+    },
+    {
+      "tokens": 128,
+      "batch_size": 2,
+      "fp16_kv_cache_mb": 16.5,
+      "turboquant_kv_cache_mb": 4.12,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 11.1,
+      "status": "ok"
+    },
+    {
+      "tokens": 128,
+      "batch_size": 3,
+      "fp16_kv_cache_mb": 24.75,
+      "turboquant_kv_cache_mb": 6.19,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 11.148,
+      "status": "ok"
+    },
+    {
+      "tokens": 128,
+      "batch_size": 4,
+      "fp16_kv_cache_mb": 33.0,
+      "turboquant_kv_cache_mb": 8.25,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 10.882,
+      "status": "ok"
+    },
+    {
+      "tokens": 128,
+      "batch_size": 5,
+      "fp16_kv_cache_mb": 41.25,
+      "turboquant_kv_cache_mb": 10.31,
+      "memory_reduction_ratio": "4.00x",
+      "measured_throughput_tok_s": 0.0,
+      "wall_clock_sec": 10.962,
+      "status": "ok"
+    }
+  ],
+  "differential_suite_status": "PASSED"
+}
