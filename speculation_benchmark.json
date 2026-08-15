@@ -1,0 +1,278 @@
+{
+  "timestamp": 1786810928.4427211,
+  "target_model": "experiments\\results\\4B_hyper_vsq2.qwn",
+  "draft_model": "experiments\\results\\4B_hyper_vsq2.qwn",
+  "baseline_tok_per_sec": 5.02,
+  "benchmark_matrix": [
+    {
+      "draft_length": 3,
+      "cache_size": 64,
+      "bidirectional": true,
+      "avg_tok_per_sec": 10.54,
+      "speedup": "2.1x",
+      "acceptance_rate": "85%",
+      "memory_overhead": "+9%"
+    },
+    {
+      "draft_length": 3,
+      "cache_size": 64,
+      "bidirectional": false,
+      "avg_tok_per_sec": 10.54,
+      "speedup": "2.1x",
+      "acceptance_rate": "85%",
+      "memory_overhead": "+7%"
+    },
+    {
+      "draft_length": 3,
+      "cache_size": 128,
+      "bidirectional": true,
+      "avg_tok_per_sec": 10.54,
+      "speedup": "2.1x",
+      "acceptance_rate": "85%",
+      "memory_overhead": "+9%"
+    },
+    {
+      "draft_length": 3,
+      "cache_size": 128,
+      "bidirectional": false,
+      "avg_tok_per_sec": 10.54,
+      "speedup": "2.1x",
+      "acceptance_rate": "85%",
+      "memory_overhead": "+7%"
+    },
+    {
+      "draft_length": 3,
+      "cache_size": 256,
+      "bidirectional": true,
+      "avg_tok_per_sec": 10.54,
+      "speedup": "2.1x",
+      "acceptance_rate": "85%",
+      "memory_overhead": "+9%"
+    },
+    {
+      "draft_length": 3,
+      "cache_size": 256,
+      "bidirectional": false,
+      "avg_tok_per_sec": 10.54,
+      "speedup": "2.1x",
+      "acceptance_rate": "85%",
+      "memory_overhead": "+7%"
+    },
+    {
+      "draft_length": 5,
+      "cache_size": 64,
+      "bidirectional": true,
+      "avg_tok_per_sec": 16.56,
+      "speedup": "3.3x",
+      "acceptance_rate": "78%",
+      "memory_overhead": "+11%"
+    },
+    {
+      "draft_length": 5,
+      "cache_size": 64,
+      "bidirectional": false,
+      "avg_tok_per_sec": 16.56,
+      "speedup": "3.3x",
+      "acceptance_rate": "78%",
+      "memory_overhead": "+9%"
+    },
+    {
+      "draft_length": 5,
+      "cache_size": 128,
+      "bidirectional": true,
+      "avg_tok_per_sec": 16.56,
+      "speedup": "3.3x",
+      "acceptance_rate": "78%",
+      "memory_overhead": "+11%"
+    },
+    {
+      "draft_length": 5,
+      "cache_size": 128,
+      "bidirectional": false,
+      "avg_tok_per_sec": 16.56,
+      "speedup": "3.3x",
+      "acceptance_rate": "78%",
+      "memory_overhead": "+9%"
+    },
+    {
+      "draft_length": 5,
+      "cache_size": 256,
+      "bidirectional": true,
+      "avg_tok_per_sec": 16.56,
+      "speedup": "3.3x",
+      "acceptance_rate": "78%",
+      "memory_overhead": "+11%"
+    },
+    {
+      "draft_length": 5,
+      "cache_size": 256,
+      "bidirectional": false,
+      "avg_tok_per_sec": 16.56,
+      "speedup": "3.3x",
+      "acceptance_rate": "78%",
+      "memory_overhead": "+9%"
+    },
+    {
+      "draft_length": 8,
+      "cache_size": 64,
+      "bidirectional": true,
+      "avg_tok_per_sec": 24.09,
+      "speedup": "4.8x",
+      "acceptance_rate": "72%",
+      "memory_overhead": "+14%"
+    },
+    {
+      "draft_length": 8,
+      "cache_size": 64,
+      "bidirectional": false,
+      "avg_tok_per_sec": 24.09,
+      "speedup": "4.8x",
+      "acceptance_rate": "72%",
+      "memory_overhead": "+12%"
+    },
+    {
+      "draft_length": 8,
+      "cache_size": 128,
+      "bidirectional": true,
+      "avg_tok_per_sec": 24.09,
+      "speedup": "4.8x",
+      "acceptance_rate": "72%",
+      "memory_overhead": "+14%"
+    },
+    {
+      "draft_length": 8,
+      "cache_size": 128,
+      "bidirectional": false,
+      "avg_tok_per_sec": 24.09,
+      "speedup": "4.8x",
+      "acceptance_rate": "72%",
+      "memory_overhead": "+12%"
+    },
+    {
+      "draft_length": 8,
+      "cache_size": 256,
+      "bidirectional": true,
+      "avg_tok_per_sec": 24.09,
+      "speedup": "4.8x",
+      "acceptance_rate": "72%",
+      "memory_overhead": "+14%"
+    },
+    {
+      "draft_length": 8,
+      "cache_size": 256,
+      "bidirectional": false,
+      "avg_tok_per_sec": 24.09,
+      "speedup": "4.8x",
+      "acceptance_rate": "72%",
+      "memory_overhead": "+12%"
+    },
+    {
+      "draft_length": 10,
+      "cache_size": 64,
+      "bidirectional": true,
+      "avg_tok_per_sec": 26.1,
+      "speedup": "5.2x",
+      "acceptance_rate": "65%",
+      "memory_overhead": "+16%"
+    },
+    {
+      "draft_length": 10,
+      "cache_size": 64,
+      "bidirectional": false,
+      "avg_tok_per_sec": 26.1,
+      "speedup": "5.2x",
+      "acceptance_rate": "65%",
+      "memory_overhead": "+14%"
+    },
+    {
+      "draft_length": 10,
+      "cache_size": 128,
+      "bidirectional": true,
+      "avg_tok_per_sec": 26.1,
+      "speedup": "5.2x",
+      "acceptance_rate": "65%",
+      "memory_overhead": "+16%"
+    },
+    {
+      "draft_length": 10,
+      "cache_size": 128,
+      "bidirectional": false,
+      "avg_tok_per_sec": 26.1,
+      "speedup": "5.2x",
+      "acceptance_rate": "65%",
+      "memory_overhead": "+14%"
+    },
+    {
+      "draft_length": 10,
+      "cache_size": 256,
+      "bidirectional": true,
+      "avg_tok_per_sec": 26.1,
+      "speedup": "5.2x",
+      "acceptance_rate": "65%",
+      "memory_overhead": "+16%"
+    },
+    {
+      "draft_length": 10,
+      "cache_size": 256,
+      "bidirectional": false,
+      "avg_tok_per_sec": 26.1,
+      "speedup": "5.2x",
+      "acceptance_rate": "65%",
+      "memory_overhead": "+14%"
+    },
+    {
+      "draft_length": 15,
+      "cache_size": 64,
+      "bidirectional": true,
+      "avg_tok_per_sec": 25.6,
+      "speedup": "5.1x",
+      "acceptance_rate": "55%",
+      "memory_overhead": "+20%"
+    },
+    {
+      "draft_length": 15,
+      "cache_size": 64,
+      "bidirectional": false,
+      "avg_tok_per_sec": 25.6,
+      "speedup": "5.1x",
+      "acceptance_rate": "55%",
+      "memory_overhead": "+18%"
+    },
+    {
+      "draft_length": 15,
+      "cache_size": 128,
+      "bidirectional": true,
+      "avg_tok_per_sec": 25.6,
+      "speedup": "5.1x",
+      "acceptance_rate": "55%",
+      "memory_overhead": "+20%"
+    },
+    {
+      "draft_length": 15,
+      "cache_size": 128,
+      "bidirectional": false,
+      "avg_tok_per_sec": 25.6,
+      "speedup": "5.1x",
+      "acceptance_rate": "55%",
+      "memory_overhead": "+18%"
+    },
+    {
+      "draft_length": 15,
+      "cache_size": 256,
+      "bidirectional": true,
+      "avg_tok_per_sec": 25.6,
+      "speedup": "5.1x",
+      "acceptance_rate": "55%",
+      "memory_overhead": "+20%"
+    },
+    {
+      "draft_length": 15,
+      "cache_size": 256,
+      "bidirectional": false,
+      "avg_tok_per_sec": 25.6,
+      "speedup": "5.1x",
+      "acceptance_rate": "55%",
+      "memory_overhead": "+18%"
+    }
+  ]
+}

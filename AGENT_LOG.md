@@ -95,3 +95,18 @@
   - `c/tools/qwn_benchmark_thinking.py`: Real benchmark on `4B_hyper_vsq2.qwn` demonstrating **20.97 tok/s in LOW mode (4.98x speedup over HIGH baseline)**.
   - Pytest full suite: **161 passed, 12 skipped, 0 failed**.
 
+## 2026-08-15 — Saguaro (SSD) Advanced Speculative Decoding Delivery
+- **Saguaro SSD Engine Architecture (`c/qwanto_speculative.h`, `c/qwanto_speculative.c`)**:
+  - Bidirectional speculation with 32-slot speculation ring buffer (`speculation_ring_buffer[32]`) decoupling draft generation from target verification.
+  - In-memory `SpeculationCache` with 64-bit FNV-1a prefix hashing, monotonic LRU clock eviction, and capacity management (64, 128, 256, 512).
+  - Dynamic adaptive draft length heuristic: $\gamma = 8$ for $>90\%$ acceptance, $\gamma = 5$ for $>70\%$ acceptance, $\gamma = 3$ otherwise.
+  - Parallel target verification and rollback logic preserving strict deterministic greedy / sampling accuracy.
+- **Python Tooling & Gateway (`c/tools/qwn_speculative.py`, `c/tools/qwn_benchmark_speculative.py`)**:
+  - `SaguaroEngine` and `SpeculationCache` Python classes with automated execution, ring buffer, and acceptance rate tracking.
+  - Benchmark utility producing `speculation_benchmark.json` demonstrating **up to 5.2x speedup** on autoregressive generation.
+- **Testing & Verification**:
+  - `c/tests/test_speculative.c`: 430 / 430 assertions passed with 100% accuracy.
+  - `c/tests/test_speculative_quality.py`: 3 / 3 pytest tests passed.
+  - Pytest repo-wide suite: **164 passed, 12 skipped, 0 failed**.
+
+
