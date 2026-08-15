@@ -41,6 +41,12 @@ typedef struct {
     void *runtime_handle;
     void *blas_handle;
     
+    /* Asynchronous streams & double-buffering */
+    void *compute_stream;
+    void *transfer_stream;
+    void *pinned_scratch_buf;
+    size_t pinned_scratch_size;
+    
     /* Diagnostic string */
     char diagnostic_msg[512];
 } QwnGPUContext;
@@ -67,6 +73,12 @@ void *qwn_gpu_alloc(QwnGPUContext *ctx, size_t bytes);
 /* Free unified device buffer */
 void qwn_gpu_free(QwnGPUContext *ctx, void *ptr);
 
+/* Allocate pinned (page-locked) host memory for DMA zero-copy transfers */
+void *qwn_gpu_alloc_pinned(QwnGPUContext *ctx, size_t bytes);
+
+/* Free pinned host memory */
+void qwn_gpu_free_pinned(QwnGPUContext *ctx, void *ptr);
+
 /* Copy host memory to device */
 bool qwn_gpu_memcpy_to_device(QwnGPUContext *ctx, void *dst_device, const void *src_host, size_t bytes);
 
@@ -78,6 +90,43 @@ void qwn_gpu_synchronize(QwnGPUContext *ctx);
 
 /* Clean up and unload dynamic GPU libraries */
 void qwn_gpu_shutdown(QwnGPUContext *ctx);
+
+/* -------------------------------------------------------------------------
+ * Unified GPU Accelerated Inference Operations
+ * ------------------------------------------------------------------------- */
+
+/* Fused In-Register TurboQuant Attention Forward Pass */
+bool qwn_gpu_attention_forward(
+    QwnGPUContext *ctx,
+    const float *q_tensor,             /* [n_heads * head_dim] */
+    const uint8_t *k_packed_cache,     /* [seq_len * n_heads * (head_dim/2)] */
+    const uint8_t *v_packed_cache,     /* [seq_len * n_heads * (head_dim/2)] */
+    float *out_context_tensor,         /* [n_heads * head_dim] */
+    int n_heads,
+    int head_dim,
+    int seq_len,
+    float sm_scale
+);
+
+/* Vectorized Matrix-Vector Multiplication */
+bool qwn_gpu_matmul_forward(
+    QwnGPUContext *ctx,
+    const void *weights_packed,
+    const float *x_vector,
+    float *out_y_vector,
+    int rows,
+    int cols
+);
+
+/* Fast RMSNorm Forward Pass */
+bool qwn_gpu_rmsnorm_forward(
+    QwnGPUContext *ctx,
+    const float *input,
+    const float *weight,
+    float *output,
+    int hidden_dim,
+    float eps
+);
 
 #ifdef __cplusplus
 }

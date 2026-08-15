@@ -8,14 +8,25 @@ set "SDK_INC_UM=C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um"
 set "SDK_LIB=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\um\x64"
 
 set "SRC=D:\EcoUni\qwanto\c"
-set "OUT=D:\EcoUni\qwanto\c\test_gpu_detection.exe"
+set "OUT1=D:\EcoUni\qwanto\c\test_gpu_detection.exe"
+set "OUT2=D:\EcoUni\qwanto\c\test_gpu_kernels.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
     "%SRC%\tests\test_gpu_detection.c" "%SRC%\qwanto_gpu.c" ^
-    -o "%OUT%" ^
+    -o "%OUT1%" ^
     -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
 
-if %ERRORLEVEL% NEQ 0 (echo BUILD FAILED & exit /b 1)
-echo Built: %OUT%
+if %ERRORLEVEL% NEQ 0 (echo BUILD DETECTION FAILED & exit /b 1)
+
+clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
+    -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
+    "%SRC%\tests\test_gpu_kernels.c" "%SRC%\qwanto_gpu.c" ^
+    -o "%OUT2%" ^
+    -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
+
+if %ERRORLEVEL% NEQ 0 (echo BUILD KERNELS FAILED & exit /b 1)
+
+echo Built: %OUT1%
+echo Built: %OUT2%
 endlocal

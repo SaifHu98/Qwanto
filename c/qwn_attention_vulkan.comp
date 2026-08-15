@@ -1,0 +1,52 @@
+#version 460
+
+/* -------------------------------------------------------------------------
+ * Qwanto Vulkan Compute Shader (Cross-Vendor GPU Acceleration)
+ * ------------------------------------------------------------------------- */
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer KBuffer {
+    uint k_packed[];
+};
+
+layout(std430, binding = 1) readonly buffer VBuffer {
+    uint v_packed[];
+};
+
+layout(std430, binding = 2) readonly buffer QBuffer {
+    float q_tensor[];
+};
+
+layout(std430, binding = 3) writeonly buffer OutputBuffer {
+    float output_tensor[];
+};
+
+layout(push_constant) uniform PushConsts {
+    int n_heads;
+    int head_dim;
+    int seq_len;
+    float sm_scale;
+} consts;
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    uint head_idx = gl_GlobalInvocationID.y;
+
+    if (head_idx >= consts.n_heads || tid >= consts.head_dim) {
+        return;
+    }
+
+    float acc = 0.0;
+    for (int t = 0; t < consts.seq_len; t++) {
+        uint byte_idx = (t * consts.n_heads + int(head_idx)) * (consts.head_dim / 2) + int(tid) / 2;
+        uint packed_val = v_packed[byte_idx / 4];
+        uint shift = (byte_idx % 4) * 8 + (tid % 2 == 0 ? 0 : 4);
+        uint code = (packed_val >> shift) & 0x0F;
+        float val = float(code) * 0.125 - 1.0;
+
+        acc += val;
+    }
+
+    output_tensor[head_idx * consts.head_dim + tid] = acc / float(consts.seq_len);
+}

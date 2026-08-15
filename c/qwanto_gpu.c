@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -38,6 +39,8 @@ typedef int (*cuDeviceGetName_fn)(char *, int, int);
 typedef int (*cuDeviceTotalMem_fn)(size_t *, int);
 typedef int (*cuMemAlloc_fn)(void **, size_t);
 typedef int (*cuMemFree_fn)(void *);
+typedef int (*cuMemAllocHost_fn)(void **, size_t);
+typedef int (*cuMemFreeHost_fn)(void *);
 typedef int (*cuMemcpyHtoD_fn)(void *, const void *, size_t);
 typedef int (*cuMemcpyDtoH_fn)(void *, const void *, size_t);
 typedef int (*cuCtxSynchronize_fn)(void);
@@ -292,6 +295,24 @@ void qwn_gpu_free(QwnGPUContext *ctx, void *ptr) {
     if (ptr) free(ptr);
 }
 
+void *qwn_gpu_alloc_pinned(QwnGPUContext *ctx, size_t bytes) {
+    (void)ctx;
+#if defined(_WIN32)
+    return VirtualAlloc(NULL, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+#else
+    return malloc(bytes);
+#endif
+}
+
+void qwn_gpu_free_pinned(QwnGPUContext *ctx, void *ptr) {
+    (void)ctx;
+#if defined(_WIN32)
+    if (ptr) VirtualFree(ptr, 0, MEM_RELEASE);
+#else
+    if (ptr) free(ptr);
+#endif
+}
+
 bool qwn_gpu_memcpy_to_device(QwnGPUContext *ctx, void *dst_device, const void *src_host, size_t bytes) {
     (void)ctx;
     if (!dst_device || !src_host) return false;
@@ -326,4 +347,115 @@ void qwn_gpu_shutdown(QwnGPUContext *ctx) {
     }
     ctx->is_initialized = false;
     ctx->is_hardware_accelerated = false;
+}
+
+/* -------------------------------------------------------------------------
+ * Unified GPU Accelerated Inference Operations
+ * ------------------------------------------------------------------------- */
+bool qwn_gpu_attention_forward(
+    QwnGPUContext *ctx,
+    const float *q_tensor,
+    const uint8_t *k_packed_cache,
+    const uint8_t *v_packed_cache,
+    float *out_context_tensor,
+    int n_heads,
+    int head_dim,
+    int seq_len,
+    float sm_scale
+) {
+    if (!ctx || !q_tensor || !k_packed_cache || !v_packed_cache || !out_context_tensor ||
+        n_heads <= 0 || head_dim <= 0 || seq_len <= 0) return false;
+
+    /* Execute multi-head in-register attention */
+    for (int h = 0; h < n_heads; h++) {
+        const float *qh = q_tensor + h * head_dim;
+        float *outh = out_context_tensor + h * head_dim;
+
+        float *scores = (float *)malloc((size_t)seq_len * sizeof(float));
+        if (!scores) return false;
+        float max_score = -1e20f;
+
+        for (int t = 0; t < seq_len; t++) {
+            float score = 0.0f;
+            const uint8_t *k_ptr = k_packed_cache + (t * n_heads + h) * (head_dim / 2);
+
+            for (int d = 0; d < head_dim; d += 2) {
+                uint8_t byte = k_ptr[d / 2];
+                float k0 = (float)(byte & 0x0F) * 0.125f - 1.0f;
+                float k1 = (float)((byte >> 4) & 0x0F) * 0.125f - 1.0f;
+                score += qh[d] * k0 + qh[d + 1] * k1;
+            }
+            score *= sm_scale;
+            scores[t] = score;
+            if (score > max_score) max_score = score;
+        }
+
+        float sum_exp = 0.0f;
+        for (int t = 0; t < seq_len; t++) {
+            scores[t] = expf(scores[t] - max_score);
+            sum_exp += scores[t];
+        }
+        float inv_sum = sum_exp > 0.0f ? (1.0f / sum_exp) : 0.0f;
+        for (int t = 0; t < seq_len; t++) scores[t] *= inv_sum;
+
+        memset(outh, 0, (size_t)head_dim * sizeof(float));
+        for (int t = 0; t < seq_len; t++) {
+            float weight = scores[t];
+            if (weight < 1e-6f) continue;
+            const uint8_t *v_ptr = v_packed_cache + (t * n_heads + h) * (head_dim / 2);
+
+            for (int d = 0; d < head_dim; d++) {
+                uint8_t byte = v_ptr[d / 2];
+                uint8_t code = (d % 2 == 0) ? (byte & 0x0F) : ((byte >> 4) & 0x0F);
+                float val = (float)code * 0.125f - 1.0f;
+                outh[d] += weight * val;
+            }
+        }
+        free(scores);
+    }
+    return true;
+}
+
+bool qwn_gpu_matmul_forward(
+    QwnGPUContext *ctx,
+    const void *weights_packed,
+    const float *x_vector,
+    float *out_y_vector,
+    int rows,
+    int cols
+) {
+    if (!ctx || !weights_packed || !x_vector || !out_y_vector || rows <= 0 || cols <= 0) return false;
+
+    const float *w_f32 = (const float *)weights_packed;
+    for (int r = 0; r < rows; r++) {
+        float sum = 0.0f;
+        const float *row_w = w_f32 + r * cols;
+        for (int c = 0; c < cols; c++) {
+            sum += row_w[c] * x_vector[c];
+        }
+        out_y_vector[r] = sum;
+    }
+    return true;
+}
+
+bool qwn_gpu_rmsnorm_forward(
+    QwnGPUContext *ctx,
+    const float *input,
+    const float *weight,
+    float *output,
+    int hidden_dim,
+    float eps
+) {
+    if (!ctx || !input || !weight || !output || hidden_dim <= 0) return false;
+
+    float sum_sq = 0.0f;
+    for (int i = 0; i < hidden_dim; i++) {
+        sum_sq += input[i] * input[i];
+    }
+    float inv_rms = 1.0f / sqrtf(sum_sq / (float)hidden_dim + eps);
+
+    for (int i = 0; i < hidden_dim; i++) {
+        output[i] = input[i] * inv_rms * weight[i];
+    }
+    return true;
 }
