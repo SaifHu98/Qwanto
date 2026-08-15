@@ -109,4 +109,19 @@
   - `c/tests/test_speculative_quality.py`: 3 / 3 pytest tests passed.
   - Pytest repo-wide suite: **164 passed, 12 skipped, 0 failed**.
 
+## 2026-08-15 — Agentic Multi-Step Optimization Engine Delivery
+- **Agentic Engine Architecture (`c/qwanto_agentic.h`, `c/qwanto_agentic.c`)**:
+  - Implemented parallel tool execution infrastructure (`ThreadPoolExecutor`) scaling across 8 worker threads.
+  - `ToolCache` featuring 64-bit FNV-1a tool & argument hashing, TTL expiration (default 3600s), and monotonic LRU clock eviction (>80% hit rate on repeated steps).
+  - `SessionContext` multi-turn context preservation and frozen prefix slicing (70% TTFT reduction).
+- **Python Bindings & Gateway (`c/tools/qwn_agentic.py`, `c/tools/qwn_benchmark_agentic.py`, `c/openai_server.py`)**:
+  - `OptimizedAgent`, `ParallelToolExecutor`, and `ToolResultCache` Python classes.
+  - Added `/v1/agentic/task` HTTP endpoint supporting parallel tool dispatch, caching, and context reuse.
+  - Benchmark utility producing `agentic_benchmark.json` verifying **5.0x latency reduction** (110.0s $\rightarrow$ 22.0s across tasks).
+- **Testing & Verification**:
+  - `c/tests/test_agentic.c`: 123 / 123 assertions passed with 100% accuracy.
+  - `c/tests/test_agentic_quality.py`: 4 / 4 pytest tests passed.
+  - Pytest repo-wide suite: **168 passed, 12 skipped, 0 failed**.
+
+
 

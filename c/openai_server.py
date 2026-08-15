@@ -2448,7 +2448,40 @@ class APIHandler(BaseHTTPRequestHandler):
             self.require_auth()
             path = urlsplit(self.path).path
             print(f"[api] POST {path} (backend={self.server.backend}, model_id={self.server.model_id})", file=sys.stderr)
-            
+
+            if path == "/v1/agentic/task":
+                body = self.read_json()
+                if not isinstance(body, dict):
+                    raise APIError(400, "Body must be a JSON object.")
+                task_prompt = body.get("task", "")
+                tools = body.get("tools", [])
+                max_workers = int(body.get("max_workers", 8))
+                use_cache = bool(body.get("use_cache", True))
+                thinking_level = body.get("thinking_level", "medium")
+                session_id = body.get("session_id")
+                try:
+                    from tools.qwn_agentic import OptimizedAgent
+                    model_target = self.server.model_path or (PROJECT_ROOT / "experiments" / "results" / "4B_hyper_vsq2.qwn")
+                    agent = OptimizedAgent(model_path=model_target, max_workers=max_workers)
+                    result = agent.process_task(
+                        task_prompt=task_prompt,
+                        tools=tools,
+                        session_id=session_id,
+                        thinking_level=thinking_level
+                    )
+                    self.send_json(200, {
+                        "result": result,
+                        "performance": {
+                            "total_time": result["elapsed_seconds"],
+                            "tools_executed": result["tools_count"],
+                            "cache_hit_rate": result["cache_hit_rate"],
+                            "ttft_reduction": f"{result['ttft_saved_pct']:.0f}%"
+                        }
+                    }, request_id)
+                except Exception as e:
+                    raise APIError(500, f"Agentic execution failed: {e}")
+                return
+
             if path == "/v1/qwanto/presets":
                 body = self.read_json()
                 if not isinstance(body, dict):
