@@ -281,6 +281,18 @@ python c/tools/benchmark_gpu.py
 
 ---
 
+## 🤝 Contributing & Community
+
+Qwanto is an open-source project built by and for the community. We welcome contributions of all kinds:
+- 🐛 **Bug Reports**: Found an issue? Open a GitHub Issue.
+- 💡 **Feature Requests**: Have an idea? Start a Discussion.
+- 🔧 **Code Contributions**: Submit a Pull Request.
+- 📖 **Documentation**: Help us improve the docs.
+
+**[Star us on GitHub](https://github.com/SaifHu98/Qwanto) ⭐ | [Report an Issue](https://github.com/SaifHu98/Qwanto/issues) | [Join Discussion](https://github.com/SaifHu98/Qwanto/discussions)**
+
+---
+
 ## 📄 License & Maintainer
 
 Qwanto is released under the [Apache 2.0 License](https://opensource.org/licenses/Apache-2.0). Maintained by [SaifHu98](https://github.com/SaifHu98).
