@@ -334,6 +334,35 @@ print(f"Active Optimizations: {response.active_optimizations}")
 
 ---
 
+## 🚀 Deployment & Validation Guide
+
+### 1. Build All Optimizations
+```bash
+# Build native binary with OpenMP, AVX2/AVX-512, and all optimization engines
+clang -O3 -march=x86-64-v3 -fopenmp \
+    c/qwnrun.c c/qwanto_decode.c c/qwanto_native.c c/qwanto_kernels.c \
+    c/qwanto_turboquant.c c/qwanto_thinking.c c/qwanto_speculative.c \
+    c/qwanto_agentic.c c/qwanto_autopilot.c c/qwn_paged_kv.c \
+    -o c/qwnrun
+```
+
+### 2. Run Comprehensive Validation Suite
+```bash
+python c/tools/qwn_validate_all.py --model experiments/results/4B_hyper_vsq2.qwn --tests all --verbose
+```
+
+### 3. Run Full Performance Benchmark
+```bash
+python c/tools/qwn_benchmark_full.py --optimizations turboquant,thinking,saguaro,agentic --tasks qa,code,reasoning,agentic --iterations 100
+```
+
+### 4. Production CLI Execution
+```bash
+./c/qwnrun experiments/results/4B_hyper_vsq2.qwn "Write a Python function to implement binary search" --max-tokens 256 --mode balanced --auto-tune
+```
+
+---
+
 These are the **actual** byte sizes that each quantizer emits:
 
 | Format                | Block size (elts) | Block bytes | Payload bpw (= bytes × 8 / elts) |
