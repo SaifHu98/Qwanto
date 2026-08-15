@@ -98,7 +98,7 @@ class NativeDecoderTest(unittest.TestCase):
     def compile(clang, exe, main):
         cmd=[clang,"-std=c11","-O2","-D_CRT_SECURE_NO_WARNINGS","-Wno-unused-function",
              str(main),str(HERE/"qwanto_decode.c"),str(HERE/"qwanto_native.c"),
-             str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwanto_thinking.c"),str(HERE/"qwanto_speculative.c"),str(HERE/"qwanto_agentic.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
+             str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwanto_thinking.c"),str(HERE/"qwanto_speculative.c"),str(HERE/"qwanto_agentic.c"),str(HERE/"qwanto_autopilot.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
         if os.name!="nt":cmd.append("-lm")
         subprocess.run(cmd,check=True,capture_output=True,text=True)
 

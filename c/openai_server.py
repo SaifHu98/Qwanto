@@ -2482,6 +2482,44 @@ class APIHandler(BaseHTTPRequestHandler):
                     raise APIError(500, f"Agentic execution failed: {e}")
                 return
 
+            if path == "/v1/autopilot/generate":
+                body = self.read_json()
+                if not isinstance(body, dict):
+                    raise APIError(400, "Body must be a JSON object.")
+                prompt = body.get("prompt", "")
+                mode = body.get("mode", "balanced")
+                task_type = body.get("task_type")
+                tools = body.get("tools")
+                max_tokens = int(body.get("max_tokens", 64))
+                thinking_level = body.get("thinking_level", "auto")
+
+                try:
+                    from tools.qwanto_autopilot import QwantoAutoPilot
+                    model_target = self.server.model_path or (PROJECT_ROOT / "experiments" / "results" / "4B_hyper_vsq2.qwn")
+                    pilot = QwantoAutoPilot(model_path=model_target, mode=mode)
+                    resp = pilot.generate(
+                        prompt=prompt,
+                        task_type=task_type,
+                        tools=tools,
+                        max_tokens=max_tokens,
+                        thinking_level=thinking_level
+                    )
+                    self.send_json(200, {
+                        "text": resp.text,
+                        "performance": {
+                            "speedup": f"{resp.speedup}x",
+                            "tokens_per_second": resp.tokens_per_second,
+                            "active_optimizations": resp.active_optimizations,
+                            "quality_score": resp.quality_score,
+                            "memory_usage_gb": resp.memory_usage_gb,
+                            "task_type": resp.task_type,
+                            "thinking_level": resp.thinking_level
+                        }
+                    }, request_id)
+                except Exception as e:
+                    raise APIError(500, f"Autopilot execution failed: {e}")
+                return
+
             if path == "/v1/qwanto/presets":
                 body = self.read_json()
                 if not isinstance(body, dict):

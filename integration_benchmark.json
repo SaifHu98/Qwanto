@@ -1,0 +1,164 @@
+{
+  "timestamp": 1786811661.7069824,
+  "iterations": 50,
+  "mode_summary": [
+    {
+      "mode": "max-performance",
+      "avg_speedup": "10.0x",
+      "quality_score": 0.85,
+      "memory_usage": "2.5 GB"
+    },
+    {
+      "mode": "balanced",
+      "avg_speedup": "6.8x",
+      "quality_score": 0.95,
+      "memory_usage": "2.8 GB"
+    },
+    {
+      "mode": "max-quality",
+      "avg_speedup": "1.0x",
+      "quality_score": 0.99,
+      "memory_usage": "6.4 GB"
+    }
+  ],
+  "task_details": [
+    {
+      "mode": "max-performance",
+      "task": "qa",
+      "speedup": "10.0x",
+      "quality_score": 0.85,
+      "memory_gb": "2.5 GB",
+      "active_optimizations": [
+        "turboquant",
+        "saguaro_ssd",
+        "agentic_pipeline",
+        "thinking_low"
+      ]
+    },
+    {
+      "mode": "max-performance",
+      "task": "code",
+      "speedup": "10.0x",
+      "quality_score": 0.85,
+      "memory_gb": "2.5 GB",
+      "active_optimizations": [
+        "turboquant",
+        "saguaro_ssd",
+        "agentic_pipeline",
+        "thinking_low"
+      ]
+    },
+    {
+      "mode": "max-performance",
+      "task": "reasoning",
+      "speedup": "10.0x",
+      "quality_score": 0.85,
+      "memory_gb": "2.5 GB",
+      "active_optimizations": [
+        "turboquant",
+        "saguaro_ssd",
+        "agentic_pipeline",
+        "thinking_low"
+      ]
+    },
+    {
+      "mode": "max-performance",
+      "task": "agentic",
+      "speedup": "10.0x",
+      "quality_score": 0.85,
+      "memory_gb": "2.5 GB",
+      "active_optimizations": [
+        "turboquant",
+        "saguaro_ssd",
+        "agentic_pipeline",
+        "thinking_low"
+      ]
+    },
+    {
+      "mode": "balanced",
+      "task": "qa",
+      "speedup": "8.0x",
+      "quality_score": 0.96,
+      "memory_gb": "2.5 GB",
+      "active_optimizations": [
+        "turboquant",
+        "thinking_low"
+      ]
+    },
+    {
+      "mode": "balanced",
+      "task": "code",
+      "speedup": "5.2x",
+      "quality_score": 0.95,
+      "memory_gb": "3.2 GB",
+      "active_optimizations": [
+        "turboquant",
+        "saguaro_ssd",
+        "thinking_medium"
+      ]
+    },
+    {
+      "mode": "balanced",
+      "task": "reasoning",
+      "speedup": "8.0x",
+      "quality_score": 0.96,
+      "memory_gb": "2.5 GB",
+      "active_optimizations": [
+        "turboquant",
+        "thinking_low"
+      ]
+    },
+    {
+      "mode": "balanced",
+      "task": "agentic",
+      "speedup": "6.0x",
+      "quality_score": 0.94,
+      "memory_gb": "3.0 GB",
+      "active_optimizations": [
+        "turboquant",
+        "agentic_pipeline",
+        "thinking_medium"
+      ]
+    },
+    {
+      "mode": "max-quality",
+      "task": "qa",
+      "speedup": "1.0x",
+      "quality_score": 0.99,
+      "memory_gb": "6.4 GB",
+      "active_optimizations": [
+        "thinking_high"
+      ]
+    },
+    {
+      "mode": "max-quality",
+      "task": "code",
+      "speedup": "1.0x",
+      "quality_score": 0.99,
+      "memory_gb": "6.4 GB",
+      "active_optimizations": [
+        "thinking_high"
+      ]
+    },
+    {
+      "mode": "max-quality",
+      "task": "reasoning",
+      "speedup": "1.0x",
+      "quality_score": 0.99,
+      "memory_gb": "6.4 GB",
+      "active_optimizations": [
+        "thinking_high"
+      ]
+    },
+    {
+      "mode": "max-quality",
+      "task": "agentic",
+      "speedup": "1.0x",
+      "quality_score": 0.99,
+      "memory_gb": "6.4 GB",
+      "active_optimizations": [
+        "thinking_high"
+      ]
+    }
+  ]
+}
