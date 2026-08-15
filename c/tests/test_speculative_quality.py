@@ -70,10 +70,15 @@ class TestSpeculativeQuality(unittest.TestCase):
             self.skipTest("Target model not present")
 
         engine = SaguaroEngine(target_model=model_path)
-        res = engine.generate("What is 2 + 2?", max_tokens=8)
-        self.assertGreater(res["tokens_generated"], 0)
-        self.assertGreater(res["acceptance_rate"], 0.0)
-        self.assertIn("optimal_draft_len", res)
+        try:
+            res = engine.generate("What is 2 + 2?", max_tokens=8)
+            self.assertGreater(res["tokens_generated"], 0)
+            self.assertGreater(res["acceptance_rate"], 0.0)
+            self.assertIn("optimal_draft_len", res)
+        except OSError as e:
+            if getattr(e, "winerror", None) == 4551:
+                self.skipTest("Windows Application Control blocked binary execution")
+            raise
 
 
 if __name__ == "__main__":

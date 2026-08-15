@@ -6,6 +6,7 @@
 
 #include "qwanto_decode.h"
 #include "qwanto_autopilot.h"
+#include "qwanto_gpu.h"
 
 #if defined(_OPENMP)
 #include <omp.h>
@@ -229,6 +230,7 @@ int main(int argc,char **argv){
     int saguro_tier = 3;
     int num_threads = 0;
     bool force_gpu = false;
+    const char *gpu_backend_str = "auto";
 
     for (int a = 3; a < argc; a++) {
         if (strcmp(argv[a], "--mode") == 0 && a + 1 < argc) {
@@ -252,6 +254,9 @@ int main(int argc,char **argv){
             num_threads = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--gpu") == 0) {
             force_gpu = true;
+        } else if (strcmp(argv[a], "--gpu-backend") == 0 && a + 1 < argc) {
+            force_gpu = true;
+            gpu_backend_str = argv[++a];
         } else if (argv[a][0] != '-' && a == 3) {
             max_tokens = atoi(argv[a]);
         } else if (argv[a][0] != '-' && a == 4) {
@@ -264,6 +269,14 @@ int main(int argc,char **argv){
         omp_set_num_threads(num_threads);
     }
 #endif
+
+    /* Initialize GPU Context */
+    QwnGPUContext gpu_ctx;
+    QwnGPUBackendType preferred_gpu = force_gpu ? qwn_gpu_parse_backend_name(gpu_backend_str) : QWN_GPU_BACKEND_AUTO;
+    qwn_gpu_init(&gpu_ctx, preferred_gpu);
+    if (force_gpu || auto_tune) {
+        qwn_gpu_print_diagnostics(&gpu_ctx);
+    }
 
     QwnPerformanceMode perf_mode = QWN_MODE_BALANCED;
     if (strstr(mode_str, "perf") || strstr(mode_str, "max-perf")) perf_mode = QWN_MODE_MAX_PERFORMANCE;

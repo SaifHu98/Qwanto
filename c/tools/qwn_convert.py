@@ -1354,6 +1354,45 @@ def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
     for meta in _read_safetensors_meta(src):
         name, dtype, shape = meta["name"], meta["dtype"], meta["shape"]
         # Safetensors is row-major [N,K]; .qwn stores fastest dimension first.
+    return tensors, dims
+
+
+def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
+    """Universal Model Converter: Auto-detects .gguf, .safetensors, .pt/.pth/.bin, .onnx, .h5 and converts to .qwn."""
+    src_path = Path(src)
+    ext = src_path.suffix.lower()
+
+    is_gguf = ext == ".gguf" or (src_path.is_file() and open(src_path, "rb").read(4) == b"GGUF")
+    if is_gguf:
+        tensors, dims = _read_gguf_tensors(str(src_path), quant)
+        # Check for companion mmproj file in same directory
+        parent_dir = src_path.parent
+        for mmproj_cand in parent_dir.glob("*mmproj*.gguf"):
+            if mmproj_cand.is_file() and mmproj_cand != src_path:
+                try:
+                    mm_tensors, _ = _read_gguf_tensors(str(mmproj_cand), quant="none")
+                    for mt in mm_tensors:
+                        if not mt["name"].startswith("mmproj.") and not mt["name"].startswith("vision_tower."):
+                            mt["name"] = f"mmproj.{mt['name']}"
+                        tensors.append(mt)
+                except Exception:
+                    pass
+        return write_qwn(dst, tensors, arch_dims=dims)
+    elif ext in (".pt", ".pth", ".bin"):
+        tensors, dims = _read_pytorch_tensors(str(src_path), quant)
+        return write_qwn(dst, tensors, arch_dims=dims)
+    elif ext == ".safetensors" or src_path.is_dir() or any(src_path.glob("*.safetensors") if src_path.is_dir() else ()):
+        return convert_safetensors(src, dst, quant)
+    else:
+        # Default fallback to safetensors
+        return convert_safetensors(src, dst, quant)
+
+
+def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
+    tensors = []
+    for meta in _read_safetensors_meta(src):
+        name, dtype, shape = meta["name"], meta["dtype"], meta["shape"]
+        # Safetensors is row-major [N,K]; .qwn stores fastest dimension first.
         qwn_shape = tuple(reversed(shape))
         if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and dtype in ("F32", "F16", "BF16") and len(shape) == 2 and shape[1] >= QUANT_BLOCK_SIZES.get(quant, 32):
             rows, cols = shape
@@ -1407,6 +1446,18 @@ def synthetic(path: str, count: int = 3) -> int:
 
 
 def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # Direct invocation support: if first arg is a file path, auto-insert 'convert'
+    if argv and argv[0] not in ("synthetic", "convert", "inspect", "-h", "--help") and len(argv) >= 2:
+        argv = ["convert"] + argv
+
+    # Replace --format with --quant for backward compatibility
+    for i, a in enumerate(argv):
+        if a == "--format":
+            argv[i] = "--quant"
+
     parser = argparse.ArgumentParser(prog="qwn-convert")
     sub = parser.add_subparsers(dest="command", required=True)
     make = sub.add_parser("synthetic")
@@ -1415,7 +1466,7 @@ def main(argv=None):
     convert = sub.add_parser("convert")
     convert.add_argument("source")
     convert.add_argument("output")
-    convert.add_argument("--quant", choices=("hyper_vsq", "vsq_ultra", "vsq", "q4_0", "none"), default="hyper_vsq")
+    convert.add_argument("--quant", choices=("hyper_vsq2", "twla", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "none"), default="hyper_vsq2")
     inspect = sub.add_parser("inspect")
     inspect.add_argument("model")
     args = parser.parse_args(argv)

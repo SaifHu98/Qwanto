@@ -60,19 +60,24 @@ class TestThinkingQuality(unittest.TestCase):
         engine = QwnThinkingEngine(self.model_path, exe_path=self.exe_path)
         prompt = "Explain quantum superposition in one sentence."
 
-        res_low = engine.generate(prompt=prompt, max_tokens=16, thinking_level="low")
-        self.assertEqual(res_low["thinking_level"], "low")
-        self.assertGreater(res_low["tokens_generated"], 0)
-        self.assertGreater(res_low["tok_per_sec"], 0.0)
+        try:
+            res_low = engine.generate(prompt=prompt, max_tokens=16, thinking_level="low")
+            self.assertEqual(res_low["thinking_level"], "low")
+            self.assertGreater(res_low["tokens_generated"], 0)
+            self.assertGreater(res_low["tok_per_sec"], 0.0)
 
-        res_high = engine.generate(prompt=prompt, max_tokens=16, thinking_level="high")
-        self.assertEqual(res_high["thinking_level"], "high")
-        self.assertGreater(res_high["tokens_generated"], 0)
-        self.assertGreater(res_high["tok_per_sec"], 0.0)
+            res_high = engine.generate(prompt=prompt, max_tokens=16, thinking_level="high")
+            self.assertEqual(res_high["thinking_level"], "high")
+            self.assertGreater(res_high["tokens_generated"], 0)
+            self.assertGreater(res_high["tok_per_sec"], 0.0)
 
-        # Low mode must be strictly faster than High mode
-        speedup = res_low["tok_per_sec"] / res_high["tok_per_sec"]
-        self.assertGreater(speedup, 2.0, f"Expected speedup > 2x, got {speedup:.2f}x")
+            # Low mode must be strictly faster than High mode
+            speedup = res_low["tok_per_sec"] / res_high["tok_per_sec"]
+            self.assertGreater(speedup, 2.0, f"Expected speedup > 2x, got {speedup:.2f}x")
+        except OSError as e:
+            if getattr(e, "winerror", None) == 4551:
+                self.skipTest("Windows Application Control blocked binary execution")
+            raise
 
     def test_thinking_benchmark_harness(self):
         """Verify iterative benchmark utility."""
@@ -80,10 +85,15 @@ class TestThinkingQuality(unittest.TestCase):
             self.skipTest("Model file or executable not present")
 
         engine = QwnThinkingEngine(self.model_path, exe_path=self.exe_path)
-        bench = engine.benchmark(prompt="Hello", thinking_level="low", max_tokens=8, iterations=2)
-        self.assertEqual(bench["thinking_level"], "low")
-        self.assertEqual(bench["iterations"], 2)
-        self.assertGreater(bench["avg_tok_per_sec"], 0.0)
+        try:
+            bench = engine.benchmark(prompt="Hello", thinking_level="low", max_tokens=8, iterations=2)
+            self.assertEqual(bench["thinking_level"], "low")
+            self.assertEqual(bench["iterations"], 2)
+            self.assertGreater(bench["avg_tok_per_sec"], 0.0)
+        except OSError as e:
+            if getattr(e, "winerror", None) == 4551:
+                self.skipTest("Windows Application Control blocked binary execution")
+            raise
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
 #include "qwanto_fused.h"
 #include "qwn_container.h"
 #include "qwanto_autopilot.h"
+#include "qwanto_gpu.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,7 @@ typedef struct {
     QwnSaguaro2Engine speculative_engine;
     QwnAdaptiveSparsityContext sparsity_ctx;
     QwnContainer container;
+    QwnGPUContext gpu;
     bool is_initialized;
     double measured_throughput_tps;
     double measured_memory_gb;
