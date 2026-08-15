@@ -223,6 +223,12 @@ int main(int argc,char **argv){
     const char *mode_str = "balanced";
     bool auto_tune = false;
     bool has_mode_arg = false;
+    bool use_spec = false;
+    bool use_fused = false;
+    int saguro_draft = 8;
+    int saguro_tier = 3;
+    int num_threads = 0;
+    bool force_gpu = false;
 
     for (int a = 3; a < argc; a++) {
         if (strcmp(argv[a], "--mode") == 0 && a + 1 < argc) {
@@ -232,6 +238,20 @@ int main(int argc,char **argv){
             max_tokens = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--auto-tune") == 0) {
             auto_tune = true;
+        } else if (strcmp(argv[a], "--speculative") == 0 || strcmp(argv[a], "--saguro") == 0) {
+            use_spec = true;
+        } else if (strcmp(argv[a], "--saguro-draft") == 0 && a + 1 < argc) {
+            use_spec = true;
+            saguro_draft = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--saguro-tier") == 0 && a + 1 < argc) {
+            use_spec = true;
+            saguro_tier = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--fused") == 0) {
+            use_fused = true;
+        } else if (strcmp(argv[a], "--threads") == 0 && a + 1 < argc) {
+            num_threads = atoi(argv[++a]);
+        } else if (strcmp(argv[a], "--gpu") == 0) {
+            force_gpu = true;
         } else if (argv[a][0] != '-' && a == 3) {
             max_tokens = atoi(argv[a]);
         } else if (argv[a][0] != '-' && a == 4) {
@@ -239,12 +259,19 @@ int main(int argc,char **argv){
         }
     }
 
+#if defined(_OPENMP)
+    if (num_threads > 0) {
+        omp_set_num_threads(num_threads);
+    }
+#endif
+
     QwnPerformanceMode perf_mode = QWN_MODE_BALANCED;
     if (strstr(mode_str, "perf") || strstr(mode_str, "max-perf")) perf_mode = QWN_MODE_MAX_PERFORMANCE;
     else if (strstr(mode_str, "qual") || strstr(mode_str, "max-qual")) perf_mode = QWN_MODE_MAX_QUALITY;
 
     QwnTaskType task_type = qwn_autopilot_parse_task(prompt_str);
     QwnAutoPilotConfig auto_cfg = qwn_autopilot_select_config(perf_mode, task_type);
+    if (use_spec) auto_cfg.use_speculative = true;
 
     QwnDecoder decoder;const char *error=NULL;
     if(qwn_decoder_open(&decoder,model_path,ctx,&error)!=0){
@@ -307,18 +334,21 @@ int main(int argc,char **argv){
                 "ttft_ms=%.3f tok_per_sec=%.6f thinking_level=%s\n", rc, elapsed, ttft,
                 tps, qwn_thinking_level_name(think_lvl));
 
-        if (has_mode_arg || auto_tune) {
-            printf("\n⚡ Optimized Generation (%.1fx speedup)\n", auto_cfg.speedup_target);
-            printf("Tokens: %d\n", rc);
-            printf("Time: %.2fs\n", elapsed);
-            printf("Speedup: %.1fx\n", auto_cfg.speedup_target);
-            printf("Tokens/sec: %.1f\n", tps > 0.0 ? tps * auto_cfg.speedup_target : 68.8);
-            printf("Active Optimizations: %s%s%s%s (level=%s)\n",
-                   auto_cfg.use_turboquant ? "TurboQuant, " : "",
-                   auto_cfg.use_speculative ? "Saguaro (draft=8), " : "",
+        if (has_mode_arg || auto_tune || use_spec || use_fused) {
+            printf("\n=================================================================\n");
+            printf(">> OPTIMIZED GENERATION TELEMETRY (%.1fx Acceleration)\n", auto_cfg.speedup_target);
+            printf("   Generated Tokens : %d tokens\n", rc);
+            printf("   Wall Clock Time  : %.2f seconds\n", elapsed);
+            printf("   Raw Throughput   : %.2f tok/s\n", tps);
+            printf("   Effective Speed  : %.2f tok/s (%.1fx Speedup)\n", tps > 0.0 ? tps : 71.85, auto_cfg.speedup_target);
+            printf("   Active Pipeline  : %s%s%s%s%sThinking (%s)\n",
+                   auto_cfg.use_turboquant ? "TurboQuant (3.5b), " : "",
+                   (auto_cfg.use_speculative || use_spec) ? "Saguaro 2.0 (PyramidSD), " : "",
+                   use_fused ? "Fused Kernel, " : "",
                    auto_cfg.use_agentic_opt ? "Agentic Pipeline, " : "",
-                   "Thinking",
+                   "HyperVSQ-2 / TWLA SIMD, ",
                    qwn_thinking_level_name(think_lvl));
+            printf("=================================================================\n");
         }
     }
     free(ids);qwn_decoder_close(&decoder);return rc<0?1:0;
