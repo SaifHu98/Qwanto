@@ -39,6 +39,40 @@ int qwn_matmul_f32(const QwnModel *m, const QwnTensorDesc *weights,
                    const float *x, int M, int K, int N,
                    QwnScratch *scratch, float *y);
 
+/* HyperVSQ-2 GEMV kernels */
+typedef struct {
+    int has_avx2;
+    int has_f16c;
+    int has_fma;
+    int has_vnni;       /* AVX-VNNI or AVX512-VNNI */
+    int has_avx512f;
+    int forced_mode;    /* 0=auto, 1=scalar, 2=avx2, 3=vnni */
+} QwnCpuFeatures;
+
+const QwnCpuFeatures *qwn_get_cpu_features(void);
+
+/* Scalar Golden Reference for HyperVSQ-2 GEMV */
+void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,
+                              float x_scale, int K, int N,
+                              size_t row_bytes, float *out);
+
+/* AVX2 Accelerated HyperVSQ-2 GEMV */
+void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
+                            float x_scale, int K, int N,
+                            size_t row_bytes, float *out);
+
+/* AVX-VNNI Accelerated HyperVSQ-2 GEMV */
+void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
+                            float x_scale, int K, int N,
+                            size_t row_bytes, float *out);
+
+/* Full matrix multiplication for HyperVSQ-2 */
+int qwn_matmul_hypervsq2_f32(const QwnModel *m,
+                             const QwnTensorDesc *weights,
+                             const float *x, int M, int K, int N,
+                             QwnScratch *scratch,
+                             float *y);
+
 /* Decode one tensor row to float32 (embedding lookup / tied LM head). */
 int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *tensor,
                 int row, float *out, int width);

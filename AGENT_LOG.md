@@ -1,6 +1,27 @@
 # AGENT_LOG.md
 
-## 2026-08-14 — Full Improve Plan.md execution (M3)
+## 2026-08-15 — HyperVSQ-2 SIMD Engine Acceleration & Repair (SaifHu98)
+- **Problem diagnosed**: HyperVSQ-2 (2.3125 bpw) was running at ~0.2 tok/s (154s for 32 tokens) because `qwn_matmul_f32` dispatched `QWN_DT_HYPER_VSQ2` to scalar `qwn_matmul_packed_f32` calling `qwn_packed_value` per element (>8 billion software FP16 conversions per token on 4B model). Furthermore, `build_layer_cache` clamped `lt->q_out` to `o_proj->shape[0]` (4096), causing layer 3 `q_proj` matmul (`shape[1]=8192`) to fail shape validation.
+- **Format layout verified**: 74-byte packed superblock for 256 weights ($W = (q - 1) \cdot S_{\text{base}} \cdot \frac{u}{8} + C$). Row stride $= \lceil K / 256 \rceil \times 74$ bytes. 8 sub-scales in 4 bytes (8 nibbles in $[1..8]$), 64 bytes of packed 2-bit quaternary codes in $[0..3]$.
+- **SIMD Kernels Implemented in `c/qwanto_kernels.c`**:
+  - `qwn_gemv_hypervsq2_scalar`: Standalone scalar golden reference decoder and test oracle.
+  - `qwn_gemv_hypervsq2_avx2`: Vectorized AVX2 kernel using `unpack_32x2bit_avx2` (8-byte in-register unpack to 32 int8 codes) and `_mm256_maddubs_epi16` + `_mm256_madd_epi16` for parallel 8-octant dot products.
+  - `qwn_gemv_hypervsq2_vnni`: High-throughput AVX-VNNI kernel using `_mm256_dpbusd_epi32` with zero-point correction: $\sum (q_i - 1) a_i = \text{dpbusd}(q, a) - \sum a_i$.
+  - `qwn_matmul_hypervsq2_f32`: Multi-row parallel GEMV dispatcher with OpenMP parallelization, 64-row tiling, and cached CPU feature dispatch.
+  - Runtime CPUID feature detection (`qwn_get_cpu_features()`) with environment overrides (`QWN_FORCE_SCALAR`, `QWN_FORCE_AVX2`, `QWN_FORCE_VNNI`).
+- **Decoder Fixes in `c/qwanto_decode.c`**:
+  - Removed erroneous clamping of `lt->q_out`, `lt->k_out`, `lt->v_out` to `lt->o_proj->shape[0]` in `build_layer_cache`.
+  - In `qwn_decoder_forward()`, decoupled Q projection dimension `Q` from O projection input dimension `O_IN`, allowing hybrid and asymmetric attention projections to pass shape validation across all layers.
+  - Fixed scratch buffer padding in `qwn_scratch_init` to 256 elements.
+- **Verification & Benchmarks**:
+  - Built and executed `c/tests/test_hypervsq2_kernels.c`: **140/140 differential tests passed** across all tail lengths, matrix dimensions, scales, and offsets. Microkernel benchmark: 26.5 GFLOPS (VNNI) vs 8.16 GFLOPS (scalar).
+  - Real end-to-end inference on `experiments/results/4B_hyper_vsq2.qwn`:
+    - Original scalar path: **0.2 tok/s** (154s for 32 tokens)
+    - New AVX-VNNI engine: **13.17 tok/s** (4.86s for 64 tokens) -> **65.85x speedup**!
+    - Baseline 4B Q4_0: **2.18 tok/s** (29.39s for 64 tokens) -> HyperVSQ-2 is **6.05x faster** than Q4_0 and uses half the memory (1.26 GB vs 2.45 GB).
+  - Python tests: **157 passed, 12 skipped** (`python -m pytest c/tests/ -q`).
+  - Web tests: **17 passed** (`npm test` in `web/`), web build succeeds without errors.
+
 - Read `Full Improve Plan.md` (471 lines, 14 sections) and broke execution into the 7 phases the plan recommends (0 ground-truth → 1 QWN-IR → 2 quant planner → 3 Q2A → 4 SIMD kernels → 5 paged state → 6 speculative/MTP).
 - Delivered Phases 0, 1, 2 entirely in Python (the C-heavy phases 3–6 are out of scope for a single session and were deferred as documented in the plan).
 - Created new modules under `c/tools/`:

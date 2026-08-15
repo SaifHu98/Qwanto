@@ -1,11 +1,22 @@
 #include "qwanto_kernels.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#include <cpuid.h>
+#endif
+
 #if defined(__AVX2__)
 #include <immintrin.h>
+#endif
+
+#if defined(_OPENMP)
+#include <omp.h>
 #endif
 
 static size_t round_up(size_t n, size_t a) { return (n + a - 1) & ~(a - 1); }
@@ -29,10 +40,80 @@ static void aligned_free64(void *p) {
 #endif
 }
 
+static QwnCpuFeatures g_cpu_features;
+static int g_cpu_features_initialized = 0;
+
+static void qwn_init_cpu_features(void) {
+    if (g_cpu_features_initialized) return;
+    memset(&g_cpu_features, 0, sizeof(g_cpu_features));
+
+#if defined(_MSC_VER)
+    int info[4];
+    __cpuid(info, 0);
+    int max_ids = info[0];
+    if (max_ids >= 1) {
+        __cpuid(info, 1);
+        g_cpu_features.has_f16c = (info[2] & (1 << 29)) != 0;
+        g_cpu_features.has_fma  = (info[2] & (1 << 12)) != 0;
+    }
+    if (max_ids >= 7) {
+        __cpuidex(info, 7, 0);
+        g_cpu_features.has_avx2    = (info[1] & (1 << 5)) != 0;
+        g_cpu_features.has_avx512f = (info[1] & (1 << 16)) != 0;
+        if (info[2] & (1 << 11)) g_cpu_features.has_vnni = 1; /* AVX512_VNNI */
+        __cpuidex(info, 7, 1);
+        if (info[0] & (1 << 4)) g_cpu_features.has_vnni = 1;  /* AVX_VNNI */
+    }
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        g_cpu_features.has_f16c = (ecx & (1 << 29)) != 0;
+        g_cpu_features.has_fma  = (ecx & (1 << 12)) != 0;
+    }
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+        g_cpu_features.has_avx2    = (ebx & (1 << 5)) != 0;
+        g_cpu_features.has_avx512f = (ebx & (1 << 16)) != 0;
+        if (ecx & (1 << 11)) g_cpu_features.has_vnni = 1; /* AVX512_VNNI */
+    }
+    if (__get_cpuid_count(7, 1, &eax, &ebx, &ecx, &edx)) {
+        if (eax & (1 << 4)) g_cpu_features.has_vnni = 1;  /* AVX_VNNI */
+    }
+#endif
+
+    const char *force_scalar = getenv("QWN_FORCE_SCALAR");
+    const char *force_avx2   = getenv("QWN_FORCE_AVX2");
+    const char *force_vnni   = getenv("QWN_FORCE_VNNI");
+
+    if (force_scalar && *force_scalar && strcmp(force_scalar, "0") != 0) {
+        g_cpu_features.forced_mode = 1;
+    } else if (force_vnni && *force_vnni && strcmp(force_vnni, "0") != 0) {
+        if (g_cpu_features.has_vnni) {
+            g_cpu_features.forced_mode = 3;
+        } else {
+            fprintf(stderr, "[WARN] QWN_FORCE_VNNI set but CPU lacks AVX-VNNI support; falling back.\n");
+            g_cpu_features.forced_mode = g_cpu_features.has_avx2 ? 2 : 1;
+        }
+    } else if (force_avx2 && *force_avx2 && strcmp(force_avx2, "0") != 0) {
+        if (g_cpu_features.has_avx2) {
+            g_cpu_features.forced_mode = 2;
+        } else {
+            fprintf(stderr, "[WARN] QWN_FORCE_AVX2 set but CPU lacks AVX2 support; falling back to scalar.\n");
+            g_cpu_features.forced_mode = 1;
+        }
+    }
+
+    g_cpu_features_initialized = 1;
+}
+
+const QwnCpuFeatures *qwn_get_cpu_features(void) {
+    if (!g_cpu_features_initialized) qwn_init_cpu_features();
+    return &g_cpu_features;
+}
+
 int qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k) {
     if (!s || max_tokens < 1 || max_k < 1) return -1;
     memset(s, 0, sizeof(*s));
-    int padded_k = (max_k + 31) & ~31;
+    int padded_k = (max_k + 255) & ~255;
     size_t q8_bytes = round_up((size_t)max_tokens * (size_t)padded_k, 64);
     size_t scale_bytes = round_up((size_t)max_tokens * sizeof(float), 64);
     size_t row_bytes = round_up((size_t)padded_k * sizeof(float), 64);
@@ -110,13 +191,13 @@ static float qwn_packed_value(const uint8_t *raw, uint32_t dtype,
     if (dtype == QWN_DT_HYPER_VSQ2) {
         const uint8_t *q = p + 10 + sub * 8 + (local % 32) / 4;
         int value = ((*q >> ((local & 3) * 2)) & 3) - 1;
-        return value * base * ((float)sub_scale / 8.0f) + offset;
+        return (float)value * base * ((float)sub_scale / 8.0f) + offset;
     }
     const uint8_t *q = p + (dtype == QWN_DT_VSQ_ULTRA ? 6 : 10) +
-                       sub * (dtype == QWN_DT_VSQ_ULTRA ? 16 : 16) +
+                       sub * 16 +
                        (local % 32) / 2;
     int value = ((local & 1) ? (*q >> 4) : (*q & 0x0F)) - 8;
-    return value * base * ((float)sub_scale / 8.0f) + offset;
+    return (float)value * base * ((float)sub_scale / 8.0f) + offset;
 }
 
 static int qwn_matmul_packed_f32(const QwnModel *m, const QwnTensorDesc *w,
@@ -145,10 +226,6 @@ static int qwn_matmul_packed_f32(const QwnModel *m, const QwnTensorDesc *w,
     }
     return 0;
 }
-
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
 
 static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
 #if defined(_OPENMP)
@@ -199,7 +276,6 @@ static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
                 __m128i hi = _mm256_extracti128_si256(vi, 1);
                 __m128i packed16 = _mm_packs_epi32(lo, hi);
                 __m128i packed8  = _mm_packs_epi16(packed16, packed16);
-                /* Store 8 bytes */
                 *(int64_t *)(q + k) = _mm_cvtsi128_si64(packed8);
             }
             for (; k < K; k++) {
@@ -233,34 +309,26 @@ static inline int32_t hsum_epi32_avx2(__m256i v) {
     return _mm_cvtsi128_si32(sum128);
 }
 
-/* Unpack 8 packed 2-bit values (8 bytes, 32 weights) into a __m256i of
- * 32 signed bytes in [0..3] (the encoded range).  Each input byte holds
- * 4 weights in its low/high 2-bit pairs; the output lays them out in
- * order so output[0] = weights[0..3] and so on.
- *
- * The trick: AND with 0x03, then shift each nibble to its position
- * (no shift, >>2, >>4, >>6), then interleave 4-byte chunks via two
- * levels of unpacklo_epi8 / unpacklo_epi16.
+/* Unpack 8 packed 2-bit bytes (32 quaternary codes) in-register into
+ * a __m256i containing 32 unsigned uint8 values in [0..3].
+ * Layout: byte 0 has weights 0..3, byte 1 has weights 4..7, ..., byte 7 has weights 28..31.
  */
-static inline __m256i unpack_8x4_2bit_avx2(__m128i in8) {
-    const __m256i mask03 = _mm256_set1_epi8(0x03);
-    __m256i in256 = _mm256_set_m128i(in8, in8);
-    __m256i w0 = _mm256_and_si256(in256, mask03);
-    __m256i w1 = _mm256_and_si256(_mm256_srli_epi16(in256, 2), mask03);
-    __m256i w2 = _mm256_and_si256(_mm256_srli_epi16(in256, 4), mask03);
-    __m256i w3 = _mm256_and_si256(_mm256_srli_epi16(in256, 6), mask03);
-    __m256i pack01 = _mm256_unpacklo_epi8(w0, w1);
-    __m256i pack23 = _mm256_unpacklo_epi8(w2, w3);
-    return _mm256_unpacklo_epi16(pack01, pack23);
-}
-
-/* Convert packed [0..3] bytes to signed [-1..2] in place using a
- * single signed subtract-by-one.  After this, _mm256_maddubs_epi16
- * treats the bytes as signed (Q4_0-style) and produces the correct
- * int16 partial products.
- */
-static inline __m256i signed_minus_one_avx2(__m256i v) {
-    return _mm256_sub_epi8(v, _mm256_set1_epi8(1));
+static inline __m256i unpack_32x2bit_avx2(const uint8_t *qs) {
+    int64_t raw8;
+    memcpy(&raw8, qs, 8);
+    int32_t lo4 = (int32_t)raw8;
+    int32_t hi4 = (int32_t)(raw8 >> 32);
+    __m256i v = _mm256_set_epi32(hi4, hi4, hi4, hi4, lo4, lo4, lo4, lo4);
+    __m256i shuf_mask = _mm256_setr_epi8(
+        0,0,0,0, 1,1,1,1, 2,2,2,2, 3,3,3,3,
+        0,0,0,0, 1,1,1,1, 2,2,2,2, 3,3,3,3
+    );
+    __m256i rep = _mm256_shuffle_epi8(v, shuf_mask);
+    __m256i w0 = _mm256_and_si256(rep, _mm256_set1_epi32(0x00000003));
+    __m256i w1 = _mm256_and_si256(_mm256_srli_epi32(rep, 2), _mm256_set1_epi32(0x00000300));
+    __m256i w2 = _mm256_and_si256(_mm256_srli_epi32(rep, 4), _mm256_set1_epi32(0x00030000));
+    __m256i w3 = _mm256_and_si256(_mm256_srli_epi32(rep, 6), _mm256_set1_epi32(0x03000000));
+    return _mm256_or_si256(_mm256_or_si256(w0, w1), _mm256_or_si256(w2, w3));
 }
 #endif
 
@@ -293,14 +361,6 @@ static int32_t dot_q4_q8_block(const uint8_t *packed, const int8_t *q8,
     return sum;
 }
 
-/* Format-specific dot products.  Each block carries its own scale(s)
- * in the header; the q8 row is sign-symmetric int8 in [-127, 127].
- *
- * NOTE: VSQ / VSQ_ULTRA / HYPER_VSQ / HYPER_VSQ2 currently ship without
- * AVX2/AVX-512 SIMD kernels in this release -- the scalar fallbacks
- * below run correctly on x86-64.  The Q4_0 SIMD path above is
- * unchanged and remains the hot path for production workloads.
- */
 static int32_t dot_vsq_block(const uint8_t *blk, const int8_t *q8, int valid) {
     uint16_t hs; memcpy(&hs, blk, 2);
     float base = half_to_float(hs);
@@ -308,14 +368,12 @@ static int32_t dot_vsq_block(const uint8_t *blk, const int8_t *q8, int valid) {
     float s1 = base * ((float)blk[3] * (1.0f / 128.0f));
     const uint8_t *qs = blk + 4;
     int32_t sum = 0;
-    /* Half 0 (32 elements) */
     int half0 = valid < 32 ? valid : 32;
     for (int i = 0; i < half0; i++) {
         uint8_t byte = qs[i >> 1];
         int32_t w = ((i & 1) ? (byte >> 4) : (byte & 0x0f)) - 8;
         sum += (int32_t)((float)w * s0 * (float)q8[i]);
     }
-    /* Half 1 (32 elements) */
     int half1 = valid - 32; if (half1 > 32) half1 = 32;
     for (int i = 0; i < half1; i++) {
         uint8_t byte = qs[16 + (i >> 1)];
@@ -385,120 +443,286 @@ static int32_t dot_hyper_vsq_block(const uint8_t *blk, const int8_t *q8,
     return sum;
 }
 
-/* Vectorized HyperVSQ-2 dot product: 256-element block, 74-byte packed.
- *
- * Each block has 8 octants (32 weights each).  Per octant the effective
- * scale is `eff_scale = base_scale * (sub_scale / 8)` and the offset is
- * the global base_offset.  Each weight is reconstructed as
- *      w = (q - 1) * eff_scale + offset            (q in {0,1,2,3})
- *
- * So the per-octant dot product expands to
- *      sum(w * q8) = eff_scale * sum((q-1) * q8) + offset * sum(q8)
- *
- * The 32 packed 2-bit weights fit in 8 bytes which we unpack in-register
- * to 32 int8 values, sign-subtract 1 to get the (q-1) range, then use
- * _mm256_maddubs_epi16 + _mm256_madd_epi16 to compute the int8 dot
- * product (universal AVX2 path).  When AVX-VNNI is available we skip
- * the madd chain and use _mm256_dpbusd_epi32 directly (single-instruction
- * int8 dot product with int32 accumulator).
- */
-static int32_t dot_hyper_vsq2_block_simd(const uint8_t *blk, const int8_t *q8,
-                                         int valid) {
-    const uint16_t hs = *(const uint16_t *)(blk);
-    const uint16_t hm = *(const uint16_t *)(blk + 2);
-    const float base_scale = half_to_float(hs) * 0.5f;          /* fp16 / 2 */
-    const float offset    = half_to_float(hm);
-    const uint8_t *sub_bytes = blk + 4;                          /* 4 bytes, 8 nibbles */
-    const uint8_t *qs       = blk + 10;                          /* 8 bytes per octant */
-    const int cap_oct = valid / 32;                              /* number of full octants */
-    int32_t sum = 0;
+/* Scalar Golden Reference GEMV for HyperVSQ-2 */
+void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,
+                              float x_scale, int K, int N,
+                              size_t row_bytes, float *out) {
+    int blocks = (K + 255) / 256;
+    for (int n = 0; n < N; n++) {
+        const uint8_t *row = raw_blocks + (size_t)n * row_bytes;
+        float row_sum = 0.0f;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = row + (size_t)b * 74;
+            int valid = K - b * 256;
+            if (valid > 256) valid = 256;
+            if (valid <= 0) break;
 
-#if defined(__AVX2__)
-    /* Pre-compute the per-octant scale as float, then for each octant
-     * process the 32 weights vectorially. */
-    for (int oct = 0; oct < cap_oct; oct++) {
-        const int sb_idx = oct >> 1;
-        const int sub_nibble = (oct & 1) ? 4 : 0;
-        const int sub_int = (sub_bytes[sb_idx] >> sub_nibble) & 0x0F;
-        const float eff_scale = base_scale * ((float)sub_int / 8.0f);
+            uint16_t hs, hm;
+            memcpy(&hs, blk, 2);
+            memcpy(&hm, blk + 2, 2);
+            float base_scale = half_to_float(hs);
+            float offset     = half_to_float(hm);
+            const uint8_t *sub_bytes = blk + 4;
+            const uint8_t *qs = blk + 10;
 
-        /* Load 8 packed bytes for this octant (32 weights). */
-        __m128i packed = _mm_loadl_epi64((const __m128i *)(qs + oct * 8));
-        __m256i w_vec = signed_minus_one_avx2(unpack_8x4_2bit_avx2(packed));
-        __m256i a_vec = _mm256_loadu_si256((const __m256i *)(q8 + oct * 32));
+            for (int oct = 0; oct < 8; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                int cap = valid - oct * 32;
+                if (cap > 32) cap = 32;
+                if (cap <= 0) break;
 
-#if defined(__AVX512VNNI__) || defined(__AVXVNNI__)
-        /* Hardware VNNI path: single instruction int8 dot product. */
-        __m256i dot32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), w_vec, a_vec);
-#else
-        /* Universal AVX2 path: int8 -> int16 -> int32. */
-        __m256i prod16 = _mm256_maddubs_epi16(w_vec, a_vec);   /* 16 int16 */
-        __m256i dot32  = _mm256_madd_epi16(prod16, _mm256_set1_epi16(1)); /* 8 int32 */
-#endif
-        const int32_t dot_w = hsum_epi32_avx2(dot32);
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+                const uint8_t *q_oct = qs + oct * 8;
 
-        /* q8 sum contribution (for the offset term).  We add it inside
-         * the same YMM by zeroing the weight vector: with weights = 1
-         * the dot becomes a sum of q8 in [-127..127].  Cheaper than a
-         * separate horizontal sum. */
-        __m256i ones8 = _mm256_set1_epi8(1);
-        __m256i sum32 = _mm256_maddubs_epi16(ones8, a_vec);
-        __m256i sum32_32 = _mm256_madd_epi16(sum32, _mm256_set1_epi16(1));
-        const int32_t dot_q8 = hsum_epi32_avx2(sum32_32);
-
-        sum += (int32_t)((float)dot_w * eff_scale + (float)dot_q8 * offset);
-    }
-#endif
-
-    /* Scalar tail: any remaining octants (when K is not a multiple of
-     * 32) and any non-AVX2 fallback. */
-    for (int oct = cap_oct; oct < 8; oct++) {
-        const int sb_idx = oct >> 1;
-        const int sub_nibble = (oct & 1) ? 4 : 0;
-        const int sub_int = (sub_bytes[sb_idx] >> sub_nibble) & 0x0F;
-        const float eff_scale = base_scale * ((float)sub_int / 8.0f);
-        const uint8_t *q_oct = qs + oct * 8;
-        const int base_idx = oct * 32;
-        int cap = valid - base_idx; if (cap > 32) cap = 32;
-        for (int i = 0; i < cap; i++) {
-            const uint8_t byte = q_oct[i >> 2];
-            const int shift = (i & 3) * 2;
-            const int32_t w = ((byte >> shift) & 3) - 1;
-            sum += (int32_t)(((float)w * eff_scale + offset) * (float)q8[base_idx + i]);
+                int32_t sum_q = 0;
+                int32_t sum_a = 0;
+                for (int i = 0; i < cap; i++) {
+                    uint8_t byte = q_oct[i >> 2];
+                    int shift = (i & 3) * 2;
+                    int q = (byte >> shift) & 3;
+                    int8_t a = q8[base_idx + i];
+                    sum_q += (q - 1) * (int32_t)a;
+                    sum_a += (int32_t)a;
+                }
+                row_sum += (float)sum_q * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
+            }
         }
+        out[n] = row_sum;
     }
-    return sum;
 }
 
-static int32_t dot_hyper_vsq2_block(const uint8_t *blk, const int8_t *q8,
-                                    int valid) {
-    uint16_t hs, hm;
-    memcpy(&hs, blk, 2);
-    memcpy(&hm, blk + 2, 2);
-    float base = half_to_float(hs);
-    float offset = half_to_float(hm);
-    const uint8_t *sub_bytes = blk + 4;
-    float s[8];
-    for (int oct = 0; oct < 8; oct++) {
-        uint8_t sb = sub_bytes[oct >> 1];
-        int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
-        s[oct] = base * ((float)s_val * (1.0f / 8.0f));
+/* AVX2 Accelerated HyperVSQ-2 GEMV */
+void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
+                            float x_scale, int K, int N,
+                            size_t row_bytes, float *out) {
+#if defined(__AVX2__)
+    int blocks = (K + 255) / 256;
+    const __m256i ones16 = _mm256_set1_epi16(1);
+    const __m256i ones8  = _mm256_set1_epi8(1);
+
+    for (int n = 0; n < N; n++) {
+        const uint8_t *row = raw_blocks + (size_t)n * row_bytes;
+        float row_sum = 0.0f;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = row + (size_t)b * 74;
+            int valid = K - b * 256;
+            if (valid > 256) valid = 256;
+            if (valid <= 0) break;
+
+            uint16_t hs, hm;
+            memcpy(&hs, blk, 2);
+            memcpy(&hm, blk + 2, 2);
+            float base_scale = half_to_float(hs);
+            float offset     = half_to_float(hm);
+            const uint8_t *sub_bytes = blk + 4;
+            const uint8_t *qs = blk + 10;
+            int cap_oct = valid / 32;
+            if (cap_oct > 8) cap_oct = 8;
+
+            for (int oct = 0; oct < cap_oct; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+
+                __m256i q_unp = unpack_32x2bit_avx2(qs + oct * 8);
+                __m256i a_vec = _mm256_loadu_si256((const __m256i *)(q8 + base_idx));
+
+                __m256i p16 = _mm256_maddubs_epi16(q_unp, a_vec);
+                __m256i dot32 = _mm256_madd_epi16(p16, ones16);
+
+                __m256i sa16 = _mm256_maddubs_epi16(ones8, a_vec);
+                __m256i sum_a32 = _mm256_madd_epi16(sa16, ones16);
+
+                __m256i diff32 = _mm256_sub_epi32(dot32, sum_a32);
+
+                int32_t dot_centered = hsum_epi32_avx2(diff32);
+                int32_t sum_a = hsum_epi32_avx2(sum_a32);
+
+                row_sum += (float)dot_centered * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
+            }
+
+            for (int oct = cap_oct; oct < 8; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                int cap = valid - oct * 32;
+                if (cap > 32) cap = 32;
+                if (cap <= 0) break;
+
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+                const uint8_t *q_oct = qs + oct * 8;
+
+                int32_t sum_q = 0;
+                int32_t sum_a = 0;
+                for (int i = 0; i < cap; i++) {
+                    uint8_t byte = q_oct[i >> 2];
+                    int shift = (i & 3) * 2;
+                    int q = (byte >> shift) & 3;
+                    int8_t a = q8[base_idx + i];
+                    sum_q += (q - 1) * (int32_t)a;
+                    sum_a += (int32_t)a;
+                }
+                row_sum += (float)sum_q * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
+            }
+        }
+        out[n] = row_sum;
     }
-    const uint8_t *qs = blk + 10;
-    int32_t sum = 0;
-    for (int oct = 0; oct < 8; oct++) {
-        const uint8_t *q_oct = qs + oct * 8;
-        float sq = s[oct];
-        int base_idx = oct * 32;
-        int cap = valid - base_idx; if (cap > 32) cap = 32;
-        for (int i = 0; i < cap; i++) {
-            uint8_t byte = q_oct[i >> 2];
-            int shift = (i & 3) * 2;
-            int32_t w = ((byte >> shift) & 3) - 1;
-            sum += (int32_t)(((float)w * sq + offset) * (float)q8[base_idx + i]);
+#else
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+#endif
+}
+
+/* AVX-VNNI Accelerated HyperVSQ-2 GEMV */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avxvnni")))
+#endif
+void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
+                            float x_scale, int K, int N,
+                            size_t row_bytes, float *out) {
+#if defined(__AVX2__)
+    int blocks = (K + 255) / 256;
+    const __m256i ones8 = _mm256_set1_epi8(1);
+
+    for (int n = 0; n < N; n++) {
+        const uint8_t *row = raw_blocks + (size_t)n * row_bytes;
+        float row_sum = 0.0f;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = row + (size_t)b * 74;
+            int valid = K - b * 256;
+            if (valid > 256) valid = 256;
+            if (valid <= 0) break;
+
+            uint16_t hs, hm;
+            memcpy(&hs, blk, 2);
+            memcpy(&hm, blk + 2, 2);
+            float base_scale = half_to_float(hs);
+            float offset     = half_to_float(hm);
+            const uint8_t *sub_bytes = blk + 4;
+            const uint8_t *qs = blk + 10;
+            int cap_oct = valid / 32;
+            if (cap_oct > 8) cap_oct = 8;
+
+            for (int oct = 0; oct < cap_oct; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+
+                __m256i q_unp = unpack_32x2bit_avx2(qs + oct * 8);
+                __m256i a_vec = _mm256_loadu_si256((const __m256i *)(q8 + base_idx));
+
+                __m256i dot32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), q_unp, a_vec);
+                __m256i sum_a32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), ones8, a_vec);
+                __m256i diff32 = _mm256_sub_epi32(dot32, sum_a32);
+
+                int32_t dot_centered = hsum_epi32_avx2(diff32);
+                int32_t sum_a = hsum_epi32_avx2(sum_a32);
+
+                row_sum += (float)dot_centered * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
+            }
+
+            for (int oct = cap_oct; oct < 8; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                int cap = valid - oct * 32;
+                if (cap > 32) cap = 32;
+                if (cap <= 0) break;
+
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+                const uint8_t *q_oct = qs + oct * 8;
+
+                int32_t sum_q = 0;
+                int32_t sum_a = 0;
+                for (int i = 0; i < cap; i++) {
+                    uint8_t byte = q_oct[i >> 2];
+                    int shift = (i & 3) * 2;
+                    int q = (byte >> shift) & 3;
+                    int8_t a = q8[base_idx + i];
+                    sum_q += (q - 1) * (int32_t)a;
+                    sum_a += (int32_t)a;
+                }
+                row_sum += (float)sum_q * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
+            }
+        }
+        out[n] = row_sum;
+    }
+#else
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+#endif
+}
+
+/* Full matrix multiplication for HyperVSQ-2 with runtime CPUID dispatch */
+int qwn_matmul_hypervsq2_f32(const QwnModel *m,
+                             const QwnTensorDesc *weights,
+                             const float *x, int M, int K, int N,
+                             QwnScratch *scratch,
+                             float *y) {
+    if (!m || !weights || !x || !scratch || !y || M < 1 || K < 1 || N < 1)
+        return -1;
+    if (weights->dtype != QWN_DT_HYPER_VSQ2 || weights->n_dims != 2 ||
+        weights->shape[0] != (uint64_t)K || weights->shape[1] != (uint64_t)N)
+        return -1;
+    if ((weights->byte_offset & 63ULL) != 0 || M > scratch->max_tokens ||
+        ((K + 255) & ~255) > scratch->padded_k)
+        return -1;
+
+    const int blocks = (K + 255) / 256;
+    const size_t row_bytes = (size_t)blocks * 74;
+    const uint64_t raw_bytes = (uint64_t)row_bytes * (uint64_t)N;
+    if (weights->byte_offset > m->file_size ||
+        raw_bytes > m->file_size - weights->byte_offset ||
+        raw_bytes > weights->byte_size)
+        return -1;
+
+    quantize_tokens(x, M, K, scratch);
+    const uint8_t *raw = m->base + weights->byte_offset;
+
+    const QwnCpuFeatures *cpu = qwn_get_cpu_features();
+    static int s_logged = 0;
+    if (!s_logged) {
+        const char *backend = "scalar";
+        if (cpu->forced_mode == 1) backend = "forced scalar";
+        else if (cpu->forced_mode == 2) backend = "forced avx2";
+        else if (cpu->forced_mode == 3) backend = "forced vnni";
+        else if (cpu->has_vnni) backend = "avx-vnni";
+        else if (cpu->has_avx2) backend = "avx2";
+        fprintf(stderr, "[INFO] HyperVSQ-2 kernel selected: %s\n", backend);
+        s_logged = 1;
+    }
+
+    typedef void (*gemv_fn_t)(const uint8_t *, const int8_t *, float, int, int, size_t, float *);
+    gemv_fn_t gemv_fn = qwn_gemv_hypervsq2_scalar;
+    if (cpu->forced_mode == 1) {
+        gemv_fn = qwn_gemv_hypervsq2_scalar;
+    } else if (cpu->forced_mode == 2 && cpu->has_avx2) {
+        gemv_fn = qwn_gemv_hypervsq2_avx2;
+    } else if (cpu->forced_mode == 3 && cpu->has_vnni) {
+        gemv_fn = qwn_gemv_hypervsq2_vnni;
+    } else if (cpu->has_vnni) {
+        gemv_fn = qwn_gemv_hypervsq2_vnni;
+    } else if (cpu->has_avx2) {
+        gemv_fn = qwn_gemv_hypervsq2_avx2;
+    }
+
+    for (int t = 0; t < M; t++) {
+        const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
+        float x_scale = scratch->token_scales[t];
+        float *yt = y + (size_t)t * N;
+
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+        for (int n = 0; n < N; n += 64) {
+            int chunk = N - n;
+            if (chunk > 64) chunk = 64;
+            gemv_fn(raw + (size_t)n * row_bytes, q8, x_scale, K, chunk, row_bytes, yt + n);
         }
     }
-    return sum;
+    return 0;
 }
 
 int qwn_matmul_q4_0_f32(const QwnModel *m,
@@ -563,19 +787,18 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
         return 0;
     }
 
-    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ && weights->dtype != QWN_DT_VSQ_ULTRA && weights->dtype != QWN_DT_HYPER_VSQ && weights->dtype != QWN_DT_HYPER_VSQ2) || weights->n_dims != 2 ||
+    if ((weights->dtype != QWN_DT_Q4_0 && weights->dtype != QWN_DT_VSQ && weights->dtype != QWN_DT_VSQ_ULTRA && weights->dtype != QWN_DT_HYPER_VSQ) || weights->n_dims != 2 ||
         weights->shape[0] != (uint64_t)K || weights->shape[1] != (uint64_t)N)
         return -1;
     if ((weights->byte_offset & 63ULL) != 0 || M > scratch->max_tokens ||
-        ((K + 255) & ~255) > scratch->padded_k)
+        ((K + 31) & ~31) > scratch->padded_k)
         return -1;
 
-    const int is_hyper2 = (weights->dtype == QWN_DT_HYPER_VSQ2);
     const int is_hyper = (weights->dtype == QWN_DT_HYPER_VSQ);
     const int is_vsq_ultra = (weights->dtype == QWN_DT_VSQ_ULTRA);
     const int is_vsq = (weights->dtype == QWN_DT_VSQ);
-    const int block_elems = (is_hyper || is_hyper2) ? 256 : (is_vsq_ultra ? 128 : (is_vsq ? 64 : 32));
-    const int block_bytes = is_hyper2 ? 74 : (is_hyper ? 138 : (is_vsq_ultra ? 70 : (is_vsq ? 36 : 18)));
+    const int block_elems = is_hyper ? 256 : (is_vsq_ultra ? 128 : (is_vsq ? 64 : 32));
+    const int block_bytes = is_hyper ? 138 : (is_vsq_ultra ? 70 : (is_vsq ? 36 : 18));
     const int blocks = (K + block_elems - 1) / block_elems;
     const uint64_t row_bytes = (uint64_t)blocks * (uint64_t)block_bytes;
     const uint64_t raw_bytes = row_bytes * (uint64_t)N;
@@ -587,16 +810,6 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     quantize_tokens(x, M, K, scratch);
     const uint8_t *raw = m->base + weights->byte_offset;
 
-#if defined(__AVX2__)
-    const __m128i mask128 = _mm_set1_epi8(0x0f);
-    const __m256i ones16 = _mm256_set1_epi16(1);
-    const __m256i ones8 = _mm256_set1_epi8(1);
-#endif
-
-    /* Dispatch the per-block dot product by dtype.  The Q4_0 path is
-     * hot -- keep it SIMD-accelerated.  The other formats use scalar
-     * dot functions that are correct and memory-safe; future work
-     * can add VNNI SIMD for them. */
     typedef int32_t (*dot_fn_t)(const uint8_t *, const int8_t *, int);
     dot_fn_t dot_fn = NULL;
     int q4_simd = 0;
@@ -604,13 +817,6 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     else if (weights->dtype == QWN_DT_VSQ) dot_fn = dot_vsq_block;
     else if (weights->dtype == QWN_DT_VSQ_ULTRA) dot_fn = dot_vsq_ultra_block;
     else if (weights->dtype == QWN_DT_HYPER_VSQ) dot_fn = dot_hyper_vsq_block;
-    else if (weights->dtype == QWN_DT_HYPER_VSQ2) {
-#if defined(__AVX2__)
-        dot_fn = dot_hyper_vsq2_block_simd;
-#else
-        dot_fn = dot_hyper_vsq2_block;
-#endif
-    }
     if (!dot_fn) return -1;
 
     for (int t = 0; t < M; t++) {
@@ -635,21 +841,11 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
                 const uint8_t *b2 = r2 + (size_t)b * block_bytes;
                 const uint8_t *b3 = r3 + (size_t)b * block_bytes;
 
-                /* Per-format dot product.  For Q4_0 we use the SIMD
-                 * dot function directly; for VSQ/VSQ_ULTRA/HYPER_VSQ/
-                 * HYPER_VSQ2 we use the scalar dot with the q8 sum
-                 * separately accumulated (their block layouts include
-                 * their own scale/offset inside the block header). */
                 int32_t dot0 = dot_fn(b0, q8 + b * block_elems, valid);
                 int32_t dot1 = dot_fn(b1, q8 + b * block_elems, valid);
                 int32_t dot2 = dot_fn(b2, q8 + b * block_elems, valid);
                 int32_t dot3 = dot_fn(b3, q8 + b * block_elems, valid);
 
-                /* Apply per-block scale.  Q4_0 dot returns the
-                 * zero-centered contribution (-8..7) * sum(q8) which
-                 * needs the float scale * x_scale.  The VSQ/Hyper
-                 * dot functions already bake the float scale in, so
-                 * only the q8 scale (x_scale) remains. */
                 if (q4_simd) {
                     sum0 += (float)dot0 * x_scale;
                     sum1 += (float)dot1 * x_scale;
@@ -667,7 +863,6 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
             y[(size_t)t * N + n + 2] = sum2;
             y[(size_t)t * N + n + 3] = sum3;
         }
-        // Cleanup loop
         for (; n < N; n++) {
             const uint8_t *row = raw + (uint64_t)n * row_bytes;
             float sum = 0.0f;
@@ -700,7 +895,7 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
             for (int i = 0; i < 32 && b * 32 + i < width; i++) {
                 uint8_t byte = p[b * 18 + 2 + (i >> 1)];
                 int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
-                out[b * 32 + i] = q * scale;
+                out[b * 32 + i] = (float)q * scale;
             }
         }
         return 0;
@@ -733,12 +928,12 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
             for (int i = 0; i < 32 && b * 64 + i < width; i++) {
                 uint8_t byte = qs[i >> 1];
                 int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
-                out[b * 64 + i] = q * s0;
+                out[b * 64 + i] = (float)q * s0;
             }
             for (int i = 0; i < 32 && b * 64 + 32 + i < width; i++) {
                 uint8_t byte = qs[16 + (i >> 1)];
                 int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
-                out[b * 64 + 32 + i] = q * s1;
+                out[b * 64 + 32 + i] = (float)q * s1;
             }
         }
         return 0;
@@ -768,7 +963,7 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 for (int i = 0; i < 32 && base_idx + i < width; i++) {
                     uint8_t byte = q_quad[i >> 1];
                     int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
-                    out[base_idx + i] = q * sq + offset;
+                    out[base_idx + i] = (float)q * sq + offset;
                 }
             }
         }
@@ -799,7 +994,7 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 for (int i = 0; i < 32 && base_idx + i < width; i++) {
                     uint8_t byte = q_oct[i >> 1];
                     int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
-                    out[base_idx + i] = q * sq + offset;
+                    out[base_idx + i] = (float)q * sq + offset;
                 }
             }
         }
@@ -850,7 +1045,7 @@ int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 for (int i = 0; i < 32 && b * 32 + i < width; i++) {
                     uint8_t byte = p[b * 18 + 2 + (i >> 1)];
                     int q = ((i & 1) ? byte >> 4 : byte & 15) - 8;
-                    out[b * 32 + i] = q * scale;
+                    out[b * 32 + i] = (float)q * scale;
                 }
             }
             return 0;
@@ -898,7 +1093,9 @@ int qwn_matmul_f32(const QwnModel *m, const QwnTensorDesc *w,
     if (!w || w->n_dims != 2 || w->shape[0] != (uint64_t)K ||
         w->shape[1] != (uint64_t)N) return -1;
     if (w->dtype == QWN_DT_Q4_0)
-        return qwn_matmul_q4_0_f32(m,w,x,M,K,N,scratch,y);
+        return qwn_matmul_q4_0_f32(m, w, x, M, K, N, scratch, y);
+    if (w->dtype == QWN_DT_HYPER_VSQ2)
+        return qwn_matmul_hypervsq2_f32(m, w, x, M, K, N, scratch, y);
     if (w->dtype == QWN_DT_Q8_0) {
         const uint8_t *raw = (const uint8_t *)qwn_data(m, w);
         if (!raw) return -1;
@@ -929,7 +1126,7 @@ int qwn_matmul_f32(const QwnModel *m, const QwnTensorDesc *w,
         return 0;
     }
     if (w->dtype == QWN_DT_VSQ || w->dtype == QWN_DT_VSQ_ULTRA ||
-        w->dtype == QWN_DT_HYPER_VSQ || w->dtype == QWN_DT_HYPER_VSQ2)
+        w->dtype == QWN_DT_HYPER_VSQ)
         return qwn_matmul_packed_f32(m, w, x, M, K, N, y);
     if (!scratch || K > scratch->padded_k) return -1;
 

@@ -584,17 +584,6 @@ static int build_layer_cache(QwnDecoder *d) {
         if (lt->q_out && d->cfg.heads) lt->q_head_dim = lt->q_out / d->cfg.heads;
         if (lt->k_out && d->cfg.kv_heads) lt->k_head_dim = lt->k_out / d->cfg.kv_heads;
         if (lt->v_out && d->cfg.kv_heads) lt->v_head_dim = lt->v_out / d->cfg.kv_heads;
-        /* If o_proj is present, use its input dim as the authoritative
-         * attention output dim.  Some hybrid/quantized models emit Q
-         * tensors larger than what o_proj consumes; clamping here
-         * keeps the attention path internally consistent and matches
-         * the dequantization loop's allocation. */
-        if (lt->o_proj && lt->o_proj->n_dims == 2 && lt->o_proj->shape[0] > 0) {
-            const int o_in = (int)lt->o_proj->shape[0];
-            if (lt->q_out > o_in)  lt->q_out  = o_in;
-            if (lt->k_out > o_in)  lt->k_out  = o_in;
-            if (lt->v_out > o_in)  lt->v_out  = o_in;
-        }
         if (lt->up_proj && lt->up_proj->n_dims == 2) {
             lt->ffn_in  = (int)lt->up_proj->shape[0];   /* up_proj rows */
             lt->ffn_out = (int)lt->up_proj->shape[1];
@@ -871,6 +860,7 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
         int Q  = lt->q_out  ? lt->q_out  : (H  ? H  * HD : 0);
         int KV = lt->k_out ? lt->k_out : (HK ? HK * HD : 0);
         int I  = lt->ffn_out ? lt->ffn_out : c->intermediate;
+        int O_IN = (lt->o_proj && lt->o_proj->n_dims == 2) ? (int)lt->o_proj->shape[0] : (H ? H * HD : Q);
         int hd_this = (Q && H) ? Q / H : HD;
         /* Prefetch next layer's heavy weights -- zero-cost cached pointer lookup */
         if(l + 1 < c->layers) {
@@ -937,7 +927,7 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
                         d->att + (size_t)h * c->max_ctx,
                         d->ctx + h * hd_this);
                 }
-                if (lt->o_proj && matmul(d,lt->o_proj,d->ctx,Q,D,d->xb)==0) {
+                if (lt->o_proj && matmul(d,lt->o_proj,d->ctx,O_IN,D,d->xb)==0) {
                     add_bias(d,lt->o_bias,d->xb,D);
                     vec_add(d->x, d->xb, D);
                 }
@@ -1022,7 +1012,7 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
 #endif
                 }
             }
-            if(lt->o_proj && matmul(d,lt->o_proj,d->ctx,Q,D,d->xb)==0) {
+            if(lt->o_proj && matmul(d,lt->o_proj,d->ctx,O_IN,D,d->xb)==0) {
                 add_bias(d,lt->o_bias,d->xb,D);
                 vec_add(d->x, d->xb, D);
             }
