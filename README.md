@@ -1,6 +1,6 @@
 # Qwanto ⚡
 
-Qwanto is an ultra-fast, hardware-saturating local AI execution runtime that tiers weights across **GPU VRAM, System RAM, and High-Speed NVMe** so you can run 70B+ LLMs on consumer hardware.
+**Qwanto** is an ultra-fast, hardware-saturating local AI execution runtime engineered to orchestrate and unify all available system resources — **Multi-Core CPUs (AVX2 / AVX-VNNI / AVX-512 / OpenMP), GPU VRAM (CUDA / Metal / Vulkan), System RAM (Paged KV Cache), and Ultra-Speed NVMe Storage (Zero-Copy Mmap & Prefetching)** — allowing you to run 70B+ LLMs on consumer and workstation hardware at maximum performance.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Tests](https://img.shields.io/badge/Tests-157%20Passed%20%7C%20140%20Kernel%20Tests%20Passed-brightgreen.svg)]()
@@ -9,14 +9,41 @@ Qwanto is an ultra-fast, hardware-saturating local AI execution runtime that tie
 [![Web Dashboard](https://img.shields.io/badge/Web%20Dashboard-React%2019%20%7C%20Vite-blue.svg)]()
 [![Maintainer](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
 
-It combines:
+---
 
-* a proprietary `.qwn` SIMD/OpenMP container with native high-performance decoder (`qwnrun`)
-* high-speed vectorized sub-2-bit HyperVSQ-2 engine (AVX-VNNI / AVX2 / CPUID dynamic dispatch)
-* the OpenAI-compatible HTTP gateway in `c/openai_server.py`
-* specialised MoE runtimes for GLM / DeepSeek / OLMoE (`c/glm.c`, `c/olmoe.c`)
-* GGUF passthrough via bundled `llama-server`
-* a React 19 web dashboard (`web/`) + Tauri v2 desktop shell
+## 🏛️ Heterogeneous Multi-Tier Resource Architecture
+
+Qwanto orchestrates all four compute and memory tiers in strict synergy, guaranteeing zero idle hardware and zero unnecessary memory copies:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                               QWANTO EXECUTION RUNTIME                                   │
+├─────────────────────────┬─────────────────────────┬──────────────────────────────────────┤
+│ 1. MULTI-CORE CPU       │ 2. DEDICATED GPU (VRAM) │ 3. SYSTEM RAM        │ 4. NVMe MMAP  │
+│  - AVX2 / F16C / FMA    │  - NVIDIA CUDA / Tensor │  - PagedAttention    │  - Zero-Copy  │
+│  - AVX-VNNI (dpbusd)    │  - Apple Metal Shaders  │  - Zero-Fragmentation│    Page-Align │
+│  - AVX-512 Vectorized   │  - Vulkan Unified GPU   │  - Single-Alloc Arena│  - Layer-Ahead│
+│  - OpenMP 100% Threads  │  - Resident Hot Weights │  - Fast KV Recycling │    Prefetch   │
+└─────────────────────────┴─────────────────────────┴──────────────────────┴───────────────┘
+```
+
+| Resource Tier | Component | Role & Optimization in Qwanto |
+|---|---|---|
+| **1. Multi-Core CPU** | **AVX-VNNI / AVX2 / AVX-512 / OpenMP** | Satures 100% of host CPU cores & threads. Executes vectorized 2-bit/4-bit matrix-vector kernels in hardware registers without memory lookups. |
+| **2. Dedicated GPU** | **NVIDIA CUDA / Metal / Vulkan** | Dynamic weight offloading to GPU VRAM for attention heads and compute-heavy GEMM layers with asynchronous transfer streams. |
+| **3. System RAM** | **Paged KV Cache & Scratch Arena** | Bounded pre-allocated memory pool (`QwnScratch`) eliminating heap allocation jitter; 16-token Paged KV pages preventing cache fragmentation. |
+| **4. NVMe Storage** | **Zero-Copy Memory Mapping (`mmap`)** | 4KiB page-aligned tensor payloads with predictive layer-ahead prefetching (`_mm_prefetch`), allowing models larger than RAM to run seamlessly. |
+
+---
+
+## Key Core Modules
+
+* **Native High-Performance Decoder (`qwnrun`)**: Proprietary `.qwn` SIMD/OpenMP runtime with sub-millisecond dispatch.
+* **Vectorized HyperVSQ-2 Sub-2-Bit Engine**: 74-byte packed superblock (2.3125 bpw) accelerated by hardware AVX-VNNI `_mm256_dpbusd_epi32` and AVX2 `_mm256_maddubs_epi16`.
+* **OpenAI-Compatible HTTP Gateway (`c/openai_server.py`)**: High-throughput SSE streaming, bearer authentication, prompt LRU cache, and defense headers.
+* **MoE Specialist Runtimes**: Dedicated sparse-expert runtimes for DeepSeek / GLM (`c/glm.c`) and OLMoE (`c/olmoe.c`).
+* **GGUF Ecosystem Passthrough**: Embedded `llama-server` runtime for zero-configuration GGUF execution.
+* **Modern Web Studio & Desktop**: React 19 + Vite dashboard (`web/`) with live telemetry, benchmark playground, MoE visualization, and Tauri v2 wrapper.
 
 > **Acknowledgements:** The unified multi-tier memory architecture of the Qwanto engine is based on the [Colibri](https://github.com/JustVugg/colibri) project by **JustVugg**. Maintained by **[SaifHu98](https://github.com/SaifHu98)**.
 
