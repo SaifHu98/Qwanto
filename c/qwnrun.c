@@ -243,6 +243,21 @@ int main(int argc,char **argv){
     if (!temp_text || !*temp_text) temp_text = getenv("TEMP");
     const char *top_text = getenv("QWANTO_TOP_P");
     if (!top_text || !*top_text) top_text = getenv("TOPP");
+    const char *think_text = getenv("QWN_THINKING_LEVEL");
+    if (!think_text || !*think_text) think_text = getenv("THINKING");
+
+    QwnThinkingLevel think_lvl = qwn_thinking_parse_level(think_text);
+    for (int a = 1; a < argc; a++) {
+        if (strcmp(argv[a], "--thinking") == 0 && a + 1 < argc) {
+            think_lvl = qwn_thinking_parse_level(argv[a+1]);
+        }
+    }
+    QwnThinkingConfig think_cfg = qwn_thinking_default_config(think_lvl);
+    if (think_text || think_lvl != QWN_THINK_MEDIUM) {
+        fprintf(stderr, "[INFO] Configurable Thinking mode: %s (early_exit=%d%%, max_layers=%d)\n",
+                qwn_thinking_level_name(think_lvl), think_cfg.early_exit_threshold, think_cfg.n_layers_max);
+    }
+
     float temperature = temp_text && *temp_text ? strtof(temp_text, NULL) : 0.0f;
     float top_p = top_text && *top_text ? strtof(top_text, NULL) : 1.0f;
     if (!isfinite(temperature) || temperature < 0.0f || !isfinite(top_p) ||
@@ -250,15 +265,15 @@ int main(int argc,char **argv){
         fprintf(stderr, "qwnrun: invalid sampling environment\n");
         free(ids); qwn_decoder_close(&decoder); return 1;
     }
-    int rc=qwn_decoder_generate(&decoder,ids,valid_count,max_tokens,temperature,top_p,emit_timed,&timing);
+    int rc=qwn_decoder_generate_thinking(&decoder,ids,valid_count,max_tokens,temperature,top_p,&think_cfg,emit_timed,&timing);
     double elapsed = wall_seconds() - timing.started;
     if(rc < 0) fprintf(stderr,"qwnrun result: status=error tokens=0\nqwnrun: generate failed (rc=%d)\n", rc);
     else {
         double ttft = timing.first_token > 0.0 ?
                       (timing.first_token - timing.started) * 1000.0 : 0.0;
         fprintf(stderr,"qwnrun result: status=ok tokens=%d wall_seconds=%.6f "
-                "ttft_ms=%.3f tok_per_sec=%.6f\n", rc, elapsed, ttft,
-                elapsed > 0.0 ? (double)rc / elapsed : 0.0);
+                "ttft_ms=%.3f tok_per_sec=%.6f thinking_level=%s\n", rc, elapsed, ttft,
+                elapsed > 0.0 ? (double)rc / elapsed : 0.0, qwn_thinking_level_name(think_lvl));
     }
     putchar('\n');free(ids);qwn_decoder_close(&decoder);return rc<0?1:0;
 }

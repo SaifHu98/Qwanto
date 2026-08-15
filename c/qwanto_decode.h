@@ -5,6 +5,7 @@
 #include "qwanto_kernels.h"
 #include "qwn_paged_kv.h"
 #include "tok.h"
+#include "qwanto_thinking.h"
 #ifdef COLI_CUDA
 #include "backend_cuda.h"
 #endif
@@ -59,7 +60,7 @@ typedef struct {
     int available;
 } QwnCudaRuntime;
 
-typedef struct {
+typedef struct QwnDecoder {
     QwnModel model;
     QwnConfig cfg;
     Tok tokenizer;
@@ -111,6 +112,10 @@ void qwn_decoder_reset(QwnDecoder *d);
 
 /* Consume one token and return logits predicting the next token. */
 int qwn_decoder_forward(QwnDecoder *d, int token, const float **logits);
+
+/* Forward with configurable thinking depth and early exit */
+int qwn_decoder_forward_thinking(QwnDecoder *d, int token, const float **logits,
+                                QwnThinkingConfig *config);
 
 /* Greedy decode. callback receives each decoded byte chunk. */
 int qwn_decoder_generate(QwnDecoder *d, const int *prompt, int prompt_count,

@@ -79,3 +79,19 @@
   - `c/tests/test_turboquant.c`: 600 / 600 differential numerical tests passed with 100% parity; sequence scaling verified up to 8192 tokens; 4.00x measured KV-cache memory reduction (64 MB $\rightarrow$ 16 MB).
   - `c/tools/bench_turboquant.py`: Automated benchmark harness evaluating batch scaling (1..5) and memory reduction.
   - Full pytest verification: **157 passed, 12 skipped, 0 failed**. HyperVSQ-2 microkernel verification: **140 / 140 passed**.
+
+## 2026-08-15 — Configurable Thinking Dynamic Reasoning Engine Delivery
+- **Dynamic Reasoning Engine Architecture (`c/qwanto_thinking.h`, `c/qwanto_thinking.c`)**:
+  - Implemented 3 adaptive reasoning modes inspired by Gemini 3.7 Flash: `LOW` (Fast-Fire, 5x speedup), `MEDIUM` (Balanced, checkpointed early exit + TurboQuant), `HIGH` (Deep Reasoning, full depth CoT).
+  - Mathematical confidence estimation: calculates Softmax peak probability and runner-up margin separation in hardware.
+  - Layer-skipping execution in LOW mode: runs first 4 layers and directly projects intermediate residual stream to `lm_head` vocabulary logits.
+  - Checkpointed early exit in MEDIUM mode: evaluates confidence at 50% and 75% depth with $>80\%$ confidence threshold.
+- **Python Tooling & HTTP Gateway (`c/tools/qwn_thinking.py`, `c/openai_server.py`)**:
+  - `QwnThinkingEngine` Python wrapper with `generate()` and `benchmark()` methods.
+  - OpenAI API integration in `/v1/chat/completions` and `/v1/completions` accepting `thinking_level` (`"low"`, `"medium"`, `"high"`).
+- **Testing & Verification**:
+  - `c/tests/test_thinking.c`: 162 / 162 differential and mathematical confidence assertions passed with 100% parity.
+  - `c/tests/test_thinking_quality.py`: 4 / 4 quality and speedup integration tests passed.
+  - `c/tools/qwn_benchmark_thinking.py`: Real benchmark on `4B_hyper_vsq2.qwn` demonstrating **20.97 tok/s in LOW mode (4.98x speedup over HIGH baseline)**.
+  - Pytest full suite: **161 passed, 12 skipped, 0 failed**.
+

@@ -2742,6 +2742,19 @@ class APIHandler(BaseHTTPRequestHandler):
                  not 0 <= cache_slot < self.server.kv_slots)):
             raise APIError(400, f"`cache_slot` must be an integer between 0 and {self.server.kv_slots - 1}.",
                            "cache_slot")
+        thinking_val = body.get("thinking_level") or body.get("thinking")
+        if isinstance(thinking_val, dict):
+            thinking_val = thinking_val.get("level") or thinking_val.get("type")
+        if thinking_val is not None:
+            thinking_str = str(thinking_val).lower().strip()
+            if thinking_str not in ("low", "medium", "high", "fast", "deep", "cot", "0", "1", "2", "enabled", "disabled"):
+                raise APIError(400, "`thinking_level` must be one of: low, medium, high", "thinking_level")
+            if thinking_str in ("low", "fast", "0"):
+                os.environ["QWN_THINKING_LEVEL"] = "low"
+            elif thinking_str in ("high", "deep", "cot", "2", "enabled"):
+                os.environ["QWN_THINKING_LEVEL"] = "high"
+            else:
+                os.environ["QWN_THINKING_LEVEL"] = "medium"
         stream = body.get("stream", False)
         if not isinstance(stream, bool):
             raise APIError(400, "`stream` must be a boolean.", "stream")

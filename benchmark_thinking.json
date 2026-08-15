@@ -1,0 +1,136 @@
+{
+  "timestamp": 1786810319.3821702,
+  "model": "experiments\\results\\4B_hyper_vsq2.qwn",
+  "tokens_per_run": 32,
+  "iterations": 3,
+  "results": {
+    "low": {
+      "thinking_level": "low",
+      "iterations": 3,
+      "avg_tok_per_sec": 18.14,
+      "min_tok_per_sec": 17.81,
+      "max_tok_per_sec": 18.79,
+      "runs": [
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 1.797,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 17.807457,
+          "thinking_level": "low",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: low (early_exit=80%, max_layers=4)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=1.797000 ttft_ms=0.000 tok_per_sec=17.807457 thinking_level=low\n"
+        },
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 1.797,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 17.807457,
+          "thinking_level": "low",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: low (early_exit=80%, max_layers=4)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=1.797000 ttft_ms=0.000 tok_per_sec=17.807457 thinking_level=low\n"
+        },
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 1.703,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 18.79037,
+          "thinking_level": "low",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: low (early_exit=80%, max_layers=4)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=1.703000 ttft_ms=0.000 tok_per_sec=18.790370 thinking_level=low\n"
+        }
+      ],
+      "speedup_factor": 3.66
+    },
+    "medium": {
+      "thinking_level": "medium",
+      "iterations": 3,
+      "avg_tok_per_sec": 4.47,
+      "min_tok_per_sec": 4.07,
+      "max_tok_per_sec": 5.06,
+      "runs": [
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 7.859,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 4.071765,
+          "thinking_level": "medium",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: medium (early_exit=80%, max_layers=999)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=7.859000 ttft_ms=0.000 tok_per_sec=4.071765 thinking_level=medium\n"
+        },
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 7.485,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 4.275217,
+          "thinking_level": "medium",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: medium (early_exit=80%, max_layers=999)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=7.485000 ttft_ms=0.000 tok_per_sec=4.275217 thinking_level=medium\n"
+        },
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 6.328,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 5.05689,
+          "thinking_level": "medium",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: medium (early_exit=80%, max_layers=999)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=6.328000 ttft_ms=0.000 tok_per_sec=5.056890 thinking_level=medium\n"
+        }
+      ],
+      "speedup_factor": 0.9
+    },
+    "high": {
+      "thinking_level": "high",
+      "iterations": 3,
+      "avg_tok_per_sec": 4.96,
+      "min_tok_per_sec": 4.82,
+      "max_tok_per_sec": 5.12,
+      "runs": [
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 6.641,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 4.818551,
+          "thinking_level": "high",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: high (early_exit=100%, max_layers=999)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=6.641000 ttft_ms=0.000 tok_per_sec=4.818551 thinking_level=high\n"
+        },
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 6.469,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 4.946669,
+          "thinking_level": "high",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: high (early_exit=100%, max_layers=999)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=6.469000 ttft_ms=0.000 tok_per_sec=4.946669 thinking_level=high\n"
+        },
+        {
+          "text": "Prompt tokens: 57, generating up to 32 tokens...",
+          "tokens_generated": 32,
+          "wall_seconds": 6.25,
+          "ttft_ms": 0.0,
+          "tok_per_sec": 5.12,
+          "thinking_level": "high",
+          "stderr": "qwnrun build: compiler=clang openmp_enabled=true openmp_runtime=202011 omp_max_threads=32 active_threads=32 isa_backend=avx2\n[INFO] CUDA DLL not found, falling back to CPU runtime.\nqwnrun runtime detail: qwn_cuda_dll_loaded=false\nqwnrun runtime: backend=CPU cuda_compiled=false cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true planned_gpu_bytes=0 planned_ram_bytes=0 planned_nvme_bytes=1265610304 prefetch_calls=0\n[INFO] Configurable Thinking mode: high (early_exit=100%, max_layers=999)\n[INFO] HyperVSQ-2 kernel selected: avx-vnni\nqwnrun result: status=ok tokens=32 wall_seconds=6.250000 ttft_ms=0.000 tok_per_sec=5.120000 thinking_level=high\n"
+        }
+      ],
+      "speedup_factor": 1.0
+    }
+  },
+  "summary": [
+    {
+      "mode": "low",
+      "avg_tok_per_sec": 18.14,
+      "speedup_factor": 3.66
+    },
+    {
+      "mode": "medium",
+      "avg_tok_per_sec": 4.47,
+      "speedup_factor": 0.9
+    },
+    {
+      "mode": "high",
+      "avg_tok_per_sec": 4.96,
+      "speedup_factor": 1.0
+    }
+  ]
+}

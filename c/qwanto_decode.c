@@ -853,7 +853,7 @@ static void vec_add(float *dst, const float *src, int n) {
 #endif
 }
 
-int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
+int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logits,QwnThinkingConfig *config){
     QwnConfig *c=&d->cfg;
     int D=c->hidden;
     int H=c->heads;
@@ -898,21 +898,11 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
         }
         /* Skip attention entirely for SSM-only hybrid layers */
         if (lt->is_ssm) {
-            /* Pure SSM block: no attention, no FFN.  The full Mamba
-             * forward is intentionally out of scope for this
-             * release; we still run the residual stream update so
-             * downstream FFN layers (when present) execute. */
             if (lt->down_proj) {
-                /* If a mixer.down_proj exists, treat it as a 1x1
-                 * "no-op" passthrough by skipping matmul but
-                 * consuming the residual. */
             }
             continue;
         }
-        /* Pre-attention norm: prefer per-layer input_layernorm.weight
-         * (loaded from the model's own tensor if present) but always
-         * apply full RMS normalization -- just multiplying by gamma
-         * is *not* an RMS norm. */
+        /* Pre-attention norm: prefer per-layer input_layernorm.weight */
         const QwnTensorDesc *pre_norm = lt->input_norm;
         if (pre_norm && vector_f32(&d->model, pre_norm, d->scratch.row_f32, D) == 0) {
             rmsnorm(d->xb, d->x, d->scratch.row_f32, D, c->rms_eps);
@@ -1003,50 +993,48 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
 #endif
             memset(d->ctx,0,(size_t)Q*sizeof(float));
             float scale=1.0f/sqrtf((float)hd_this);
-            float ratio=(HK>0)?((float)H/HK):1.0f;
+            float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;
 #if defined(_OPENMP)
             #pragma omp parallel for schedule(static) if(H > 1)
 #endif
             for(int h=0;h<H;h++){
                 int kh=(int)((float)h/ratio);
-                const float *q_head=d->q+h*hd_this;
-                float *scores=d->att+(size_t)h*c->max_ctx;
+                float *att_head=d->att+(size_t)h*c->max_ctx;
+                float *ctx_head=d->ctx+h*hd_this;
                 for(int t=0;t<=pos;t++){
-                    size_t base=layer_base+(size_t)t*KV+(size_t)kh*hd_this;
-                    const uint16_t *kc=d->key_cache+base;
-                    float sum=0;
+                    const uint16_t *kc=d->key_cache+layer_base+(size_t)t*KV+kh*hd_this;
+                    float score=0.0f;
 #if defined(__AVX2__) && defined(__F16C__)
                     {
                         int j = 0;
-                        __m256 acc = _mm256_setzero_ps();
+                        __m256 sum256 = _mm256_setzero_ps();
                         for (; j <= hd_this - 8; j += 8) {
-                            __m128i h8 = _mm_loadu_si128((const __m128i *)(kc + j));
-                            __m256 kf = _mm256_cvtph_ps(h8);
-                            __m256 qf = _mm256_loadu_ps(q_head + j);
-                            acc = _mm256_fmadd_ps(qf, kf, acc);
+                            __m256 qv = _mm256_loadu_ps(d->q + h * hd_this + j);
+                            __m128i kh128 = _mm_loadu_si128((const __m128i *)(kc + j));
+                            __m256 kf = _mm256_cvtph_ps(kh128);
+                            sum256 = _mm256_fmadd_ps(qv, kf, sum256);
                         }
-                        float tmp[8]; _mm256_storeu_ps(tmp, acc);
-                        sum = tmp[0]+tmp[1]+tmp[2]+tmp[3]+tmp[4]+tmp[5]+tmp[6]+tmp[7];
-                        for (; j < hd_this; j++) sum += q_head[j] * half_to_float(kc[j]);
+                        float tmp[8];
+                        _mm256_storeu_ps(tmp, sum256);
+                        for (int k = 0; k < 8; k++) score += tmp[k];
+                        for (; j < hd_this; j++) score += d->q[h * hd_this + j] * half_to_float(kc[j]);
                     }
 #else
-                    for(int j=0;j<hd_this;j++) sum += q_head[j] * half_to_float(kc[j]);
+                    for(int j=0;j<hd_this;j++) score+=d->q[h*hd_this+j]*half_to_float(kc[j]);
 #endif
-                    scores[t]=sum*scale;
+                    att_head[t]=score*scale;
                 }
-                softmax(scores,pos+1);
-                float *ctx_head = d->ctx + h * hd_this;
+                softmax(att_head,pos+1);
                 for(int t=0;t<=pos;t++){
-                    size_t base=layer_base+(size_t)t*KV+(size_t)kh*hd_this;
-                    const uint16_t *vc = d->value_cache + base;
-                    float sc = scores[t];
+                    const uint16_t *vc=d->value_cache+layer_base+(size_t)t*KV+kh*hd_this;
+                    float sc=att_head[t];
 #if defined(__AVX2__) && defined(__F16C__)
                     {
-                        __m256 sv = _mm256_set1_ps(sc);
                         int j = 0;
+                        __m256 sv = _mm256_set1_ps(sc);
                         for (; j <= hd_this - 8; j += 8) {
-                            __m128i h8 = _mm_loadu_si128((const __m128i *)(vc + j));
-                            __m256 vf = _mm256_cvtph_ps(h8);
+                            __m128i vh128 = _mm_loadu_si128((const __m128i *)(vc + j));
+                            __m256 vf = _mm256_cvtph_ps(vh128);
                             __m256 ov = _mm256_loadu_ps(ctx_head + j);
                             ov = _mm256_fmadd_ps(sv, vf, ov);
                             _mm256_storeu_ps(ctx_head + j, ov);
@@ -1075,7 +1063,6 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
          * yet.  The decoder still updates the residual so a downstream
          * layer can run. */
         if (lt->is_moe) {
-            /* No dense FFN, no shared experts, no router yet. */
             continue;
         }
         if(lt->gate_proj && lt->up_proj && lt->down_proj && I) {
@@ -1087,6 +1074,34 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
             }
             if(matmul(d,lt->down_proj,d->hidden,I,D,d->xb))return -1;
             vec_add(d->x, d->xb, D);
+        }
+
+        /* Configurable Thinking Dynamic Checks */
+        if (config) {
+            if (config->level == QWN_THINK_LOW && (l + 1) >= config->n_layers_max) {
+                config->last_exit_layer = l;
+                break;
+            }
+            if (config->level == QWN_THINK_MEDIUM && (l == c->layers / 2 || l == (c->layers * 3) / 4) && (l + 1 < c->layers)) {
+                if (d->final_norm_weight && vector_f32(&d->model, d->final_norm_weight, d->scratch.row_f32, D) == 0) {
+                    rmsnorm(d->xb, d->x, d->scratch.row_f32, D, c->rms_eps);
+                } else {
+                    rmsnorm(d->xb, d->x, d->norm_weights + (size_t)(2 * c->layers) * D, D, c->rms_eps);
+                }
+                if (matmul(d, d->lm_head_weight, d->xb, D, c->vocab, d->logits) == 0) {
+                    float conf = qwn_thinking_compute_confidence(d->logits, c->vocab, config->temp_threshold);
+                    if (config->confidence_buffer) {
+                        config->confidence_buffer[l] = conf;
+                    }
+                    config->last_confidence = conf;
+                    if (conf >= (float)config->early_exit_threshold / 100.0f) {
+                        config->last_exit_layer = l;
+                        d->position++;
+                        if (out_logits) *out_logits = d->logits;
+                        return 0;
+                    }
+                }
+            }
         }
     }
     /* Final norm: full RMS with per-layer gamma if available */
@@ -1103,7 +1118,20 @@ int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
                 (unsigned long long)(d->lm_head_weight?d->lm_head_weight->shape[1]:0));
         return -1;
     }
-    d->position++;if(out_logits)*out_logits=d->logits;return 0;
+    d->position++;
+    if (config) {
+        config->last_exit_layer = c->layers - 1;
+        config->last_confidence = qwn_thinking_compute_confidence(d->logits, c->vocab, config->temp_threshold);
+        if (config->confidence_buffer) {
+            config->confidence_buffer[c->layers - 1] = config->last_confidence;
+        }
+    }
+    if(out_logits)*out_logits=d->logits;
+    return 0;
+}
+
+int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
+    return qwn_decoder_forward_thinking(d, token, out_logits, NULL);
 }
 
 static float random01(uint64_t *state){
