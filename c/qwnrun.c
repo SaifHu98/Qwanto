@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "qwanto_decode.h"
+#include "qwanto_autopilot.h"
 
 #if defined(_OPENMP)
 #include <omp.h>
@@ -207,7 +208,6 @@ int main(int argc,char **argv){
         if (!model || !*model) { fprintf(stderr, "SNAP missing\n"); return 2; }
         return serve_mode(model);
     }
-#include "qwanto_autopilot.h"
 
     print_build_info();
     if(getenv("SERVE")){
