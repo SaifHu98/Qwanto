@@ -172,10 +172,10 @@ Traditional container formats (like GGUF or Safetensors) are designed primarily 
 - Replaces traditional $O(N^2)$ linear gating matrix multiplications with a **Bounding Volume Hierarchy (BVH)** spatial ray-tracing structure.
 - Routes tokens to top-2/top-4 experts in **0.35 $\mu$s**, eliminating the routing bottleneck in giant MoE models (DeepSeek-V3, GLM-5.2, Mixtral).
 
-### 5. 🎯 Saguaro 2.0: Multi-Tier Speculative Decoding (PyramidSD + DREAM)
-- **PyramidSD Hierarchy**: A 3-tier cascade where an ultra-compact draft model speculates tokens, verified by an intermediate model, and committed in parallel by the target model.
-- **DREAM Cross-Modal Speculation**: Entropy-adaptive speculation for mixed vision-language embeddings.
-- **Result**: **1.5x to 5.2x speedup** on autoregressive generation while mathematically preserving identical token distribution.
+### 5. 🎯 JetSpec & Saguaro 2.0: Causal Parallel Tree Speculative Decoding *(UC San Diego 2026)*
+- **Causal Parallel Draft Head**: Attaches a lightweight causal draft head to the frozen target model, generating a complete scored candidate tree in a single forward pass.
+- **Tree-Causal Attention Masking**: Verifies all candidate tree branches simultaneously in a single batched target forward pass, with every token attending strictly to its causal ancestors.
+- **Block-Wise Supervision**: Achieves **42.8% rank-1 branch faithfulness** (vs 6.0% for diffusion drafters), unlocking up to **9.64x speculative speedup** with zero loss in output distribution.
 
 ### 6. ⚡ BitDecoding: Tensor Core KV-Cache Acceleration *(HPCA 2026)*
 - **Warp-Level Dequantization Parallelism**: Reorganizes low-bit KV caches into swizzled $16 \times 16$ and $16 \times 32$ tiles aligned directly with hardware Tensor Cores (`mma.sync`, Hopper `wgmma`, and Blackwell `NVFP4`).
