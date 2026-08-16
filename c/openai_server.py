@@ -53,8 +53,8 @@ def _qwn_executable(engine):
     return candidate
 
 
-def _ensure_llama_server() -> str | None:
-    """Find llama-server in PATH or project dir; if missing, download it."""
+def _ensure_llama_server(allow_download: bool = False) -> str | None:
+    """Find llama-server in PATH or project dir; downloads are strictly opt-in."""
     import shutil
     # 1. Check PATH
     exe = shutil.which("llama-server")
@@ -64,7 +64,17 @@ def _ensure_llama_server() -> str | None:
     local_exe = HERE / "llama-server.exe"
     if local_exe.exists():
         return str(local_exe)
-    # 3. Detect GPU vendor for optimal backend selection
+    
+    # 3. If external downloads are disabled (default local-only profile), fail safely
+    if not allow_download and not os.environ.get("QWANTO_ALLOW_EXTERNAL_RUNTIME") == "1":
+        print(
+            "[local-only] Automatic download of external runtimes is disabled in default local-only profile. "
+            "Use native .qwn models with qwnrun or supply local llama-server on PATH (or opt-in via --allow-external-runtime).",
+            file=sys.stderr
+        )
+        return None
+
+    # 4. Detect GPU vendor for optimal backend selection if explicitly allowed
     gpu_vendor = "unknown"
     try:
         result = subprocess.run(["wmic", "path", "win32_videocontroller", "get", "name"], capture_output=True, text=True, timeout=5)
@@ -77,9 +87,9 @@ def _ensure_llama_server() -> str | None:
             gpu_vendor = "intel"
     except Exception:
         pass
-    print(f"Detected GPU vendor: {gpu_vendor}", file=sys.stderr)
-    # 4. Download from GitHub
-    print("Downloading llama-server from GitHub...", file=sys.stderr)
+    print(f"[external-runtime] Detected GPU vendor: {gpu_vendor}", file=sys.stderr)
+    # 5. Download from GitHub only when explicitly authorized
+    print("[external-runtime] Opt-in download authorized: Downloading llama-server from GitHub...", file=sys.stderr)
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest",
@@ -114,10 +124,10 @@ def _ensure_llama_server() -> str | None:
                 best_score = s
                 zip_url = a.get("browser_download_url")
         if not zip_url:
-            print(f"Could not find Windows release asset in {tag}", file=sys.stderr)
+            print(f"[external-runtime] Could not find Windows release asset in {tag}", file=sys.stderr)
             return None
         fname = zip_url.split('/')[-1]
-        print(f"Downloading {fname}...", file=sys.stderr)
+        print(f"[external-runtime] Downloading {fname}...", file=sys.stderr)
         zip_req = urllib.request.Request(zip_url, headers={"User-Agent": "qwanto/1.0"})
         zip_resp = urllib.request.urlopen(zip_req, timeout=300)
         total = int(zip_resp.headers.get('Content-Length', 0))
@@ -136,7 +146,7 @@ def _ensure_llama_server() -> str | None:
                 print(f"\r  Downloading {fname}... {downloaded/1024/1024:.0f} MB", file=sys.stderr, end="")
         print(file=sys.stderr)
         data = io.BytesIO(b"".join(chunks))
-        print(f"Extracting bundle to {HERE}...", file=sys.stderr)
+        print(f"[external-runtime] Extracting bundle to {HERE}...", file=sys.stderr)
         extracted = []
         found = False
         with zipfile.ZipFile(data) as zf:
@@ -152,7 +162,7 @@ def _ensure_llama_server() -> str | None:
                     found = True
                 print(f"  Extracted {stem}", file=sys.stderr)
         if found:
-            print(f"Downloaded llama-server.exe (+ dependencies) to {HERE}", file=sys.stderr)
+            print(f"[external-runtime] Downloaded llama-server.exe (+ dependencies) to {HERE}", file=sys.stderr)
             return str(local_exe)
         # Clean up partial extraction on failure
         for p in extracted:
@@ -160,10 +170,10 @@ def _ensure_llama_server() -> str | None:
                 p.unlink()
             except OSError:
                 pass
-        print("llama-server.exe not found in downloaded archive", file=sys.stderr)
+        print("[external-runtime] llama-server.exe not found in downloaded archive", file=sys.stderr)
         return None
     except Exception as e:
-        print(f"Failed to download llama-server: {e}", file=sys.stderr)
+        print(f"[external-runtime] Failed to download llama-server: {e}", file=sys.stderr)
         return None
 
 

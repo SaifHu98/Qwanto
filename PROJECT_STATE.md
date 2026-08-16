@@ -37,7 +37,8 @@
 - Test models in `experiments/results/`: `4B_hyper_vsq2.qwn` (1.26 GB, 13.17 tok/s) and `4B_q4_0.qwn` (2.45 GB, 2.18 tok/s).
 - Run scripts: `run_server.bat`, `run_server.sh`, `run_web_ui_only.bat`, `run_web_ui_only.sh`.
 - Maintainer: SaifHu98. Original unified memory architecture credits JustVugg/Colibri.
-- License: MIT (per README header) / Apache 2.0 (per LICENSE file — inconsistent, watch for clarification).
+- License: Apache 2.0 (consistent with `LICENSE` file).
+- Security Profile: Production local-only enabled by default (zero automatic external binary downloads, strict localhost binding).
 
 ## Active Blockers
 - GGUF Q4_K/Q5_K/Q6_K blocks are now dequantized with the verified ggml layout before QWN quantization. Q2_K/Q3_K/Q8_K and IQ blocks remain explicitly rejected until their decoders are verified; none may be copied as opaque bytes.
@@ -45,8 +46,8 @@
 - CUDA and OpenMP availability remain toolchain-dependent; Windows build validated via Clang + MSVC OpenMP runtime.
 
 ## Important Decisions
-- License inconsistency (MIT vs Apache 2.0) between README badge and `LICENSE` file.
+- License: Confirmed Apache 2.0 (per `LICENSE` file).
 - Acknowledge Colibri (JustVugg) as upstream basis for the multi-tier memory architecture.
 - `.qwn` is dense-Llama/Qwen-optimized; MoE/GLM/OLMoE use their own specialist runtimes.
-- GGUF path delegates entirely to external `llama-server` (downloaded automatically on Windows).
+- Local-only profile: Auto-download of external runtimes is strictly disabled by default; external GGUF delegates to local llama-server on PATH or explicit opt-in via `--allow-external-runtime`.
 - Correctness precedes performance claims: unsupported dtype, architecture, shape, or backend paths fail explicitly and produce no tok/s result.
