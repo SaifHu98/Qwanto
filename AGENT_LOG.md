@@ -189,3 +189,8 @@
 
 - **Change:** Added a non-publishing `package-validation-*` tag trigger for environments where the GitHub connector cannot invoke `workflow_dispatch`; `v*` remains the publishing-only trigger.
 - **Decision:** Do not create `v0.1.0-beta.1` until every Windows, macOS, and Linux package job is green.
+
+## 2026-08-16 — macOS ARM package failure diagnosis
+
+- **Change:** Corrected the unconditional x86 `x86intrin.h` include in `c/qwanto_turboquant.c`; ARM64 Apple builds now use the existing scalar/NEON fallback path without importing x86 headers.
+- **Evidence:** Package run `31955416608` failed on `macos-26-arm64` in `make -C c qwnrun` with Clang errors that `immintrin.h` and `mmintrin.h` are x86-only.

@@ -9,7 +9,7 @@
 
 #if defined(_MSC_VER)
 #include <intrin.h>
-#else
+#elif defined(__x86_64__) || defined(__i386__)
 #include <x86intrin.h>
 #endif
 
