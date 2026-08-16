@@ -155,7 +155,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
       - name: Install native decoder dependencies
         run: |
           sudo apt-get update
