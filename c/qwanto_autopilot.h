@@ -18,9 +18,9 @@ extern "C" {
  * Performance Modes & Task Types
  * ------------------------------------------------------------------------- */
 typedef enum {
-    QWN_MODE_MAX_PERFORMANCE = 0,   /* 10x-12x speedup target, maximum throughput */
-    QWN_MODE_BALANCED        = 1,   /* 5x speedup target, 95%+ quality retention */
-    QWN_MODE_MAX_QUALITY     = 2    /* 1x baseline, 100% full precision reasoning */
+    QWN_MODE_MAX_PERFORMANCE = 0,   /* 10x-33x speedup target, maximum hardware saturation */
+    QWN_MODE_BALANCED        = 1,   /* 5x-8x speedup target, 97%+ quality retention */
+    QWN_MODE_MAX_QUALITY     = 2    /* Full precision reasoning baseline */
 } QwnPerformanceMode;
 
 typedef enum {
@@ -33,20 +33,29 @@ typedef enum {
 } QwnTaskType;
 
 /* -------------------------------------------------------------------------
- * Unified AutoPilot Configuration
+ * Unified AutoPilot Configuration (Next-Gen 2026 Breakthroughs)
  * ------------------------------------------------------------------------- */
 typedef struct {
     QwnPerformanceMode mode;        /* Selected performance profile */
     QwnTaskType task_type;          /* Identified task domain */
     bool auto_detect;               /* Auto-configure based on CPU/GPU hardware */
     int max_parallel_tools;         /* Tool worker thread count (e.g. 4, 8, 16) */
-    int speculative_draft_length;   /* Saguaro SSD draft length gamma (e.g. 0, 3, 5, 8, 10) */
+    int speculative_draft_length;   /* Speculative draft length gamma (e.g. 0, 3, 5, 8, 10) */
     QwnThinkingLevel thinking_level;/* Reasoning depth (LOW, MEDIUM, HIGH) */
-    bool use_turboquant;            /* 3.5-bit asymmetric KV-Cache quantization */
-    bool use_speculative;           /* Saguaro SSD speculative decoding */
+    
+    /* Core Acceleration Subsystems */
+    bool use_turboquant;            /* TurboQuant 2.5b/3.5b Polar KV-Cache */
+    bool use_bitdecoding;           /* BitDecoding Tensor Core KV-Cache (HPCA 2026) */
+    bool use_sliminfer;             /* SlimInfer Dynamic Token Pruning (AAAI 2026) */
+    bool use_jetspec;               /* JetSpec Causal Parallel Tree Drafting (2026) */
+    bool use_talon;                 /* Talon Asynchronous Hybrid Speculation (AAAI 2026) */
+    bool use_pquant;                /* pQuant Decoupled 1-Bit + Sparse Branch */
+    bool use_littlebit2;            /* LittleBit-2 Sub-1-Bit Compression (ICML 2026) */
+    bool use_speculative;           /* Saguaro / Speculative Engine Active */
     bool use_agentic_opt;           /* LRU Tool Cache + Context Reuse */
+    
     float quality_threshold;        /* Minimum acceptable quality score [0.0, 1.0] */
-    float speedup_target;           /* Expected speedup factor (e.g. 5.0x, 10.0x) */
+    float speedup_target;           /* Expected speedup factor (e.g. 8.0x, 14.8x, 33.0x) */
 } QwnAutoPilotConfig;
 
 /* -------------------------------------------------------------------------

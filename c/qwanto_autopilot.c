@@ -29,10 +29,16 @@ QwnAutoPilotConfig qwn_autopilot_detect_hardware(void) {
     cfg.task_type = QWN_TASK_SIMPLE_QA;
     cfg.auto_detect = true;
     cfg.use_turboquant = true;
+    cfg.use_bitdecoding = true;
+    cfg.use_sliminfer = true;
+    cfg.use_jetspec = true;
+    cfg.use_talon = true;
+    cfg.use_pquant = true;
+    cfg.use_littlebit2 = false;
     cfg.use_speculative = true;
     cfg.use_agentic_opt = true;
-    cfg.quality_threshold = 0.95f;
-    cfg.speedup_target = 5.0f;
+    cfg.quality_threshold = 0.97f;
+    cfg.speedup_target = 14.8f;
 
     int info[4];
     qwn_cpuid(info, 0, 0);
@@ -74,7 +80,7 @@ QwnAutoPilotConfig qwn_autopilot_detect_hardware(void) {
 }
 
 /* -------------------------------------------------------------------------
- * Optimization Matrix Engine
+ * Optimization Matrix Engine (Next-Gen 2026 Breakthroughs)
  * ------------------------------------------------------------------------- */
 QwnAutoPilotConfig qwn_autopilot_select_config(
     QwnPerformanceMode mode,
@@ -89,57 +95,91 @@ QwnAutoPilotConfig qwn_autopilot_select_config(
         case QWN_TASK_SIMPLE_QA:
             cfg.thinking_level = QWN_THINK_LOW;
             cfg.use_turboquant = true;
-            cfg.use_speculative = false;
+            cfg.use_littlebit2 = true;
+            cfg.use_pquant = false;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = false;
+            cfg.use_talon = true;
+            cfg.use_speculative = true;
             cfg.use_agentic_opt = false;
-            cfg.speedup_target = 8.0f;
+            cfg.speedup_target = 14.8f;
             break;
 
         case QWN_TASK_CODE_GEN:
             cfg.thinking_level = QWN_THINK_MEDIUM;
             cfg.use_turboquant = true;
+            cfg.use_pquant = true;
+            cfg.use_littlebit2 = false;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = true;
+            cfg.use_talon = false;
             cfg.use_speculative = true;
             cfg.use_agentic_opt = false;
-            cfg.speedup_target = 5.0f;
+            cfg.speedup_target = 12.5f;
             break;
 
         case QWN_TASK_REASONING:
             cfg.thinking_level = QWN_THINK_HIGH;
             cfg.use_turboquant = true;
+            cfg.use_pquant = true;
+            cfg.use_littlebit2 = false;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = true;
+            cfg.use_talon = false;
             cfg.use_speculative = true;
             cfg.use_agentic_opt = false;
-            cfg.speedup_target = 3.0f;
+            cfg.speedup_target = 8.5f;
             break;
 
         case QWN_TASK_AGENTIC:
             cfg.thinking_level = QWN_THINK_MEDIUM;
             cfg.use_turboquant = true;
-            cfg.use_speculative = false;
+            cfg.use_pquant = true;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = false;
+            cfg.use_talon = true;
+            cfg.use_speculative = true;
             cfg.use_agentic_opt = true;
-            cfg.speedup_target = 6.0f;
+            cfg.speedup_target = 11.0f;
             break;
 
         case QWN_TASK_TOOL_INTENSIVE:
             cfg.thinking_level = QWN_THINK_LOW;
             cfg.use_turboquant = true;
-            cfg.use_speculative = false;
+            cfg.use_littlebit2 = true;
+            cfg.use_pquant = false;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = false;
+            cfg.use_talon = true;
+            cfg.use_speculative = true;
             cfg.use_agentic_opt = true;
-            cfg.speedup_target = 10.0f;
+            cfg.speedup_target = 16.0f;
             break;
 
         case QWN_TASK_BATCH:
             cfg.thinking_level = QWN_THINK_LOW;
             cfg.use_turboquant = true;
+            cfg.use_bitdecoding = true;
+            cfg.use_littlebit2 = true;
+            cfg.use_pquant = false;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = true;
+            cfg.use_talon = true;
             cfg.use_speculative = true;
             cfg.use_agentic_opt = true;
-            cfg.speedup_target = 12.0f;
+            cfg.speedup_target = 22.0f;
             break;
 
         default:
             cfg.thinking_level = QWN_THINK_MEDIUM;
             cfg.use_turboquant = true;
+            cfg.use_pquant = true;
+            cfg.use_sliminfer = true;
+            cfg.use_jetspec = true;
+            cfg.use_talon = true;
             cfg.use_speculative = true;
             cfg.use_agentic_opt = true;
-            cfg.speedup_target = 5.0f;
+            cfg.speedup_target = 12.0f;
             break;
     }
 
@@ -147,17 +187,53 @@ QwnAutoPilotConfig qwn_autopilot_select_config(
     if (mode == QWN_MODE_MAX_PERFORMANCE) {
         cfg.thinking_level = QWN_THINK_LOW;
         cfg.use_turboquant = true;
+        cfg.use_bitdecoding = true;
+        cfg.use_littlebit2 = true;
+        cfg.use_pquant = false;
+        cfg.use_sliminfer = true;
+        cfg.use_jetspec = true;
+        cfg.use_talon = true;
         cfg.use_speculative = true;
         cfg.use_agentic_opt = true;
-        cfg.speedup_target = 10.0f;
-        cfg.quality_threshold = 0.85f;
+        cfg.speedup_target = 22.0f;
+        cfg.quality_threshold = 0.92f;
     } else if (mode == QWN_MODE_MAX_QUALITY) {
         cfg.thinking_level = QWN_THINK_HIGH;
         cfg.use_turboquant = false;
+        cfg.use_bitdecoding = false;
+        cfg.use_littlebit2 = false;
+        cfg.use_pquant = false;
+        cfg.use_sliminfer = false;
+        cfg.use_jetspec = false;
+        cfg.use_talon = false;
         cfg.use_speculative = false;
         cfg.use_agentic_opt = false;
         cfg.speedup_target = 1.0f;
-        cfg.quality_threshold = 0.99f;
+        cfg.quality_threshold = 0.999f;
+    }
+
+    /* Environment Variable Overrides */
+    const char *env_sliminfer = getenv("QWN_SLIMINFER");
+    if (env_sliminfer) cfg.use_sliminfer = (strcmp(env_sliminfer, "0") != 0 && strcmp(env_sliminfer, "off") != 0);
+
+    const char *env_bitdec = getenv("QWN_BITDECODING");
+    if (env_bitdec) cfg.use_bitdecoding = (strcmp(env_bitdec, "0") != 0 && strcmp(env_bitdec, "off") != 0);
+
+    const char *env_jetspec = getenv("QWN_JETSPEC");
+    if (env_jetspec) cfg.use_jetspec = (strcmp(env_jetspec, "0") != 0 && strcmp(env_jetspec, "off") != 0);
+
+    const char *env_talon = getenv("QWN_TALON");
+    if (env_talon) cfg.use_talon = (strcmp(env_talon, "0") != 0 && strcmp(env_talon, "off") != 0);
+
+    const char *env_quant = getenv("QWN_QUANT");
+    if (env_quant) {
+        if (strcmp(env_quant, "littlebit2") == 0) {
+            cfg.use_littlebit2 = true;
+            cfg.use_pquant = false;
+        } else if (strcmp(env_quant, "pquant") == 0) {
+            cfg.use_pquant = true;
+            cfg.use_littlebit2 = false;
+        }
     }
 
     return cfg;
@@ -178,8 +254,8 @@ QwnTaskType qwn_autopilot_parse_task(const char *task_str) {
 
 const char *qwn_autopilot_describe_mode(QwnPerformanceMode mode) {
     switch (mode) {
-        case QWN_MODE_MAX_PERFORMANCE: return "max-performance (10x)";
-        case QWN_MODE_BALANCED:        return "balanced (5x)";
+        case QWN_MODE_MAX_PERFORMANCE: return "max-performance (22x)";
+        case QWN_MODE_BALANCED:        return "balanced (14.8x)";
         case QWN_MODE_MAX_QUALITY:     return "max-quality (1x)";
         default:                       return "unknown";
     }
@@ -215,14 +291,16 @@ int qwn_autopilot_forward(
 
     if (output && max_tokens > 0) {
         snprintf(output, (size_t)max_tokens,
-                 "[Autopilot: mode=%s, task=%s, speedup=%.1fx, thinking=%s, turboquant=%d, speculative=%d, agentic=%d]",
+                 "[Autopilot: mode=%s, task=%s, speedup=%.1fx, thinking=%s, sliminfer=%d, quant=%s, bitdec=%d, jetspec=%d, talon=%d]",
                  qwn_autopilot_describe_mode(config->mode),
                  qwn_autopilot_describe_task(config->task_type),
                  config->speedup_target,
                  qwn_thinking_level_name(config->thinking_level),
-                 config->use_turboquant ? 1 : 0,
-                 config->use_speculative ? 1 : 0,
-                 config->use_agentic_opt ? 1 : 0);
+                 config->use_sliminfer ? 1 : 0,
+                 config->use_littlebit2 ? "littlebit2" : (config->use_pquant ? "pquant" : "twla"),
+                 config->use_bitdecoding ? 1 : 0,
+                 config->use_jetspec ? 1 : 0,
+                 config->use_talon ? 1 : 0);
     }
     return 0;
 }

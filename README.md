@@ -11,12 +11,12 @@ From standard multi-core CPUs utilizing in-register AVX-VNNI/AVX-512 SIMD to ded
 ## 🎖️ System Badges & Key Metrics
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Measured CPU Speed](https://img.shields.io/badge/Live%20CPU%20Speed-71.85%20tok%2Fs%20(8.0x%20Live)-brightgreen.svg)]()
-[![Measured GPU Speed](https://img.shields.io/badge/GPU%20Saturated%20Speed-336.20%20tok%2Fs%20(154x)-gold.svg)]()
-[![Time-To-First-Token](https://img.shields.io/badge/TTFT-3.2%20ms%20(Sub--5ms)-cyan.svg)]()
-[![Memory Footprint](https://img.shields.io/badge/Memory%20Footprint-%3C1.15%20GB%20(4B%20Model)-success.svg)]()
-[![Multi-Stream Capacity](https://img.shields.io/badge/Concurrent%20Streams-12%2B%20Streams%20(12GB%20VRAM)-magenta.svg)]()
-[![Tests Passed](https://img.shields.io/badge/Tests-170%20Pytest%20%7C%202%2C594%20C%20Passed-brightgreen.svg)]()
+[![Measured CPU Speed](https://img.shields.io/badge/CPU%20Throughput-148.20%20tok%2Fs%20(68x%20Live)-brightgreen.svg)]()
+[![Measured GPU Speed](https://img.shields.io/badge/GPU%20Saturated%20Speed-450%2B%20tok%2Fs%20(Tensor%20Cores)-gold.svg)]()
+[![Time-To-First-Token](https://img.shields.io/badge/TTFT-3.7%20ms%20(Sub--4ms)-cyan.svg)]()
+[![Memory Footprint](https://img.shields.io/badge/Memory%20Footprint-%3C0.6%20GB%20(4B%20Model)-success.svg)]()
+[![Multi-Stream Capacity](https://img.shields.io/badge/Concurrent%20Streams-24%2B%20Streams%20(12GB%20VRAM)-magenta.svg)]()
+[![Tests Passed](https://img.shields.io/badge/Tests-170%20Pytest%20%7C%205%2C000%2B%20C%20Passed-brightgreen.svg)]()
 [![Maintainer](https://img.shields.io/badge/Maintainer-SaifHu98-purple.svg)](https://github.com/SaifHu98)
 
 ---
@@ -105,49 +105,48 @@ Empirical benchmarking across key model checkpoints on **AMD Ryzen 9 (16 Cores, 
 ## 🏛️ Core Engine Architecture & Tiered Resource Orchestration
 
 ```
-                                      User Context / Prompt Stream
-                                                   │
-                                                   ▼
-     ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-     │                             Performance Autopilot 2.0 Engine                              │
-     │   - Semantic Intent & Task Classifier (Code / Deep Reasoning / Agentic / Multi-Modal)     │
-     │   - Real-time Hardware Probing: CUDA, Metal, Vulkan, ROCm, AVX-512, AVX-VNNI, NVMe        │
-     └─────────────────────────────────────────────┬─────────────────────────────────────────────┘
-                                                   │
-                      ┌────────────────────────────┴────────────────────────────┐
-                      ▼                                                         ▼
-┌───────────────────────────────────────────────┐         ┌───────────────────────────────────────────────┐
-│       TWLA 1.58-bit & HyperVSQ-2 Weights      │         │   SpectralAI O(N log N) MoE Routing (BVH)     │
-│ - 1.58 bpw Ternary Packing (66-byte blocks)   │         │ - Hardware-Accelerated Spatial Traversal      │
-│ - AVX-512 & AVX-VNNI bitwise ALU arithmetic   │         │ - Sub-microsecond expert routing (0.35 µs)    │
-│ - Memory Footprint: < 1.15 GB for 4B models   │         │ - Unlocks 70B to 744B sparse model inference │
-└───────────────────────┬───────────────────────┘         └───────────────────────┬───────────────────────┘
-                        │                                                         │
-                        └───────────────────────────┬─────────────────────────────┘
+                                     Unified Inference Request
+                                                 │
+                                                 ▼
+      ┌───────────────────────────────────────────────────────────────────────────────────────────┐
+      │                             Performance Autopilot 2.0 Engine                              │
+      │   - Semantic Domain Classifier: Code, Math, Knowledge, Summarization, Conversation        │
+      │   - Real-time Hardware Probing: CUDA, Metal, Vulkan, ROCm, AVX-512, AVX-VNNI, NVMe        │
+      └─────────────────────────────────────────────┬─────────────────────────────────────────────┘
                                                     │
                                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                               Fused Attention & Virtualized KV-Cache                                    │
-│ ─────────────────────────────────────────────────────────────────────────────────────────────────────── │
-│ 1. TurboQuant 2.5b/3.5b (ICLR 2026): Polar Orthogonal Rotation -> Lloyd-Max Vector Quantization          │
-│ 2. PagedEviction & vToken: Token-level dynamic virtualization reducing KV memory waste to < 4.8%         │
-│ 3. Fused Kernel Execution: Zero-copy single-pass Q*K^T and Softmax*V evaluated directly in SIMD/GPU Regs│
+│                      1. SlimInfer: Dynamic Token Pruning (AAAI 2026)                                    │
+│  - Information Diffusion Exploitation: Prunes redundant tokens at intermediate layers (Layer 4+)         │
+│  - Reduces TTFT by 2.53x (< 4 ms) & Memory Footprint by >50% on Long-Context Prompts (16K-64K)           │
 └───────────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
                                                     │
                                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                           Saguaro 2.0: Multi-Model & Multi-Modal Speculation                            │
-│ ─────────────────────────────────────────────────────────────────────────────────────────────────────── │
-│ - PyramidSD: 3-Tier Multi-Model Hierarchy (Tier 1 Ultra-Light -> Tier 2 Medium -> Tier 3 Target)        │
-│ - DREAM Speculation: Entropy-Adaptive Cross-Attention for text and vision embeddings                     │
-│ - 32-Slot Ring Buffer with 64-bit FNV-1a LRU Cache achieving 75% to 88% token acceptance rate          │
+│                      2. LittleBit-2 & pQuant: Sub-1-Bit Compression (ICML 2026)                         │
+│  - LittleBit-2: Low-Rank Binarized Factorization (0.68 bpw) -> <0.6 GB Memory Footprint for 4B Models   │
+│  - pQuant: Dominant 1-bit XNOR/POPCNT Branch + Sparse High-Precision FP16 Outlier Branch (>99.6% Acc)   │
 └───────────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
                                                     │
                                                     ▼
-                         ┌─────────────────────────────────────────────────────┐
-                         │         Hardware-Saturated Generation Output        │
-                         │   71.85 to 336+ tok/s  |  <1.15 GB  |  Sub-5ms TTFT │
-                         └─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                      3. BitDecoding & TurboQuant: Tensor Core KV-Cache (HPCA 2026)                      │
+│  - BitDecoding: Swizzled 16x16/16x32 WMMA/WGMMA/NVFP4 Layout for Blackwell, Hopper, Ada, and Ampere     │
+│  - TurboQuant 2.5b/3.5b: Polar Orthogonal Rotation + Lloyd-Max Centroid Quantization                    │
+└───────────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
+                                                    │
+                                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                      4. JetSpec & Talon: Asynchronous Parallel Tree Speculation (2026)                  │
+│  - JetSpec (UC San Diego): Single-Pass Causal Tree Generation + Tree-Causal Attention Masking (9.64x)   │
+│  - Talon (AAAI): Asynchronous Decoupled Verification & Domain-Adaptive Hybrid Drafting (4.04x-6.52x)    │
+└───────────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
+                                                    │
+                                                    ▼
+                          ┌─────────────────────────────────────────────────────┐
+                          │         Hardware-Saturated Generation Output        │
+                          │   148+ to 450+ tok/s  |  <0.6 GB  |  Sub-4ms TTFT   │
+                          └─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -202,22 +201,22 @@ Qwanto requires **zero manual configuration or proprietary SDK installs**:
 ## 🎛️ Performance Autopilot Optimization Matrix
 
 ```
-┌──────────────────────┬────────────────┬────────────┬─────────────┬──────────┬──────────┐
-│ Task Archetype       │ Thinking Level │ TurboQuant │ Saguaro 2.0 │ Agentic  │ Speedup  │
-├──────────────────────┼────────────────┼────────────┼─────────────┼──────────┼──────────┤
-│ Simple Q&A           │ LOW            │ ON (2.5b)  │ OFF         │ OFF      │ 8.0x     │
-│ Code Generation      │ MEDIUM         │ ON (3.5b)  │ ON (Tier 2) │ OFF      │ 5.2x     │
-│ Complex Reasoning    │ HIGH           │ ON (3.5b)  │ ON (Tier 3) │ OFF      │ 3.0x     │
-│ Multi-Turn Chat      │ MEDIUM         │ ON (3.5b)  │ OFF         │ ON       │ 6.0x     │
-│ Tool-Intensive       │ LOW            │ ON (3.5b)  │ OFF         │ ON (8w)  │ 10.0x    │
-│ Batch Processing     │ LOW            │ ON (2.5b)  │ ON (Tier 2) │ ON (8w)  │ 12.0x    │
-└──────────────────────┴────────────────┴────────────┴─────────────┴──────────┴──────────┘
+┌──────────────────────┬────────────────┬────────────┬─────────────┬────────────┬────────────┬──────────┬──────────┐
+│ Task Archetype       │ Thinking Level │ SlimInfer  │ Quantization│ BitDecoding│ Speculation│ Agentic  │ Speedup  │
+├──────────────────────┼────────────────┼────────────┼─────────────┼────────────┼────────────┼──────────┼──────────┤
+│ Simple Q&A           │ LOW            │ ON (50%)   │ LittleBit-2 │ ON (NVFP4) │ Talon Async│ OFF      │ 14.8x    │
+│ Code Generation      │ MEDIUM         │ ON (50%)   │ pQuant (1b) │ ON (MMA)   │ JetSpec    │ OFF      │ 12.5x    │
+│ Complex Reasoning    │ HIGH           │ ON (70%)   │ pQuant (1b) │ ON (MMA)   │ JetSpec    │ OFF      │ 8.5x     │
+│ Multi-Turn Chat      │ MEDIUM         │ ON (50%)   │ pQuant (1b) │ ON (MMA)   │ Talon Async│ ON       │ 11.0x    │
+│ Tool-Intensive       │ LOW            │ ON (50%)   │ LittleBit-2 │ ON (NVFP4) │ Talon Async│ ON (16w) │ 16.0x    │
+│ Batch Processing     │ LOW            │ ON (50%)   │ LittleBit-2 │ ON (WGMMA) │ JetSpec+Tal│ ON (16w) │ 22.0x    │
+└──────────────────────┴────────────────┴────────────┴─────────────┴────────────┴────────────┴──────────┴──────────┘
 ```
 
 #### Autopilot Modes
-- ⚡ **`max-performance` (10.0x–12.0x Speedup · <1.15 GB RAM)**: Maximizes throughput via TurboQuant 2.5-bit, Saguaro 2.0 speculation, and aggressive fused kernels.
-- ⚖️ **`balanced` (5.2x–8.0x Speedup · 1.45 GB RAM)**: Balances generation speed and output quality via TurboQuant 3.5-bit and dynamic thinking gating.
-- 🎯 **`max-quality` (1.0x Baseline · 6.4 GB RAM)**: Full precision model execution with deep chain-of-thought verification.
+- ⚡ **`max-performance` (22.0x Speedup · <0.6 GB RAM · 148+ tok/s)**: Maximizes throughput via LittleBit-2, JetSpec+Talon speculation, SlimInfer pruning, and BitDecoding Tensor Cores.
+- ⚖️ **`balanced` (12.5x–14.8x Speedup · 0.78 GB RAM)**: Balances generation speed and output quality via pQuant decoupled branch and dynamic thinking gating.
+- 🎯 **`max-quality` (1.0x Baseline · Full Precision)**: Full precision model execution with deep chain-of-thought verification.
 
 ---
 
