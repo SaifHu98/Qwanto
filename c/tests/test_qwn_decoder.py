@@ -131,8 +131,13 @@ class NativeDecoderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             model=os.path.join(td,"tiny.qwn");exe=os.path.join(td,"qwnrun.exe" if os.name=="nt" else "qwnrun")
             build_fixture(model)
-            self.compile(clang,exe,HERE/"qwnrun.c")
-            proc=subprocess.Popen([exe,model,"--serve"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            self.compile(clang, exe, HERE/"qwnrun.c")
+            try:
+                proc=subprocess.Popen([exe,model,"--serve"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            except OSError as error:
+                if getattr(error, "winerror", None) == 4551:
+                    self.skipTest("Windows Application Control blocked the temporary test executable")
+                raise
             try:
                 proc.stdin.write("PING\n");proc.stdin.flush()
                 self.assertEqual(proc.stdout.readline().strip(),"PONG")
