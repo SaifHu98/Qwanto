@@ -25,7 +25,7 @@
   color-scheme: dark;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Outfit", system-ui, sans-serif;
   
-  /* Cyberpunk & Hardware Saturated Palette */
+  /* Cyberpunk Hardware Saturation Theme Palette */
   --background: #060911;
   --foreground: #e6edf3;
   --card: #0b111e;
@@ -45,7 +45,6 @@
   --purple: #9d4edd;
   --gold: #ffd166;
   --green: #00f59b;
-  --panel-bg: rgba(11, 17, 30, 0.75);
 }
 
 * {
@@ -55,77 +54,106 @@
 html, body, #root {
   min-height: 100%;
   margin: 0;
-  background-color: var(--background);
+  background-color: #060911;
   color: var(--foreground);
 }
 
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: radial-gradient(circle at 50% 0%, #0d1a33 0%, #060911 75%);
+  background-color: #060911;
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 100% 100%, rgba(157, 78, 221, 0.06) 0%, transparent 50%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
   background-attachment: fixed;
 }
 
-/* Custom Cyberpunk Glow & Glassmorphism Utilities */
+/* ── Cyberpunk Glassmorphism Panels ── */
 .glass-panel {
   background: rgba(11, 17, 30, 0.72);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 240, 255, 0.12);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 240, 255, 0.14);
+  box-shadow: 0 10px 35px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel:hover {
+  border-color: rgba(0, 240, 255, 0.35);
+  box-shadow: 0 12px 40px 0 rgba(0, 240, 255, 0.08), inset 0 1px 0 rgba(0, 240, 255, 0.15);
 }
 
 .glass-panel-glow {
   background: rgba(11, 17, 30, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0, 240, 255, 0.25);
-  box-shadow: 0 0 25px rgba(0, 240, 255, 0.08), inset 0 0 15px rgba(0, 240, 255, 0.03);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  box-shadow: 0 0 30px rgba(0, 240, 255, 0.12), inset 0 0 20px rgba(0, 240, 255, 0.04);
 }
 
-.glass-card-purple {
-  background: rgba(18, 12, 33, 0.75);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(157, 78, 221, 0.2);
-  box-shadow: 0 0 25px rgba(157, 78, 221, 0.08);
+/* ── Animated Shimmer & Gradient Bars ── */
+.animated-shimmer-bar {
+  background: linear-gradient(90deg, #00f0ff 0%, #3b82f6 50%, #00f0ff 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite linear;
 }
 
-.glass-card-gold {
-  background: rgba(25, 20, 10, 0.75);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 209, 102, 0.2);
-  box-shadow: 0 0 25px rgba(255, 209, 102, 0.08);
+.animated-shimmer-purple {
+  background: linear-gradient(90deg, #9d4edd 0%, #c77dff 50%, #9d4edd 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite linear;
 }
 
-.glass-card-green {
-  background: rgba(10, 25, 18, 0.75);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 245, 155, 0.2);
-  box-shadow: 0 0 25px rgba(0, 245, 155, 0.08);
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
+/* ── Neon Text Accents ── */
 .neon-text-cyan {
   color: #00f0ff;
-  text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+  text-shadow: 0 0 15px rgba(0, 240, 255, 0.6), 0 0 30px rgba(0, 240, 255, 0.2);
 }
 
 .neon-text-purple {
   color: #c77dff;
-  text-shadow: 0 0 12px rgba(199, 125, 255, 0.5);
+  text-shadow: 0 0 15px rgba(199, 125, 255, 0.6), 0 0 30px rgba(199, 125, 255, 0.2);
 }
 
 .neon-text-gold {
   color: #ffd166;
-  text-shadow: 0 0 12px rgba(255, 209, 102, 0.5);
+  text-shadow: 0 0 15px rgba(255, 209, 102, 0.6), 0 0 30px rgba(255, 209, 102, 0.2);
 }
 
 .neon-text-green {
   color: #00f59b;
-  text-shadow: 0 0 12px rgba(0, 245, 155, 0.5);
+  text-shadow: 0 0 15px rgba(0, 245, 155, 0.6), 0 0 30px rgba(0, 245, 155, 0.2);
 }
 
+/* ── CRT / Cyber Scanlines Effect for Terminal/Logs ── */
+.cyber-scanlines {
+  position: relative;
+  overflow: hidden;
+}
+
+.cyber-scanlines::after {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+  background-size: 100% 3px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* ── Pulse Glow & Neon Border Animations ── */
 .neon-border-pulse {
-  animation: neon-pulse 3s infinite alternate;
+  animation: neon-pulse 3s infinite alternate ease-in-out;
 }
 
 @keyframes neon-pulse {
@@ -134,9 +162,19 @@ body {
     box-shadow: 0 0 15px rgba(0, 240, 255, 0.05);
   }
   100% {
-    border-color: rgba(0, 240, 255, 0.5);
-    box-shadow: 0 0 25px rgba(0, 240, 255, 0.2);
+    border-color: rgba(0, 240, 255, 0.55);
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.25);
   }
+}
+
+.electric-bolt-glow {
+  filter: drop-shadow(0 0 8px #00f0ff) drop-shadow(0 0 16px rgba(0, 240, 255, 0.6));
+  animation: bolt-flicker 2.5s infinite ease-in-out;
+}
+
+@keyframes bolt-flicker {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px #00f0ff) drop-shadow(0 0 16px rgba(0, 240, 255, 0.6)); }
+  50% { transform: scale(1.1); filter: drop-shadow(0 0 12px #00f0ff) drop-shadow(0 0 24px rgba(0, 240, 255, 0.9)); }
 }
 
 /* Custom Scrollbars */
@@ -146,7 +184,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(6, 9, 17, 0.6);
+  background: rgba(6, 9, 17, 0.8);
 }
 
 ::-webkit-scrollbar-thumb {
@@ -155,7 +193,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #00f0ff55;
+  background: #00f0ff66;
 }
 
 /* Code & Monospace styling */
@@ -163,12 +201,14 @@ code, kbd, samp, pre {
   font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", "Cascadia Code", Menlo, monospace;
 }
 
-/* Animations */
-@keyframes pulse-glow {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.05); }
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s infinite ease-in-out;
+/* Keyboard Shortcut Badge */
+.kbd-badge {
+  background: rgba(14, 23, 40, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: monospace;
 }

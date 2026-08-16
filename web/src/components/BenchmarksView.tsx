@@ -230,12 +230,15 @@ export function BenchmarksView({ baseUrl, apiKey }: BenchmarksViewProps) {
         {benchmarking && (
           <div className="space-y-2">
             <div className="flex justify-between text-xs font-mono text-cyan-300">
-              <span>Warm-up runs complete · Executing 10-pass measurement cycles...</span>
-              <span>{benchProgress}%</span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-cyan-400 animate-ping" />
+                Warm-up runs complete · Saturating hardware execution units...
+              </span>
+              <span className="font-bold">{benchProgress}%</span>
             </div>
-            <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-cyan-500/30">
+            <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-cyan-500/40">
               <div
-                className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 transition-all duration-150"
+                className="h-full animated-shimmer-bar rounded-full transition-all duration-150 shadow-[0_0_15px_rgba(0,240,255,0.6)]"
                 style={{ width: `${benchProgress}%` }}
               />
             </div>
