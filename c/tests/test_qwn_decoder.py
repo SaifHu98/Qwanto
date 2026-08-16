@@ -99,8 +99,9 @@ class NativeDecoderTest(unittest.TestCase):
         cmd=[clang,"-std=c11","-O2","-D_CRT_SECURE_NO_WARNINGS","-Wno-unused-function",
              str(main),str(HERE/"qwanto_decode.c"),str(HERE/"qwanto_native.c"),
              str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwanto_thinking.c"),str(HERE/"qwanto_speculative.c"),str(HERE/"qwanto_agentic.c"),str(HERE/"qwanto_autopilot.c"),str(HERE/"qwanto_gpu.c"),str(HERE/"qwanto_bitdecoding.c"),str(HERE/"qwanto_jetspec.c"),str(HERE/"qwanto_talon.c"),str(HERE/"qwanto_sliminfer.c"),str(HERE/"qwanto_pquant.c"),str(HERE/"qwanto_littlebit.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
-        if os.name!="nt":cmd.append("-lm")
-        subprocess.run(cmd,check=True,capture_output=True,text=True)
+        if os.name != "nt":
+            cmd.extend(["-lm", "-lpthread", "-ldl"])
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
 
     def run_native(self, command):
         try:
