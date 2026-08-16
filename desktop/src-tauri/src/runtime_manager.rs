@@ -43,6 +43,10 @@ pub struct TelemetryEvent {
     pub tok_per_sec: Option<f64>,
     pub ttft_ms: Option<f64>,
     pub total_tokens: u32,
+    pub wall_seconds: f64,
+    pub backend: String,
+    pub active_model_path: Option<String>,
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,11 +408,16 @@ impl QwantoRuntimeManager {
                                     }
                                 };
 
+                                let runtime_snapshot = status_clone.lock().unwrap().clone();
                                 let _ = app_clone.emit("qwanto://telemetry", TelemetryEvent {
                                     request_id: request_id.clone(),
                                     tok_per_sec: if tok_per_sec > 0.0 { Some(tok_per_sec) } else { None },
                                     ttft_ms,
                                     total_tokens: generated_tokens,
+                                    wall_seconds,
+                                    backend: runtime_snapshot.backend,
+                                    active_model_path: runtime_snapshot.active_model_path,
+                                    pid: runtime_snapshot.pid,
                                 });
 
                                 let _ = app_clone.emit("qwanto://done", DoneEvent {

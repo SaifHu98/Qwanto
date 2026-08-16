@@ -1,6 +1,12 @@
 name: Package Qwanto Beta
 
 on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Optional package validation note"
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -74,6 +80,13 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0.0" --locked
 
+      - name: Validate Rust desktop checks
+        working-directory: desktop
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
       - name: Build desktop packages
         working-directory: desktop
         run: cargo tauri build --bundles "${{ matrix.bundle }}"
@@ -91,3 +104,35 @@ jobs:
           name: qwanto-${{ matrix.artifact }}-${{ github.ref_name }}
           path: desktop/src-tauri/target/release/bundle
           if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Beta release assets
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: qwanto-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create prerelease and upload installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mapfile -t assets < <(find release-assets -type f -print)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No installer assets were downloaded" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" --prerelease --generate-notes --title "Qwanto $TAG"
+          fi

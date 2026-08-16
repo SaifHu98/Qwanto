@@ -21,6 +21,24 @@ pub struct AppState {
     pub session_store: Mutex<SessionStore>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+struct DesktopCapabilities {
+    converter_available: bool,
+    downloader_available: bool,
+    gateway_sidecar_packaged: bool,
+    reason: String,
+}
+
+#[tauri::command]
+fn get_desktop_capabilities() -> DesktopCapabilities {
+    DesktopCapabilities {
+        converter_available: false,
+        downloader_available: false,
+        gateway_sidecar_packaged: false,
+        reason: "The Beta desktop package contains qwnrun only; Python gateway acquisition is not bundled.".into(),
+    }
+}
+
 #[tauri::command]
 fn discover_models(directories: Vec<String>) -> Result<Vec<ModelInfo>, String> {
     Ok(ModelRegistry::discover_models(directories))
@@ -162,6 +180,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             discover_models,
+            get_desktop_capabilities,
             start_model,
             stop_model,
             send_prompt,

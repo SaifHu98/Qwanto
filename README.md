@@ -30,9 +30,9 @@ agent tools. Models are never bundled.
 | Native decoder and persistent serve protocol | Beta-supported | C/Python tests and CI |
 | Loopback gateway and OpenAI-compatible API | Beta-supported | `c/tests/` |
 | Shared web dashboard | Beta-supported | `npm run build`, `npm test` |
-| Windows/Linux Tauri packages | CI-packaged on `v*` tags | `.github/workflows/release.yml` |
-| macOS package | Experimental until a target run is observed | release workflow path |
-| GGUF | External-runtime boundary | unavailable to native desktop by default |
+| Windows NSIS/MSI, macOS DMG, Linux AppImage/DEB | Package workflow; unsigned unless real signing is configured | `.github/workflows/release.yml` |
+| GGUF, Safetensors, PyTorch `.pt`/`.pth`/PyTorch `.bin` | Converter-supported source formats; fixture coverage is conditional | [model acquisition design](docs/model-acquisition-design.md) |
+| ONNX, Keras/H5, arbitrary `.bin` | Unsupported; converter fails fast | [model acquisition design](docs/model-acquisition-design.md) |
 
 ## Quick start
 
@@ -73,6 +73,13 @@ descriptors, 64-byte payload alignment, and the project’s VRAM → RAM → NVM
 memory model. Inspect [docs/qwn-format.md](docs/qwn-format.md) before creating
 or distributing a container. Large model files are local fixtures and are not
 source-controlled release assets.
+
+Model acquisition is explicit and provider-scoped. Hugging Face public HTTPS,
+allowlisted direct HTTPS, and local-file import are supported by the local
+gateway. Downloads use a `.part` file, range resume, checksum/size checks, disk
+preflight, and atomic publication. The packaged Tauri Beta contains qwnrun only;
+its converter and downloader are honestly disabled until a gateway sidecar is
+packaged and supervised.
 
 ## Benchmark evidence
 
@@ -136,6 +143,7 @@ available.
 - [Desktop agent](docs/desktop-agent.md)
 - [Security model](docs/security-model.md)
 - [Packaging](docs/packaging.md)
+- [Model acquisition design](docs/model-acquisition-design.md)
 - [Benchmark methodology](docs/benchmark-methodology.md)
 - [Release engineering plan](docs/release-engineering-plan.md)
 - [Release readiness](RELEASE_READINESS.md)

@@ -15,6 +15,14 @@ Release builds stage a target-native binary as
 `desktop/src-tauri/resources/qwnrun`. Models are not resources; they stay on
 user-selected storage.
 
+The Beta package deliberately does not bundle Python or the gateway. The
+shared Model Library therefore disables remote acquisition and conversion in
+the installed shell and explains the boundary. The local gateway web console
+may expose the provider adapters described in
+[model-acquisition-design.md](model-acquisition-design.md). Enabling those
+controls in the desktop shell requires a future loopback-only, health-checked
+gateway sidecar with a fixed packaged executable path.
+
 ## Agent modes and tools
 
 The Rust policy supports Plan and Agent modes. Read-only inspection is

@@ -29,6 +29,15 @@ import backends
 import orchestrator
 import io
 import zipfile
+from model_acquisition import (
+    AcquisitionError,
+    DirectHttpsProvider,
+    HuggingFaceProvider,
+    LocalFileProvider,
+    SafeDownloadManager,
+    convert_to_qwn,
+    provider_catalog,
+)
 
 
 HERE = Path(__file__).resolve().parent
@@ -1179,250 +1188,7 @@ def model_object(model_id, created):
     return {"id": model_id, "object": "model", "created": created, "owned_by": "qwanto"}
 
 
-class DownloadManager:
-    def __init__(self):
-        self.status = "idle" # "idle", "downloading", "paused", "completed", "error"
-        self.filename = ""
-        self.dest_path = None
-        self.url = ""
-        self.downloaded = 0
-        self.total = 0
-        self.speed = 0.0
-        self.progress = 0.0
-        self.error_message = None
-        self.thread = None
-        self.lock = threading.Lock()
-        self.cancelled = False
-        self.paused = False
-        self.connections = 8
-        self.speed_limit = 0  # 0 = unlimited, bytes/sec
-        self.retries = 3
-        self.retry_count = 0
-        self._chunks_done = 0
-        self._chunks_total = 0
-
-    def start_download(self, url, dest_path):
-        with self.lock:
-            if self.status in ("downloading", "paused"):
-                raise ValueError("A download is already in progress.")
-            self.status = "downloading"
-            self.filename = dest_path.name
-            self.dest_path = str(dest_path)
-            self.url = url
-            self.downloaded = 0
-            self.total = 0
-            self.speed = 0.0
-            self.progress = 0.0
-            self.error_message = None
-            self.cancelled = False
-            self.paused = False
-            self.retry_count = 0
-            self.thread = threading.Thread(target=self._run, args=(url, dest_path), daemon=True)
-            self.thread.start()
-
-    def pause(self):
-        with self.lock:
-            if self.status == "downloading":
-                self.paused = True
-
-    def resume(self):
-        with self.lock:
-            if self.status == "paused":
-                self.paused = False
-
-    def cancel(self):
-        with self.lock:
-            if self.status in ("downloading", "paused"):
-                self.cancelled = True
-                self.paused = False
-
-    def set_connections(self, n):
-        with self.lock:
-            self.connections = max(1, min(32, n))
-
-    def set_speed_limit(self, limit_bytes_sec):
-        with self.lock:
-            self.speed_limit = max(0, limit_bytes_sec)
-
-    def _download_chunk(self, url, start, end, chunk_idx, results, offsets):
-        for attempt in range(self.retries):
-            try:
-                req = urllib.request.Request(url, headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    "Range": f"bytes={start}-{end}"
-                })
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    data = resp.read()
-                    results[chunk_idx] = data
-                    offsets[chunk_idx] = start
-                    return
-            except Exception as e:
-                if attempt == self.retries - 1:
-                    raise e
-                time.sleep(1)
-
-    def _run(self, url, dest_path):
-        try:
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-            with urllib.request.urlopen(req, timeout=30) as response:
-                total_size = int(response.headers.get('content-length', 0))
-                accept_ranges = response.headers.get('accept-ranges', '')
-                content_length = int(response.headers.get('content-length', 0))
-
-            use_parallel = total_size > 10 * 1024 * 1024 and accept_ranges == "bytes"
-
-            with self.lock:
-                self.total = total_size
-                self._chunks_done = 0
-                self._chunks_total = 0
-
-            if use_parallel:
-                self._parallel_download(url, dest_path, total_size)
-            else:
-                self._sequential_download(url, dest_path, total_size)
-
-            with self.lock:
-                if self.cancelled:
-                    self.status = "error"
-                    self.error_message = "Download cancelled by user"
-                elif self.status != "error":
-                    self.status = "completed"
-                    self.progress = 100.0
-
-            if self.cancelled and dest_path.exists():
-                try:
-                    dest_path.unlink()
-                except Exception:
-                    pass
-        except Exception as e:
-            with self.lock:
-                self.status = "error"
-                self.error_message = str(e)
-            if dest_path.exists():
-                try:
-                    dest_path.unlink()
-                except Exception:
-                    pass
-
-    def _parallel_download(self, url, dest_path, total_size):
-        import concurrent.futures
-        num_chunks = self.connections
-        chunk_size = total_size // num_chunks
-        results = [None] * num_chunks
-        offsets = [0] * num_chunks
-        threads_per_chunk = max(1, chunk_size // (4 * 1024 * 1024))
-
-        with self.lock:
-            self._chunks_total = num_chunks
-
-        ranges = []
-        for i in range(num_chunks):
-            start = i * chunk_size
-            end = start + chunk_size - 1 if i < num_chunks - 1 else total_size - 1
-            ranges.append((start, end))
-
-        start_time = time.monotonic()
-        bytes_per_sec_limit = self.speed_limit
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_chunks) as pool:
-            futures = []
-            for i, (start, end) in enumerate(ranges):
-                futures.append(pool.submit(self._download_chunk, url, start, end, i, results, offsets))
-
-            for f in concurrent.futures.as_completed(futures):
-                if self.cancelled:
-                    pool.shutdown(wait=False, cancel_futures=True)
-                    return
-                while self.paused:
-                    if self.cancelled:
-                        return
-                    time.sleep(0.5)
-                f.result()
-
-                done_chunks = sum(1 for r in results if r is not None)
-                downloaded_so_far = sum(len(r) for r in results if r is not None)
-
-                elapsed = time.monotonic() - start_time
-                speed = (downloaded_so_far / (1024 * 1024)) / elapsed if elapsed > 0 else 0.0
-                progress = (downloaded_so_far / total_size) * 100 if total_size > 0 else 0.0
-
-                with self.lock:
-                    self.downloaded = downloaded_so_far
-                    self.speed = speed
-                    self.progress = progress
-                    self._chunks_done = done_chunks
-
-        with open(dest_path, "wb") as f:
-            for i in range(num_chunks):
-                if results[i] is not None:
-                    f.write(results[i])
-
-    def _sequential_download(self, url, dest_path, total_size):
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            chunk_size = 4 * 1024 * 1024  # 4MB chunks for sequential
-            downloaded = 0
-            start_time = time.monotonic()
-            speed_window = []
-            bytes_per_sec_limit = self.speed_limit
-
-            with open(dest_path, "wb") as f:
-                while True:
-                    if self.cancelled:
-                        break
-                    if self.paused:
-                        time.sleep(0.5)
-                        continue
-
-                    chunk_start = time.monotonic()
-                    chunk = response.read(chunk_size)
-                    if not chunk:
-                        break
-
-                    if bytes_per_sec_limit > 0:
-                        chunk_time = time.monotonic() - chunk_start
-                        min_time = len(chunk) / bytes_per_sec_limit
-                        if chunk_time < min_time:
-                            time.sleep(min_time - chunk_time)
-
-                    f.write(chunk)
-                    downloaded += len(chunk)
-
-                    now = time.monotonic()
-                    speed_window.append((now, len(chunk)))
-                    while speed_window and speed_window[0][0] < now - 2:
-                        speed_window.pop(0)
-                    window_bytes = sum(b for _, b in speed_window)
-                    window_time = now - speed_window[0][0] if speed_window else 1
-                    speed = (window_bytes / (1024 * 1024)) / window_time if window_time > 0 else 0.0
-                    progress = (downloaded / total_size) * 100 if total_size > 0 else 0.0
-
-                    with self.lock:
-                        self.downloaded = downloaded
-                        self.speed = speed
-                        self.progress = progress
-
-    def get_status(self):
-        with self.lock:
-            return {
-                "status": self.status,
-                "filename": self.filename,
-                "dest_path": self.dest_path or "",
-                "url": self.url,
-                "downloaded": self.downloaded,
-                "total": self.total,
-                "speed": self.speed,
-                "progress": self.progress,
-                "error": self.error_message,
-                "connections": self.connections,
-                "speed_limit": self.speed_limit,
-                "retry_count": self.retry_count,
-                "chunks_done": self._chunks_done,
-                "chunks_total": self._chunks_total,
-            }
-
-download_manager = DownloadManager()
+download_manager = SafeDownloadManager(PROJECT_ROOT / "models")
 
 
 class ConversionManager:
@@ -1433,13 +1199,17 @@ class ConversionManager:
         self.output = ""
         self.quant = "q4_0"
         self.progress = 0
+        self.stage = "idle"
         self.message = ""
         self.error = None
         self.start_time = 0
         self.elapsed = 0
         self.speed_mb_s = 0.0
+        self.manifest = None
+        self.cancel_event = threading.Event()
+        self.overwrite = False
 
-    def start_conversion(self, source, output, quant="q4_0"):
+    def start_conversion(self, source, output, quant="q4_0", overwrite=False):
         with self.lock:
             if self.status == "converting":
                 raise ValueError("A model conversion is already in progress.")
@@ -1447,9 +1217,13 @@ class ConversionManager:
             self.source = str(source)
             self.output = str(output)
             self.quant = quant
-            self.progress = 0
-            self.message = "Initializing universal converter..."
+            self.overwrite = bool(overwrite)
+            self.progress = None
+            self.stage = "inspect"
+            self.message = "Inspecting source format; detailed tensor progress is unavailable until the converter reports it."
             self.error = None
+            self.manifest = None
+            self.cancel_event.clear()
             self.start_time = time.time()
             self.elapsed = 0
             self.speed_mb_s = 0.0
@@ -1457,36 +1231,45 @@ class ConversionManager:
             t = threading.Thread(target=self._run, daemon=True)
             t.start()
 
+    def cancel(self):
+        self.cancel_event.set()
+
     def _run(self):
         try:
-            import importlib.util
-            tools_dir = Path(__file__).resolve().parent / "tools"
-            tool_file = tools_dir / "qwn_convert.py"
-            spec = importlib.util.spec_from_file_location("qwn_convert", tool_file)
-            if spec and spec.loader:
-                qwn_mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(qwn_mod)
-                convert_func = getattr(qwn_mod, "convert_model")
-            else:
-                raise ImportError(f"Cannot load qwn_convert from {tool_file}")
-            self.message = f"Converting {Path(self.source).name} to {Path(self.output).name} ({self.quant})..."
-            self.progress = 20
+            source_path = Path(self.source).resolve()
+            output_path = Path(self.output).resolve()
+            if not _is_safe_path(output_path, allowed_dirs=[PROJECT_ROOT / "models", source_path.parent]):
+                raise AcquisitionError("Conversion output must remain in the model library or selected source directory.")
+            if self.cancel_event.is_set():
+                raise AcquisitionError("Conversion cancelled by user")
+            self.stage = "convert"
+            self.message = f"Converting {source_path.name} to {output_path.name} ({self.quant}); detailed progress is unavailable from this converter."
             t0 = time.time()
-            src_size = os.path.getsize(self.source) if os.path.isfile(self.source) else 1024 * 1024 * 1024
-            
-            convert_func(self.source, self.output, self.quant)
-            
+            src_size = source_path.stat().st_size if source_path.is_file() else 0
+            qwnrun = next((candidate for candidate in (
+                HERE / "qwnrun.exe", HERE / "qwnrun", PROJECT_ROOT / "c" / "qwnrun.exe", PROJECT_ROOT / "c" / "qwnrun"
+            ) if candidate.is_file()), None)
+            manifest = convert_to_qwn(source_path, output_path, self.quant, qwnrun=qwnrun,
+                                      overwrite=self.overwrite,
+                                      cancel_check=self.cancel_event.is_set)
+            if self.cancel_event.is_set():
+                raise AcquisitionError("Conversion cancelled by user")
+
             dur = max(0.01, time.time() - t0)
-            out_size = os.path.getsize(self.output) if os.path.isfile(self.output) else 0
+            out_size = output_path.stat().st_size if output_path.is_file() else 0
             with self.lock:
                 self.status = "done"
+                self.stage = "verified"
                 self.progress = 100
                 self.elapsed = round(dur, 2)
-                self.speed_mb_s = round((src_size / (1024 * 1024)) / dur, 2)
-                self.message = f"Converted successfully in {dur:.2f}s ({self.speed_mb_s} MB/s). Output size: {out_size / (1024 * 1024):.1f} MB."
+                self.speed_mb_s = round((src_size / (1024 * 1024)) / dur, 2) if src_size else None
+                self.manifest = manifest
+                smoke = manifest["native_smoke_test"]["status"]
+                self.message = f"Converted and validated in {dur:.2f}s. Output size: {out_size / (1024 * 1024):.1f} MB. Native smoke test: {smoke}."
         except Exception as e:
             with self.lock:
-                self.status = "error"
+                self.status = "cancelled" if self.cancel_event.is_set() else "error"
+                self.stage = "cancelled" if self.cancel_event.is_set() else "error"
                 self.error = str(e)
                 self.message = f"Conversion failed: {e}"
 
@@ -1501,10 +1284,12 @@ class ConversionManager:
                 "output": self.output,
                 "quant": self.quant,
                 "progress": self.progress,
+                "stage": self.stage,
                 "message": self.message,
                 "error": self.error,
                 "elapsed": cur_elapsed,
-                "speed_mb_s": self.speed_mb_s
+                "speed_mb_s": self.speed_mb_s,
+                "manifest": self.manifest,
             }
 
 
@@ -1632,6 +1417,7 @@ class APIServer(ThreadingHTTPServer):
         self.request_count = 0
         self.total_tokens_generated = 0
         self.request_history = collections.deque(maxlen=20)
+        self.telemetry_lock = threading.Lock()
         
         self.engine_executable = None
         self.env = None
@@ -1662,6 +1448,34 @@ class APIServer(ThreadingHTTPServer):
             print(f"[settings] Saved: model_id={self.model_id!r} model_path={self.model_path!r} backend={self.backend!r} ctx_size={getattr(self, 'ctx_size', 16384)!r} flash_attention={data['flash_attention']!r} kv_cache_quant={data['kv_cache_quant']!r} speculative_decoding={data['speculative_decoding']!r}", file=sys.stderr)
         except Exception as e:
             print(f"[settings] Warning: Could not save settings: {e}", file=sys.stderr)
+
+    def record_native_request(self, request_id, stats, started, first_data):
+        """Record only measurements observed during this native request."""
+        wall_seconds = max(0.0, time.monotonic() - started)
+        first_data_ms = ((first_data - started) * 1000.0) if first_data is not None else None
+        tokens = int(stats.get("completion_tokens", 0))
+        measured_tps = stats.get("tok_per_sec")
+        if measured_tps is None and tokens > 0 and wall_seconds > 0:
+            measured_tps = tokens / wall_seconds
+        process = getattr(self.runtime_proc, "process", None) or self.runtime_proc
+        pid = getattr(process, "pid", None)
+        with self.telemetry_lock:
+            self.request_count += 1
+            self.total_tokens_generated += tokens
+            self.request_history.append({
+                "request_id": request_id,
+                "tokens": tokens,
+                "duration_seconds": round(wall_seconds, 6),
+                "tok_per_sec": round(float(measured_tps), 6) if measured_tps is not None else None,
+                "ttft_ms": round(first_data_ms, 3) if first_data_ms is not None else None,
+                "backend": self.backend or "unknown",
+                "model_id": self.model_id or "unknown",
+                "pid": pid,
+                "availability": {
+                    "tok_per_sec": "measured" if measured_tps is not None else "unavailable: runtime did not report throughput",
+                    "ttft_ms": "measured" if first_data_ms is not None else "unavailable: no DATA frame observed",
+                },
+            })
 
     @staticmethod
     def _load_settings():
@@ -2053,7 +1867,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     "kv_slots": self.server.kv_slots,
                     "max_tokens": self.server.max_tokens,
                     "resources": resources,
-                    "capabilities": dataclasses.asdict(self.server.active_backend.capabilities()) if self.server.active_backend else {}
+                    "capabilities": dataclasses.asdict(self.server.active_backend.capabilities()) if self.server.active_backend else {},
+                    "acquisition": {"converter": True, "downloader": True, "desktop_sidecar": False}
                 }
                 self.send_json(200, payload, request_id)
                 return
@@ -2127,10 +1942,6 @@ class APIHandler(BaseHTTPRequestHandler):
                                     models.append({"name": entry.name, "path": str(entry), "type": "safetensors"})
                                 elif lower.endswith(".pt") or lower.endswith(".pth") or lower.endswith(".bin"):
                                     models.append({"name": entry.name, "path": str(entry), "type": "pytorch"})
-                                elif lower.endswith(".onnx"):
-                                    models.append({"name": entry.name, "path": str(entry), "type": "onnx"})
-                                elif lower.endswith(".h5") or lower.endswith(".keras"):
-                                    models.append({"name": entry.name, "path": str(entry), "type": "keras"})
                             elif entry.is_dir():
                                 if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") or f.name.endswith(".safetensors") for f in entry.iterdir()):
                                     models.append({
@@ -2141,6 +1952,9 @@ class APIHandler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 self.send_json(200, {"models": models, "search_paths": [str(p) for p in parent_paths]}, request_id)
+                return
+            if path == "/v1/qwanto/providers":
+                self.send_json(200, {"providers": provider_catalog()}, request_id)
                 return
             if path == "/v1/qwanto/download/status":
                 self.send_json(200, download_manager.get_status(), request_id)
@@ -2160,8 +1974,10 @@ class APIHandler(BaseHTTPRequestHandler):
                 hrs, mins = divmod(mins, 60)
                 uptime_fmt = f"{hrs}h {mins}m {secs}s" if hrs else f"{mins}m {secs}s"
                 from resource_plan import memory_available, discover_gpus, physical_cpu_count
+                import shutil
                 gpus = discover_gpus()
                 avail_mem = memory_available()
+                disk_free = shutil.disk_usage(PROJECT_ROOT).free
                 telemetry = {
                     "request_count": getattr(self.server, "request_count", 0),
                     "total_tokens_generated": getattr(self.server, "total_tokens_generated", 0),
@@ -2174,7 +1990,8 @@ class APIHandler(BaseHTTPRequestHandler):
                         "cpu_cores": physical_cpu_count(),
                         "ram_available_gb": round(avail_mem / 1e9, 2),
                         "gpus_detected": len(gpus),
-                        "gpu_names": [g["name"] for g in gpus] if gpus else []
+                        "gpu_names": [g["name"] for g in gpus] if gpus else [],
+                        "disk_free_bytes": disk_free,
                     },
                     "recent_requests": list(getattr(self.server, "request_history", []))
                 }
@@ -2616,22 +2433,50 @@ class APIHandler(BaseHTTPRequestHandler):
             if path == "/v1/qwanto/download":
                 body = self.read_json()
                 url = body.get("url")
+                provider = body.get("provider", "direct_https")
                 filename = body.get("filename")
                 dest_path_str = body.get("dest_path")
-                if not url:
-                    raise APIError(400, "Missing url parameter.", "url")
-                inferred_name = filename or url.split("/")[-1].split("?")[0] or "model.gguf"
-                if dest_path_str:
-                    dest_path = Path(dest_path_str)
-                    if not dest_path.is_absolute():
-                        dest_path = Path(__file__).resolve().parent.parent / "models" / dest_path_str
-                    if dest_path.is_dir() or not dest_path.suffix:
-                        dest_path = dest_path / inferred_name
-                else:
-                    dest_path = Path(__file__).resolve().parent.parent / "models" / inferred_name
                 try:
-                    download_manager.start_download(url, dest_path)
-                    self.send_json(200, {"status": "success", "message": f"Downloading to {dest_path}"}, request_id)
+                    if provider == "huggingface":
+                        manifest = HuggingFaceProvider.manifest(
+                            body.get("repository", ""), filename or "",
+                            revision=body.get("revision", "main"),
+                            expected_size=body.get("expected_size"),
+                            sha256=body.get("sha256"),
+                            gated=bool(body.get("gated", False)),
+                            license_url=body.get("license_url"),
+                            license_confirmed=bool(body.get("license_confirmed", False)),
+                        )
+                    elif provider == "local_file":
+                        manifest = LocalFileProvider.manifest(body.get("path", ""), expected_sha256=body.get("sha256"))
+                    else:
+                        if not url:
+                            raise AcquisitionError("Missing url parameter.")
+                        parsed = urlsplit(url)
+                        approved_hosts = {str(host).lower().rstrip(".") for host in body.get("allowed_hosts", []) if host}
+                        if not approved_hosts and parsed.hostname == "huggingface.co":
+                            approved_hosts = {"huggingface.co"}
+                        manifest = DirectHttpsProvider.manifest(
+                            url, filename, allowed_hosts=approved_hosts,
+                            allow_localhost_http=bool(body.get("allow_localhost_http", False)) and os.environ.get("QWANTO_ALLOW_LOCALHOST_HTTP_TESTS") == "1",
+                            expected_size=body.get("expected_size"), sha256=body.get("sha256"),
+                        )
+                    library = PROJECT_ROOT / "models"
+                    inferred_name = manifest.filename
+                    dest_path = library / inferred_name
+                    if dest_path_str:
+                        requested = Path(dest_path_str)
+                        if not requested.is_absolute():
+                            requested = library / requested
+                        if requested.is_dir() or not requested.suffix:
+                            requested = requested / inferred_name
+                        dest_path = requested
+                    download_manager.start_download(
+                        manifest, dest_path,
+                        overwrite=bool(body.get("overwrite", False)),
+                        allow_localhost_http=bool(body.get("allow_localhost_http", False)) and os.environ.get("QWANTO_ALLOW_LOCALHOST_HTTP_TESTS") == "1",
+                    )
+                    self.send_json(200, {"status": "started", "manifest": manifest.to_dict(), "message": f"Downloading {manifest.filename} into the local model library."}, request_id)
                 except Exception as e:
                     raise APIError(400, str(e), "url")
                 return
@@ -2678,10 +2523,22 @@ class APIHandler(BaseHTTPRequestHandler):
                     else:
                         output = str(p.parent / f"{p.name}.qwn")
                 try:
-                    conversion_manager.start_conversion(source, output, quant)
+                    from model_acquisition import detect_source_format
+                    detect_source_format(p)
+                    output_path = Path(output).resolve()
+                    if not _is_safe_path(output_path, allowed_dirs=[PROJECT_ROOT / "models", p.resolve().parent]):
+                        raise AcquisitionError("Conversion output must remain in the model library or selected source directory.")
+                    if output_path.exists() and not body.get("overwrite", False):
+                        raise AcquisitionError("Refusing to overwrite an existing .qwn output without confirmation.")
+                    conversion_manager.start_conversion(source, output, quant, overwrite=bool(body.get("overwrite", False)))
                     self.send_json(200, {"status": "started", "output": output, "message": f"Conversion started for {p.name}"}, request_id)
                 except Exception as e:
                     raise APIError(400, str(e), "source")
+                return
+
+            if path == "/v1/qwanto/convert/cancel":
+                conversion_manager.cancel()
+                self.send_json(200, {"status": "success", "message": "Conversion cancellation requested."}, request_id)
                 return
 
             if path == "/v1/qwanto/resources":
@@ -2863,11 +2720,24 @@ class APIHandler(BaseHTTPRequestHandler):
         with self.server.scheduler.admit(self.client_disconnected, cache_slot) as admission:
             queue_wait, cache_slot = admission
             queue_headers = {"x-qwanto-queue-wait-ms": str(round(queue_wait * 1000))}
+            generation_started = time.monotonic()
+            first_data_time = [None]
+
+            def observe_engine_data(chunk):
+                if chunk and first_data_time[0] is None:
+                    first_data_time[0] = time.monotonic()
+
             if not stream:
                 output = []
+
+                def emit_nonstream(chunk):
+                    observe_engine_data(chunk)
+                    output.append(chunk)
+
                 stats = self.server.engine.generate(
-                    prompt, maximum, temperature, top_p, output.append, cache_slot,
+                    prompt, maximum, temperature, top_p, emit_nonstream, cache_slot,
                     self.client_disconnected)
+                self.server.record_native_request(request_id, stats, generation_started, first_data_time[0])
                 text = "".join(output)
                 length_finish = "length" if stats["length_limited"] else "stop"
                 if chat and tools:
@@ -2965,6 +2835,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 def emit_tools(chunk):
                     if dbg_echo:
                         sys.stderr.write(chunk); sys.stderr.flush()
+
+                    observe_engine_data(chunk)
                         
                     now = time.time()
                     if first_token_time[0] is None:
@@ -3037,11 +2909,13 @@ class APIHandler(BaseHTTPRequestHandler):
                 def emit_plain(chunk):
                     if dbg_echo:
                         sys.stderr.write(chunk); sys.stderr.flush()
+                    observe_engine_data(chunk)
                     emit(chunk)
                 stats = self.server.engine.generate(
                     prompt, maximum, temperature, top_p, emit_plain, cache_slot,
                     lambda: not connected)
                 finish = "length" if stats["length_limited"] else "stop"
+            self.server.record_native_request(request_id, stats, generation_started, first_data_time[0])
             ka_stop.set()                          # generation done: stop the keepalive pump
             ka_thread.join(timeout=2)
             final_choice = ({"index": 0, "delta": {}, "logprobs": None, "finish_reason": finish}

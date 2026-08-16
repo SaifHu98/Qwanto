@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input"
 import {
   startConversion,
   getConversionStatus,
+  cancelConversion,
   type ConversionStatus,
   listDiscoveredModels,
   type DiscoveredModel,
@@ -34,13 +35,15 @@ interface ConverterViewProps {
   apiKey: string
   onModelLoaded?: (modelPath: string) => void
   onNavigateToChat?: () => void
+  desktopShell?: boolean
 }
 
 export function ConverterView({
   baseUrl,
   apiKey,
   onModelLoaded,
-  onNavigateToChat
+  onNavigateToChat,
+  desktopShell = false
 }: ConverterViewProps) {
   const [sourcePath, setSourcePath] = useState("")
   const [outputPath, setOutputPath] = useState("")
@@ -58,6 +61,7 @@ export function ConverterView({
   const autoActivatedRef = useRef(false)
 
   const refreshDiscoveredModels = async () => {
+    if (desktopShell) return
     setLoadingModels(true)
     try {
       const data = await listDiscoveredModels(baseUrl, apiKey)
@@ -70,11 +74,13 @@ export function ConverterView({
   }
 
   useEffect(() => {
+    if (desktopShell) return
     refreshDiscoveredModels()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, desktopShell])
 
   // Poll conversion status when active and handle auto-activation
   useEffect(() => {
+    if (desktopShell) return
     let timer: any
     const poll = async () => {
       try {
@@ -92,7 +98,7 @@ export function ConverterView({
     }
     poll()
     return () => clearTimeout(timer)
-  }, [baseUrl, apiKey, status.status, autoActivate, outputPath])
+  }, [baseUrl, apiKey, status.status, autoActivate, outputPath, desktopShell])
 
   const handleSelectModel = (model: DiscoveredModel) => {
     setSourcePath(model.path)
@@ -126,7 +132,7 @@ export function ConverterView({
     if (!targetModel) return
     setLoadingAction(true)
     try {
-      await loadModel(baseUrl, apiKey, targetModel, "qwn")
+      await loadModel(baseUrl, targetModel, "qwn", undefined, apiKey)
       onModelLoaded?.(targetModel)
       onNavigateToChat?.()
     } catch (err: any) {
@@ -136,18 +142,35 @@ export function ConverterView({
     }
   }
 
-  // Model size estimation heuristics
+  const handleCancelConversion = async () => {
+    try {
+      await cancelConversion(baseUrl, apiKey)
+      setStatus(await getConversionStatus(baseUrl, apiKey))
+    } catch (err: any) {
+      setError(err?.message || "Failed to cancel conversion")
+    }
+  }
+
+  // Source format is a detection hint; the gateway performs the authoritative check.
   const modelFormat = sourcePath.toLowerCase().endsWith(".gguf")
     ? "GGUF"
     : sourcePath.toLowerCase().endsWith(".safetensors") || sourcePath.includes("safetensors")
     ? "Safetensors"
     : sourcePath.toLowerCase().endsWith(".pt") || sourcePath.toLowerCase().endsWith(".pth") || sourcePath.toLowerCase().endsWith(".bin")
     ? "PyTorch"
-    : sourcePath.toLowerCase().endsWith(".onnx")
-    ? "ONNX"
-    : sourcePath.toLowerCase().endsWith(".h5") || sourcePath.toLowerCase().endsWith(".keras")
-    ? "Keras"
-    : "Generic"
+    : "Unsupported / unknown"
+
+  if (desktopShell) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/20 p-5 text-amber-200">
+          <h2 className="text-lg font-semibold">Converter unavailable in the packaged desktop build</h2>
+          <p className="mt-2 text-sm">This Beta package contains qwnrun only. Python gateway conversion is not bundled or started by the desktop shell, so no converter control is enabled here.</p>
+          <p className="mt-2 text-xs text-amber-300/80">Use the local gateway web console, or wait for a future signed gateway sidecar release.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -158,7 +181,7 @@ export function ConverterView({
             <Zap className="size-5 text-primary" /> Qwanto Native (.qwn) Converter Studio
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Transform any checkpoint (.gguf, .safetensors, .pt, .bin, .onnx, .h5) into ultra-fast 4KiB NVMe-aligned .qwn with SIMD quantization.
+            Convert supported GGUF, Safetensors, or PyTorch checkpoints into a 4KiB NVMe-aligned .qwn. ONNX, Keras/H5, and arbitrary binary files are unsupported.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -246,7 +269,7 @@ export function ConverterView({
             {/* Source Path Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FileCode className="size-3.5" /> Source Model Path (.gguf, .safetensors, .pt, .bin, .onnx, .h5)
+                <FileCode className="size-3.5" /> Source Model Path (.gguf, .safetensors, .pt, .pth, PyTorch .bin)
               </label>
               <Input
                 placeholder="/path/to/source_model.gguf or safetensors directory"
@@ -486,13 +509,19 @@ export function ConverterView({
             </div>
 
             {/* Progress Bar */}
-            {status.status === "converting" && (
+            {status.status === "converting" && status.progress != null && (
               <div className="w-full bg-muted/60 rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-primary h-full transition-all duration-300 animate-pulse"
-                  style={{ width: `${Math.max(status.progress, 15)}%` }}
+                  style={{ width: `${Math.max(0, Math.min(100, status.progress))}%` }}
                 />
               </div>
+            )}
+            {status.status === "converting" && status.progress == null && (
+              <div className="text-xs text-muted-foreground">Detailed progress is unavailable from the active converter; completion is reported only after validation.</div>
+            )}
+            {status.status === "converting" && (
+              <Button size="sm" variant="destructive" onClick={handleCancelConversion}>Cancel conversion</Button>
             )}
 
             {/* Log & Stats Box */}

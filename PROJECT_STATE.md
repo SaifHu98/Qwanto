@@ -24,16 +24,19 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `194 passed, 14 skipped` in `c/tests/`; the decoder
-  test passed separately (`2 passed`).
-- Web validation: production build passed and Vitest passed (`34 tests`).
+- Native/Python validation: `200 passed, 14 skipped` in `c/tests/`; the decoder
+  test passed separately (`2 passed`). Safe model-acquisition tests use only
+  local HTTP fixtures and cover resume, checksum, cancellation, disk, and
+  atomic QWN behavior.
+- Web validation: production build passed and Vitest passed (`35 tests`).
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
 - Rust gates are pending on this workstation because `cargo` is not installed;
   CI remains authoritative for Rust and cross-platform packaging.
-- Release status: Beta / not release-ready until fresh CI and tagged package
-  builds provide the remaining evidence. No release tag is created by this
-  work.
+- Release status: Beta / not release-ready until fresh CI and a green package
+  workflow provide the remaining evidence. `workflow_dispatch` validates
+  packages; an existing `v*` tag publishes a prerelease only after all matrix
+  jobs pass. No tag or release was created by this work.
 
 ## Active limitations
 
@@ -41,6 +44,12 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   and formats must fail explicitly.
 - GGUF models use the external local-runtime boundary and are not native QWN
   benchmark claims.
+- The gateway has explicit Hugging Face, allowlisted Direct HTTPS, and local
+  file acquisition providers. Downloads use `.part` files and atomic publish;
+  checksums, size, disk, redirects, and format compatibility are explicit.
+- The Tauri Beta package contains qwnrun only. Converter/downloader controls
+  are disabled in the installed shell until a gateway sidecar is packaged and
+  supervised.
 - TTFT and sensor metrics remain unavailable unless the runtime protocol or
   local sensor query supplies them.
 - macOS signing/notarization and installed-package smoke tests require the
@@ -52,6 +61,7 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   and process operations stay in the desktop host or gateway.
 - Keep benchmark classifications `MEASURED`, `UNAVAILABLE`, `INVALID`,
   `TEST_FIXTURE`, `EXPERIMENTAL`, and `PROJECTED`; never substitute values.
-- Release workflow triggers only on an existing `v*` tag and uploads unsigned
-  platform artifacts without creating tags or releases.
+- Release workflow supports manual package validation and existing `v*` tags;
+  tagged runs upload unsigned installers to a GitHub prerelease after the
+  package matrix is green, without creating tags.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.

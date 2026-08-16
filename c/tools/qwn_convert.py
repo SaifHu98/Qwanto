@@ -1358,9 +1358,16 @@ def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
 
 
 def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
-    """Universal Model Converter: Auto-detects .gguf, .safetensors, .pt/.pth/.bin, .onnx, .h5 and converts to .qwn."""
+    """Convert a verified GGUF, Safetensors, or PyTorch source to .qwn."""
     src_path = Path(src)
     ext = src_path.suffix.lower()
+
+    if ext in (".onnx", ".h5", ".keras"):
+        raise ValueError(f"unsupported source format {ext}: ONNX/Keras conversion is not implemented")
+    if not src_path.is_dir() and ext not in (".gguf", ".safetensors", ".pt", ".pth", ".bin"):
+        raise ValueError(
+            "unsupported source format; supported sources are GGUF, Safetensors, and PyTorch .pt/.pth/.bin checkpoints"
+        )
 
     is_gguf = ext == ".gguf" or (src_path.is_file() and open(src_path, "rb").read(4) == b"GGUF")
     if is_gguf:
@@ -1384,7 +1391,6 @@ def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
     elif ext == ".safetensors" or src_path.is_dir() or any(src_path.glob("*.safetensors") if src_path.is_dir() else ()):
         return convert_safetensors(src, dst, quant)
     else:
-        # Default fallback to safetensors
         return convert_safetensors(src, dst, quant)
 
 

@@ -137,6 +137,12 @@
   - `c/tests/test_autopilot_quality.py`: 2 / 2 pytest tests passed.
   - Pytest repo-wide suite: **170 passed, 12 skipped, 0 failed**.
 
+## 2026-08-16 — Safe model acquisition and Beta packaging boundary (Codex)
+- **Change**: Added explicit provider manifests and local-only-tested download/import safeguards; wired gateway download/conversion through checksum, size, disk, format, QWN validation, atomic publication, and manifest evidence.
+- **Files**: `c/model_acquisition.py`, `c/openai_server.py`, `c/tools/qwn_convert.py`, `c/tests/test_model_acquisition.py`, web API/UI, Tauri capability/telemetry, packaging/docs/state.
+- **Validation**: `200 passed, 14 skipped` Python tests; web build and `35` Vitest tests passed; local Cargo gates unavailable because `cargo` is not installed.
+- **Decision**: Beta Tauri packages contain qwnrun only; converter/downloader remain honestly disabled in the installed shell until a gateway sidecar is packaged and supervised.
+
 ## 2026-08-16 — Local-first Beta release engineering
 
 - **Change:** Added the release plan, truthful architecture/security/web/desktop/packaging/qwn-format/benchmark documentation, and Beta readiness record; rewrote README claims around current evidence.
@@ -168,3 +174,8 @@
   - `c/tests/test_nextgen_suite.c`: **2,594 / 2,594 assertions passed (100% Pass Rate)**.
   - `c/tools/benchmark_nextgen.py`: **103.22 tok/s throughput** (47.35x over scalar baseline), **1.12 GB active memory footprint**, **8.5 ms TTFT**, **12 concurrent streams**.
   - Pytest repo-wide suite: **170 passed, 12 skipped, 0 failed**.
+
+## 2026-08-16 — Acquisition final hardening and local validation
+
+- **Change:** Removed the inactive unsafe downloader, made explicit overwrite atomic, and removed corrupt checksum-failure partials; retained honest Tauri qwnrun-only capability boundaries.
+- **Validation:** Decoder `2 passed`; Python suite `200 passed, 14 skipped`; web build and `35` Vitest tests passed; Cargo check/test/clippy were attempted but Cargo is unavailable on this workstation.

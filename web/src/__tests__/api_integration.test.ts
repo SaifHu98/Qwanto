@@ -3,6 +3,7 @@ import {
   listModels,
   getHealth,
   getQwantoConfig,
+  getAcquisitionProviders,
   listDiscoveredModels,
   getModelPaths,
   addModelPath,
@@ -93,6 +94,15 @@ describe("Models and Hardware Discovery API", () => {
     const res = await listDiscoveredModels("http://localhost:8000/v1", "")
     expect(res.models.length).toBe(2)
     expect(res.models[0].type).toBe("qwn")
+  })
+
+  it("reads provider metadata without assuming a remote catalog download", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ providers: [
+      { id: "huggingface", name: "Hugging Face public artifacts", network: true, requires_https: true, formats: ["gguf"] },
+      { id: "local_file", name: "Local file import", network: false, requires_https: false, formats: ["gguf"] },
+    ] }))))
+    const providers = await getAcquisitionProviders("http://localhost:8000/v1", "")
+    expect(providers.map(provider => provider.id)).toEqual(["huggingface", "local_file"])
   })
 })
 

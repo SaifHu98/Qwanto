@@ -36,8 +36,8 @@ impl TelemetryCollector {
                 status: if ttft_ms.is_some() { "measured".into() } else { "unavailable (awaiting prompt generation)".into() },
             },
             cpu_cores: std::thread::available_parallelism().map(|p| p.get() as u32).ok(),
-            cpu_model: "Host CPU (Auto-Dispatched SIMD)".into(),
-            gpu_device: "Auto-Selected GPU or Native CPU".into(),
+            cpu_model: "unavailable: CPU model sensor not queried".into(),
+            gpu_device: "unavailable: GPU sensor not queried".into(),
             vram_used_gb: MetricValue {
                 value: None,
                 status: "unavailable (NVML polling inactive)".into(),

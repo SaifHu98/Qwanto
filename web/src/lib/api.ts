@@ -207,6 +207,11 @@ export interface QwantoConfig {
     cancellation: boolean
     model_discovery: boolean
   }
+  acquisition?: {
+    converter: boolean
+    downloader: boolean
+    desktop_sidecar: boolean
+  }
 }
 
 export interface DiscoveredModel {
@@ -241,6 +246,22 @@ export interface DownloadStatus {
   speed_limit: number
   chunks_done: number
   chunks_total: number
+  provider?: string
+  verification?: "verified" | "unverified" | string
+  sha256?: string | null
+  speed_bytes_per_sec?: number
+  eta_seconds?: number | null
+  partial_path?: string
+  retry_count?: number
+}
+
+export interface AcquisitionProvider {
+  id: string
+  name: string
+  network: boolean
+  requires_https: boolean
+  formats: string[]
+  requires_license_confirmation_for_gated?: boolean
 }
 
 export async function getQwantoConfig(baseUrl: string, apiKey = ""): Promise<QwantoConfig> {
@@ -310,11 +331,18 @@ export async function loadModel(baseUrl: string, modelPath: string, backend = "a
   return (await response.json()) as { status: string; model_id: string; backend: string }
 }
 
-export async function downloadModel(baseUrl: string, url: string, filename?: string, destPath?: string, apiKey = "") {
+export async function downloadModel(baseUrl: string, url: string, filename?: string, destPath?: string, apiKey = "", options?: { approvedHost?: string; allowLocalhostHttp?: boolean; sha256?: string; expectedSize?: number; overwrite?: boolean }) {
   const response = await fetch(endpoint(baseUrl, "qwanto/download"), {
     method: "POST",
     headers: headers(apiKey),
-    body: JSON.stringify({ url, filename, dest_path: destPath })
+    body: JSON.stringify({
+      url, filename, dest_path: destPath,
+      allowed_hosts: options?.approvedHost ? [options.approvedHost] : undefined,
+      allow_localhost_http: options?.allowLocalhostHttp || undefined,
+      sha256: options?.sha256,
+      expected_size: options?.expectedSize,
+      overwrite: options?.overwrite || undefined,
+    })
   })
   if (!response.ok) throw new Error(await responseError(response))
   return (await response.json()) as { status: string; message: string }
@@ -415,6 +443,7 @@ export interface TelemetryData {
     ram_available_gb: number
     gpus_detected: number
     gpu_names: string[]
+    disk_free_bytes?: number
   }
   recent_requests: Array<Record<string, any>>
 }
@@ -484,6 +513,13 @@ export interface BenchmarkMetrics {
   gates_passed?: Record<string, boolean>
 }
 
+export async function getAcquisitionProviders(baseUrl: string, apiKey = ""): Promise<AcquisitionProvider[]> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/providers"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  const body = (await response.json()) as { providers?: AcquisitionProvider[] }
+  return body.providers || []
+}
+
 export type BenchmarkClassification =
   | "MEASURED"
   | "UNAVAILABLE"
@@ -545,15 +581,17 @@ export async function getSecurityReport(baseUrl: string, apiKey = ""): Promise<S
 }
 
 export interface ConversionStatus {
-  status: "idle" | "converting" | "done" | "error"
+  status: "idle" | "converting" | "done" | "error" | "cancelled"
   source?: string
   output?: string
   quant?: string
-  progress: number
+  progress: number | null
   message: string
   error?: string | null
   elapsed?: number
   speed_mb_s?: number
+  stage?: string
+  manifest?: Record<string, unknown> | null
 }
 
 export async function startConversion(
@@ -576,5 +614,14 @@ export async function getConversionStatus(baseUrl: string, apiKey = ""): Promise
   const response = await fetch(endpoint(baseUrl, "qwanto/convert/status"), { headers: headers(apiKey) })
   if (!response.ok) throw new Error(await responseError(response))
   return (await response.json()) as ConversionStatus
+}
+
+export async function cancelConversion(baseUrl: string, apiKey = "") {
+  const response = await fetch(endpoint(baseUrl, "qwanto/convert/cancel"), {
+    method: "POST",
+    headers: headers(apiKey),
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as { status: string; message: string }
 }
 

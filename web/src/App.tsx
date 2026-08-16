@@ -93,11 +93,17 @@ const message = (role: ChatMessage["role"], content: string): ChatMessage => {
   return { id, role, content }
 }
 
+export function isDesktopShell(): boolean {
+  if (typeof window === "undefined") return false
+  return window.location.protocol === "tauri:" || window.location.protocol === "asset:" || "__TAURI_INTERNALS__" in window
+}
+
 export default function App() {
   // When the page is served by the engine itself (coli web), same-origin is the
   // right default: no CORS, no manual endpoint editing. The Vite dev server
   // (port 5173) keeps the classic default.
   const servedByEngine = typeof window !== "undefined" && window.location.port !== "5173" && window.location.protocol.startsWith("http")
+  const desktopShell = isDesktopShell()
   const defaultBase = servedByEngine ? `${window.location.origin}/v1` : "http://127.0.0.1:8000/v1"
   const [baseUrl, setBaseUrl] = useState(() => {
     const saved = stored(localStorage, "qwanto.baseUrl", defaultBase)
@@ -147,6 +153,7 @@ export default function App() {
     const saved = stored(localStorage, "qwanto.view", "dashboard")
     return (["dashboard", "chat", "brain", "agent", "models", "converter", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "dashboard") as any
   })
+  const [modelLibraryTab, setModelLibraryTab] = useState("local")
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
     const time = new Date().toLocaleTimeString()
@@ -441,7 +448,8 @@ export default function App() {
   const handleStartDownload = async (url: string, filename?: string, destPath?: string) => {
     setDlError("")
     try {
-      await downloadModel(baseUrl, url, filename, destPath, apiKey)
+      const approvedHost = new URL(url).hostname
+      await downloadModel(baseUrl, url, filename, destPath, apiKey, { approvedHost })
       const status = await getDownloadStatus(baseUrl, apiKey)
       setDownloadStatus(status)
     } catch (err) {
@@ -527,6 +535,11 @@ export default function App() {
     } catch (err) {
       setModelError(err instanceof Error ? err.message : "Failed to remove path")
     }
+  }
+
+  const selectModelLibraryTab = (tab: string, targetId?: string) => {
+    setModelLibraryTab(tab)
+    if (targetId) window.setTimeout(() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0)
   }
 
   if (servedByEngine && !autoConnected.current && !connected) {
@@ -740,9 +753,9 @@ export default function App() {
         </header>
 
         <div className={cn("mx-6 mt-4 rounded-lg border px-3 py-2 text-xs", localEndpoint ? "border-emerald-800/60 bg-emerald-950/20 text-emerald-200" : "border-amber-700/60 bg-amber-950/20 text-amber-200")} role="status">
-          <strong>{servedByEngine ? "Desktop/gateway boundary:" : "Browser mode:"}</strong>{" "}
-          This UI makes HTTP requests only; it cannot read arbitrary local files, run terminal commands, or use Tauri agent tools.
-          {localEndpoint ? " The configured endpoint is loopback." : " The configured endpoint is not loopback; use an authenticated, intentionally trusted endpoint."}
+          <strong>{desktopShell ? "Packaged desktop boundary:" : servedByEngine ? "Desktop/gateway boundary:" : "Browser mode:"}</strong>{" "}
+          {desktopShell ? "This Beta shell starts qwnrun through Tauri commands; the Python gateway, converter, and downloader are not bundled." : "This UI makes HTTP requests only; it cannot read arbitrary local files, run terminal commands, or use Tauri agent tools."}
+          {!desktopShell && (localEndpoint ? " The configured endpoint is loopback." : " The configured endpoint is not loopback; use an authenticated, intentionally trusted endpoint.")}
         </div>
 
         {view === "dashboard" ? (
@@ -754,9 +767,34 @@ export default function App() {
           />
         ) : view === "models" ? (
           <div className="models-page">
+            <div className="flex flex-wrap gap-2 mb-4 border-b border-border pb-3" role="tablist" aria-label="Model Library">
+              {[
+                ["providers", "Providers"], ["discover", "Discover"], ["queue", "Download queue"],
+                ["local", "Local models"], ["converter", "Converter"], ["runtime", "Runtime"], ["benchmark", "Benchmark"],
+              ].map(([tab, label]) => (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={modelLibraryTab === tab}
+                  className={cn("px-3 py-1.5 rounded-md text-xs border", modelLibraryTab === tab ? "border-primary/60 bg-primary/15 text-primary" : "border-border text-muted-foreground")}
+                  onClick={() => tab === "converter" ? setView("converter") : tab === "benchmark" ? setView("benchmarks") : selectModelLibraryTab(tab, tab === "queue" ? "model-download-queue" : tab === "runtime" ? "model-runtime" : tab === "discover" || tab === "local" ? "model-local-list" : undefined)}
+                >{label}</button>
+              ))}
+            </div>
+            {modelLibraryTab === "providers" && (
+              <div className="models-card mb-4" role="tabpanel">
+                <h3 className="card-title">Acquisition providers</h3>
+                <p className="text-xs text-muted-foreground">Catalog metadata only. A download starts only after an explicit user action and provider validation.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3 text-xs">
+                  <div className="border border-border rounded p-3"><strong>Hugging Face</strong><p className="text-muted-foreground mt-1">Public HTTPS artifacts; gated licenses require confirmation.</p></div>
+                  <div className="border border-border rounded p-3"><strong>Direct HTTPS</strong><p className="text-muted-foreground mt-1">Explicit host allowlist, checksum optional and labeled.</p></div>
+                  <div className="border border-border rounded p-3"><strong>Local file</strong><p className="text-muted-foreground mt-1">Copies a selected file into the local model library.</p></div>
+                </div>
+              </div>
+            )}
             <div className="models-grid">
               {/* Active Model Configuration Card */}
-              <div className="models-card active-card">
+              <div id="model-runtime" className="models-card active-card">
                 <h3 className="card-title"><Server className="size-4" /> Active Model Status</h3>
                 {switchingModel && <div className="loading-overlay"><LoaderCircle className="size-6 animate-spin text-primary" /> <span>Loading Model...</span></div>}
                 
@@ -794,7 +832,7 @@ export default function App() {
               </div>
 
               {/* Resource Control Card */}
-              <div className="models-card">
+              <div id="model-local-list" className="models-card">
                 <h3 className="card-title"><Gauge className="size-4" /> Resource Limits</h3>
                 <div className="text-xs text-muted-foreground mb-3">Control hardware usage. Higher = faster inference.</div>
                 
@@ -925,7 +963,13 @@ export default function App() {
               </div>
 
               {/* Background Model Downloader Card */}
-              <div className="models-card md:col-span-2">
+              <div id="model-download-queue" className="models-card md:col-span-2">
+                {desktopShell ? (
+                  <div className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-4 text-amber-200">
+                    <h3 className="card-title"><Download className="size-4" /> Download queue unavailable</h3>
+                    <p className="text-xs mt-2">The packaged desktop build contains qwnrun only. It does not bundle or start the Python gateway, so model downloads are disabled here.</p>
+                  </div>
+                ) : <>
                 <h3 className="card-title"><Download className="size-4" /> Model Downloader</h3>
                 {downloadStatus && (downloadStatus.status === "downloading" || downloadStatus.status === "paused") ? (
                   <div className="download-progress-box">
@@ -1084,6 +1128,7 @@ export default function App() {
                     </div>
                   </div>
                 )}
+                </>}
               </div>
             </div>
           </div>
@@ -1117,6 +1162,7 @@ export default function App() {
           <ConverterView
             baseUrl={baseUrl}
             apiKey={apiKey}
+            desktopShell={desktopShell}
             onModelLoaded={(loadedPath) => {
               setModel(loadedPath)
               getHealth(baseUrl, apiKey).then(h => setHealth(h)).catch(() => {})
