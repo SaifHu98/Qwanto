@@ -240,11 +240,15 @@ def execute_real_benchmark(
         stdout_full = "".join(raw_stdout)
         stderr_full = "".join(raw_stderr)
 
+        is_success = (proc.returncode == 0 and generated_tokens > 0 and tok_per_sec is not None)
+        classification = "MEASURED" if is_success else "UNAVAILABLE"
+
         return {
             "schema_version": "2.0.0",
             "benchmark_id": f"qwn-bench-{int(time.time())}",
             "timestamp_utc": timestamp_utc,
-            "evidence_classification": "MEASURED",
+            "evidence_classification": classification,
+            "execution_status": "ok" if is_success else f"failed_exit_{proc.returncode}",
             "host_environment": host_hw,
             "runtime_metadata": {
                 "executable_path": str(executable),

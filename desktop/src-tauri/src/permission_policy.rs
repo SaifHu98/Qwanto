@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_secret_redaction() {
-        let text = "Keys: sk-abcdef1234567890abcdef and ghp_1234567890abcdef123456";
+        let text = "Keys: sk-abcdef1234567890abcdef and ghp_1234567890abcdef123456"; // test-fixture
         let redacted = PermissionPolicy::redact_secrets(text);
         assert!(!redacted.contains("sk-abcdef1234567890abcdef"));
         assert!(redacted.contains("[REDACTED_API_KEY]"));

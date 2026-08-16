@@ -61,8 +61,8 @@ class TestAdversarialSecurity(unittest.TestCase):
         """Verify pattern-based secret redaction for API keys, Bearer tokens, private keys, and DB URIs."""
         raw_output = """
         Debug Info:
-        OpenAI Key: sk-1234567890abcdef1234567890abcdef
-        GitHub PAT: ghp_1234567890abcdef1234567890abcdef
+        OpenAI Key: sk-1234567890abcdef1234567890abcdef  # test-fixture
+        GitHub PAT: ghp_1234567890abcdef1234567890abcdef  # test-fixture
         Auth: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0
         DB: postgres://admin:super_secret_password_123@db.internal:5432/qwanto
         Key: -----BEGIN RSA PRIVATE KEY-----

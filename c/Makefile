@@ -211,11 +211,6 @@ ifeq ($(METAL),1)
 ifeq (,$(DARWIN))
 $(error METAL=1 is supported only on macOS)
 endif
-CFLAGS   += -DCOLI_METAL
-LDFLAGS  += -framework Metal -framework Foundation -lc++
-METAL_OBJ = backend_metal.o
-endif
-
 all: glm$(EXE) qwnrun$(EXE)
 
 # phony 'glm' → 'glm.exe' on Windows (so 'make glm' and 'coli build' work on every platform)
@@ -224,22 +219,21 @@ glm: glm$(EXE)
 glm$(EXE): glm.c st.h uring.h json.h tok.h tok_unicode.h compat.h grammar.h $(CUDA_OBJ) $(METAL_OBJ)
 	$(CC) $(CFLAGS) glm.c $(CUDA_OBJ) $(METAL_OBJ) -o glm$(EXE) $(LDFLAGS)
 
-qwnrun$(EXE): qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwn_paged_kv.c qwanto_decode.h qwanto_native.h qwanto_kernels.h qwanto_turboquant.h qwn_paged_kv.h tok.h json.h tok_unicode.h $(CUDA_OBJ)
-	$(CC) $(CFLAGS) qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwn_paged_kv.c $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
+QWNRUN_SRCS = qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c
+
+qwnrun$(EXE): $(QWNRUN_SRCS) $(CUDA_OBJ)
+	$(CC) $(CFLAGS) $(QWNRUN_SRCS) $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
 
 qwnrun: qwnrun$(EXE)
 
 # Windows runtime loader object: resolves coli_cuda_* from coli_cuda.dll.
 backend_loader.o: backend_loader.c backend_cuda.h compat.h
 	$(CC) $(CFLAGS) -c backend_loader.c -o $@
-
-# Windows CUDA DLL: compile backend_cuda.cu with nvcc (+MSVC cl.exe as host
 # compiler, required by nvcc on Windows) into coli_cuda.dll. Run this from a
 # shell that has the MSVC environment set (e.g. after vcvars64.bat, or from a
 # "x64 Native Tools Command Prompt"). COLI_CUDA_BUILDING_DLL enables
 # __declspec(dllexport) so the 15 API symbols are exported.
 cuda-dll: backend_cuda.cu backend_cuda.h
-	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
 	@command -v cl >/dev/null 2>&1 || { echo "cl.exe (MSVC) not in PATH — run vcvars64.bat first" >&2; exit 1; }
 	$(NVCC) $(NVCCFLAGS) -shared -DCOLI_CUDA_BUILDING_DLL \
 		-L"$(CUDA_HOME)/lib/x64" -lcudart \

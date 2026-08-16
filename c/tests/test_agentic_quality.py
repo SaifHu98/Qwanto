@@ -85,6 +85,9 @@ class TestAgenticQuality(unittest.TestCase):
     def test_optimized_agent_task(self):
         """Verify end-to-end agent task execution."""
         model_path = ROOT_DIR / "experiments" / "results" / "4B_hyper_vsq2.qwn"
+        if not model_path.exists():
+            self.skipTest("Target model 4B_hyper_vsq2.qwn not present")
+
         agent = OptimizedAgent(model_path=model_path, max_workers=8)
 
         tools = [

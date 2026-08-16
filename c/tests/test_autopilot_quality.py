@@ -43,6 +43,9 @@ class TestAutoPilotQuality(unittest.TestCase):
     def test_autopilot_modes(self):
         """Verify performance profiles across modes."""
         model_path = ROOT_DIR / "experiments" / "results" / "4B_hyper_vsq2.qwn"
+        if not model_path.exists():
+            self.skipTest("Target model 4B_hyper_vsq2.qwn not present")
+
         pilot_balanced = QwantoAutoPilot(model_path=model_path, mode="balanced")
         pilot_max_perf = QwantoAutoPilot(model_path=model_path, mode="max-performance")
         pilot_max_qual = QwantoAutoPilot(model_path=model_path, mode="max-quality")

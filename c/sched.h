@@ -151,15 +151,19 @@ static inline int sched_route_expert(int S, int I, int O, int fmt, int is_reside
     else if (fmt == 3) expert_bytes = (expert_params + 3) / 4; /* int2: 0.25 byte/param */
     else expert_bytes = expert_params * 4;                  /* f32: 4 bytes/param */
     
-    /* Estimate CPU time: memory-bound, so throughput determines speed */
-    double cpu_est_ms = (double)expert_bytes / (g_sched.cpu_throughput_gbs * 1e6) * 1000.0;
-    cpu_est_ms *= S; /* Scale with batch size */
-    
-    /* Estimate GPU time: transfer + kernel */
-    double transfer_ms = g_sched.pcie_latency_ms +
-                         (double)expert_bytes / (g_sched.gpu_throughput_gbs * 1e6) * 1000.0;
-    double kernel_ms = g_sched.gpu_kernel_overhead + 
-                       (double)expert_bytes / (g_sched.gpu_throughput_gbs * 1e6) * 1000.0 * 0.3;
+    /* Estimate CPU time: memory-bound or configured baseline */
+    double cpu_est_ms;
+    double transfer_ms;
+    double kernel_ms;
+    if (g_sched.cpu_throughput_gbs > 0 && g_sched.gpu_throughput_gbs > 0) {
+        cpu_est_ms = (double)expert_bytes / (g_sched.cpu_throughput_gbs * 1e6) * 1000.0 * S;
+        transfer_ms = g_sched.pcie_latency_ms + (double)expert_bytes / (g_sched.gpu_throughput_gbs * 1e6) * 1000.0;
+        kernel_ms = g_sched.gpu_kernel_overhead + (double)expert_bytes / (g_sched.gpu_throughput_gbs * 1e6) * 1000.0 * 0.3;
+    } else {
+        cpu_est_ms = (g_sched.expert_cpu_ms > 0 ? g_sched.expert_cpu_ms : 1.0) * S;
+        transfer_ms = g_sched.expert_transfer_ms > 0 ? g_sched.expert_transfer_ms : 3.5;
+        kernel_ms = 0.1;
+    }
     double gpu_est_ms = transfer_ms + kernel_ms * S;
     
     /* Factor in historical win rate bias */

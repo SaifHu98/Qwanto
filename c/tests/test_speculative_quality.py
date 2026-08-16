@@ -48,8 +48,12 @@ class TestSpeculativeQuality(unittest.TestCase):
 
     def test_adaptive_draft_length(self):
         """Verify dynamic draft length adjustment."""
+        target_model = ROOT_DIR / "experiments" / "results" / "4B_hyper_vsq2.qwn"
+        if not target_model.exists():
+            self.skipTest("Target model 4B_hyper_vsq2.qwn not present")
+
         engine = SaguaroEngine(
-            target_model=ROOT_DIR / "experiments" / "results" / "4B_hyper_vsq2.qwn",
+            target_model=target_model,
             max_draft_tokens=10,
         )
 

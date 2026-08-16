@@ -25,7 +25,7 @@ class TestPhase3AgentSecurity(unittest.TestCase):
 
     def test_secret_redaction(self):
         """Verify that typical API keys and secrets are redacted."""
-        raw_text = "Connecting to service with secret sk-12345678901234567890abcdef and ghp_98765432109876543210"
+        raw_text = "Connecting to service with secret sk-12345678901234567890abcdef and ghp_98765432109876543210"  # test-fixture
         
         # Redaction logic test
         import re
