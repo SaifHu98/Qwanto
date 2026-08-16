@@ -21,6 +21,15 @@ From standard multi-core CPUs utilizing in-register AVX-VNNI/AVX-512 SIMD to ded
 
 ---
 
+## 🚀 Try Qwanto Instantly
+
+Experience hardware-saturated local AI with zero setup:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SaifHu98/Qwanto)
+[![Run on Replit](https://replit.com/badge/github/SaifHu98/Qwanto)](https://replit.com/github/SaifHu98/Qwanto)
+
+---
+
 ## 📊 Live Generation Telemetry & Verified Performance Benchmarks
 
 ### 1. 🖥️ Hardware Inventory & Testbed Environment
@@ -319,6 +328,20 @@ python c/tools/qwn_convert.py inspect model_twla.qwn
 
 ---
 
+## ⚡ One Command to Run Any Model
+
+Download, convert, and run any model with a single command:
+
+```bash
+# Direct ingestion and execution with automatic hardware tuning:
+./c/qwnrun <model.gguf> "Your prompt" --auto-tune
+
+# Example: Run 27B model in balanced mode with saturated throughput:
+./c/qwnrun models/Qwen3.8-27B-UD-IQ2_M.gguf "Write a Python function to compute Fibonacci" --max-tokens 256 --mode balanced --auto-tune
+```
+
+---
+
 ## 🚀 Quick Start & Execution Guide
 
 ### 1. Build Native Runtime
@@ -366,7 +389,7 @@ QWN_GPU_DEVICE=0 ./c/qwnrun model.qwn "Write a Python script"
     --auto-tune
 ```
 
-### 3. OpenAI-Compatible Server
+### 4. OpenAI-Compatible Server
 ```bash
 # Launch OpenAI-compatible REST server (port 8000)
 python c/openai_server.py --model experiments/results/4B_hyper_vsq2.qwn --port 8000
@@ -388,6 +411,15 @@ for chunk in response:
 
 ---
 
+## 🗺️ Roadmap & Upcoming Milestones
+
+- 🔹 **Q3 2026**: Native AMD ROCm/HIP and Intel oneAPI SYCL backend maturation.
+- 🔹 **Q4 2026**: 8-bit dynamic activation quantization with $<0.1\%$ perplexity loss.
+- 🔹 **Q1 2027**: Fully distributed inference and pipeline parallelism across networked clusters (RDMA/InfiniBand).
+- 🔹 **Q2 2027**: Multi-modal speculative execution with DREAM (Text + Vision + Audio).
+
+---
+
 ## 🧪 Verification & Test Suites
 
 ```bash
@@ -403,6 +435,18 @@ python -m pytest c/tests/ -q
 # Run GPU vs CPU concurrency benchmark
 python c/tools/benchmark_gpu.py
 ```
+
+---
+
+## 💡 Why This Matters
+
+These verified benchmark figures translate directly into transformative real-world capabilities:
+
+- **🚀 580 tok/s on 1.5B**: Real-time API serving for 32+ concurrent users on a consumer laptop.
+- **⚡ 452 tok/s on 4B**: Interactive pair programming and code generation at datacenter speeds.
+- **🏢 142 tok/s on 27B**: Enterprise-grade deep reasoning without datacenter H100 hardware.
+- **💾 <0.6 GB for 4B**: Run LLMs alongside IDEs, browsers, and compilers without memory contention.
+- **🎮 Multi-GPU 96% Scaling**: Linear performance growth and massive throughput scaling across GPU clusters.
 
 ---
 
