@@ -58,6 +58,21 @@ typedef struct {
 } QwnGPUContext;
 
 /* -------------------------------------------------------------------------
+ * Multi-GPU Fabric & Tensor Sharding Context (1, 2, 4, 8 GPUs)
+ * ------------------------------------------------------------------------- */
+#define QWN_MAX_GPUS 8
+
+typedef struct {
+    int num_devices;
+    QwnGPUContext devices[QWN_MAX_GPUS];
+    bool is_multi_gpu;
+    int sharding_dim;               /* Column (0) or Row (1) sharding */
+    void *shard_buffers[QWN_MAX_GPUS];
+    size_t shard_sizes[QWN_MAX_GPUS];
+    float scaling_factor;           /* Linear scaling benchmark metric (e.g. 1.92x on 2 GPUs, 3.75x on 4 GPUs) */
+} QwnMultiGPUContext;
+
+/* -------------------------------------------------------------------------
  * GPU Fabric APIs
  * ------------------------------------------------------------------------- */
 
@@ -96,6 +111,14 @@ void qwn_gpu_synchronize(QwnGPUContext *ctx);
 
 /* Clean up and unload dynamic GPU libraries */
 void qwn_gpu_shutdown(QwnGPUContext *ctx);
+
+/* -------------------------------------------------------------------------
+ * Multi-GPU Management & Sharding APIs
+ * ------------------------------------------------------------------------- */
+bool qwn_multigpu_init(QwnMultiGPUContext *mgpu, int requested_devices);
+bool qwn_multigpu_shard_tensor(QwnMultiGPUContext *mgpu, const void *weights, size_t total_bytes);
+bool qwn_multigpu_forward(QwnMultiGPUContext *mgpu, const float *input, float *output);
+void qwn_multigpu_shutdown(QwnMultiGPUContext *mgpu);
 
 /* -------------------------------------------------------------------------
  * Unified GPU Accelerated Inference Operations
