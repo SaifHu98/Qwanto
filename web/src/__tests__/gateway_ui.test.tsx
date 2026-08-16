@@ -8,6 +8,9 @@ describe("gateway status UI", () => {
     ["wrong-server", "Wrong server selected"],
     ["incompatible-version", "Incompatible gateway version"],
     ["not-running", "Gateway not running"],
+    ["starting", "Starting local gateway"],
+    ["model-required", "Gateway ready · model required"],
+    ["failed", "Gateway failed"],
   ] as const)("renders the %s state with actionable status", (state, label) => {
     const html = renderToStaticMarkup(<GatewayStatusBanner state={state} message="Test gateway message" onProbe={() => undefined} />)
     expect(html).toContain(label)

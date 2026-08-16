@@ -3,6 +3,9 @@ import type { GatewayConnectionState } from "@/lib/gateway"
 
 const labels: Record<GatewayConnectionState, string> = {
   connected: "Gateway connected",
+  starting: "Starting local gateway",
+  "model-required": "Gateway ready · model required",
+  failed: "Gateway failed",
   "wrong-server": "Wrong server selected",
   "incompatible-version": "Incompatible gateway version",
   "not-running": "Gateway not running",

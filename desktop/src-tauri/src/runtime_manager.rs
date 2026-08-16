@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+use crate::model_registry::ModelRegistry;
 
 type RequestTracking = Arc<Mutex<HashMap<String, (Instant, Option<Instant>)>>>;
 
@@ -311,6 +312,13 @@ impl QwantoRuntimeManager {
             .is_some_and(|extension| extension.eq_ignore_ascii_case("qwn"));
         if !is_qwn {
             return Err(format!("qwnrun requires a .qwn model container: {}", model_path));
+        }
+        let model_info = ModelRegistry::inspect_qwn_file(model_file);
+        if model_info.compatibility_state != "compatible" {
+            return Err(format!(
+                "Model validation failed before qwnrun start: {}",
+                model_info.metadata_status
+            ));
         }
 
         let canonical_model = model_file.canonicalize().map_err(|e| format!("Failed to canonicalize model path: {}", e))?;

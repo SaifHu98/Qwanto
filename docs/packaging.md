@@ -10,15 +10,16 @@ GitHub prerelease with the installer assets. The workflow never creates a tag.
 ## Package contents
 
 Each target stages its own compiled `qwnrun` binary at
-`desktop/src-tauri/resources/qwnrun` before Tauri bundling. The resource is
-resolved by the desktop runtime from the application resource directory. No
-`.qwn`, `.gguf`, `.safetensors`, or other model file is bundled.
+`desktop/src-tauri/resources/qwnrun` and freezes the Python gateway into
+`desktop/src-tauri/resources/qwanto-gateway` before Tauri bundling. Both are
+resolved from the application resource directory. No `.qwn`, `.gguf`,
+`.safetensors`, or other model file is bundled.
 
 | Runner | Native build | Tauri output |
 | --- | --- | --- |
-| Windows x64 | Clang native `qwnrun.exe` | NSIS installer and MSI |
-| macOS runner | `make -C c qwnrun` | DMG |
-| Ubuntu 22.04 | `make -C c qwnrun` | AppImage and Debian package |
+| Windows x64 | Clang native `qwnrun.exe` + frozen gateway | NSIS installer and MSI |
+| macOS runner | `make -C c qwnrun` + frozen gateway | DMG |
+| Ubuntu 22.04 | `make -C c qwnrun` + frozen gateway | AppImage and Debian package |
 
 ## Local build
 
@@ -45,7 +46,7 @@ version tag such as `v0.1.0-beta.1` and push it; the tag-triggered workflow
 publishes a prerelease only after every Windows, macOS, and Linux package job
 is green.
 
-Packages contain qwnrun only. They do not contain model weights, Python, or a
-gateway sidecar, and the UI labels converter/download capabilities unavailable
-inside the installed shell. Packages are not described as signed unless real
-signing and verification have been configured.
+Packages contain the native runtime and gateway sidecar, but no model weights.
+The sidecar is bound to loopback and supervised by the desktop host. Packages
+are not described as signed unless real signing and verification have been
+configured.

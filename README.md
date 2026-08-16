@@ -3,12 +3,14 @@
 [![CI](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml)
 [![Latest beta](https://img.shields.io/github/v/release/SaifHu98/Qwanto?include_prereleases&label=latest%20beta)](https://github.com/SaifHu98/Qwanto/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Local-first](https://img.shields.io/badge/runtime-local--first-2f855a.svg)](docs/local-only.md)
+[![Desktop](https://img.shields.io/badge/desktop-Windows%20%7C%20macOS%20%7C%20Linux-4c6fff.svg)](docs/packaging.md)
 
-> A local-first native runtime for validated QWN models, a persistent OpenAI-compatible gateway, and one shared dashboard.
+> A local-first native runtime, supervised loopback gateway, and OpenCode-style desktop coding agent for validated QWN models.
 
 Qwanto is a Beta local-first AI runtime for running supported dense transformer
-models through a native C decoder, a loopback OpenAI-compatible gateway, a
-shared React dashboard, and an optional Tauri desktop host.
+models through a native C decoder, a supervised loopback OpenAI-compatible
+gateway, a shared React dashboard, and a Tauri desktop coding agent.
 
 The repository is engineering-complete for its tested paths, but it is not a
 promise that every model, GPU backend, sensor, or platform is production-ready.
@@ -18,10 +20,10 @@ Read the status and evidence before relying on a path.
 
 Qwanto keeps model execution on the user’s machine. The native runtime reads a
 validated `.qwn` container through the project’s VRAM → RAM → NVMe tiered
-memory design, while the Python gateway exposes a familiar local API and the
-React dashboard reports the gateway’s actual state. The Tauri desktop shell
-packages the UI and target-native `qwnrun`; it does not bundle model weights or
-silently start a Python service.
+memory design, while the local gateway exposes a familiar API and the React
+dashboard reports the gateway’s actual state. The Tauri desktop shell packages
+the UI, target-native `qwnrun`, and the target-native gateway sidecar; it never
+bundles model weights.
 
 ### User stories
 
@@ -38,16 +40,18 @@ silently start a Python service.
 
 ```mermaid
 flowchart LR
-  Browser[web/ React UI] -->|HTTP| Gateway[c/openai_server.py]
+  Browser[web/ React UI] -->|HTTP only| Gateway[c/openai_server.py]
   Desktop[desktop/ Tauri shell] -->|same shared UI| Browser
   Desktop -->|native commands and approvals| Rust[desktop/src-tauri]
-  Gateway -->|persistent stdin/stdout| Qwnrun[c/qwnrun --serve]
+  Rust -->|starts and supervises| Sidecar[packaged gateway sidecar]
+  Sidecar -->|persistent stdin/stdout| Qwnrun[c/qwnrun --serve]
   Qwnrun -->|mmap / prefetch| QWN[(user-managed .qwn model)]
 ```
 
-The browser UI has no filesystem or terminal authority. The desktop host may
-start the packaged target-native `qwnrun` resource and expose approval-gated
-agent tools. Models are never bundled.
+The browser UI is a safe local chat client: it has no project, filesystem,
+terminal, diff, or agent authority. Only the desktop host starts the packaged
+sidecar and `qwnrun`, and exposes approval-gated project/file/terminal/diff
+tools. Models are never bundled.
 
 ## Current support matrix
 
@@ -90,7 +94,9 @@ npm run dev -- --host 127.0.0.1 --port 5173
 The gateway-served UI is also available after `npm run build`; the web server
 on port 5173 is only a frontend development server, not the API gateway.
 
-For the desktop shell, stage the target-native runtime first:
+For the desktop shell, stage the target-native runtime first. Development uses
+the repository’s Python gateway automatically; release packages use the frozen
+gateway sidecar automatically:
 
 ```sh
 mkdir -p desktop/src-tauri/resources
@@ -114,9 +120,10 @@ source-controlled release assets.
 Model acquisition is explicit and provider-scoped. Hugging Face public HTTPS,
 allowlisted direct HTTPS, and local-file import are supported by the local
 gateway. Downloads use a `.part` file, range resume, checksum/size checks, disk
-preflight, and atomic publication. The packaged Tauri Beta contains qwnrun only;
-its converter and downloader are honestly disabled until a gateway sidecar is
-packaged and supervised.
+preflight, and atomic publication. The packaged Tauri Beta contains qwnrun and
+the supervised gateway sidecar; converter and downloader controls remain behind
+Settings and require explicit user consent. The sidecar binds to loopback on a
+dynamic port and reports its ready URL through a structured handshake.
 
 Model selection never trusts a filename. The dashboard prefers an explicit,
 validated, hardware-fit `.qwn`, then a recommendation backed by local measured
@@ -196,6 +203,7 @@ available.
 
 ## Documentation map
 
+- [Documentation index](docs/index.md)
 - [Architecture](docs/architecture.md)
 - [QWN format](docs/qwn-format.md)
 - [Web UI boundary](docs/web-ui.md)

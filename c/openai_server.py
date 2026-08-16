@@ -45,19 +45,23 @@ from model_acquisition import (
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.resolve()
 GATEWAY_API_VERSION = "1"
-GATEWAY_VERSION = "0.1.0"
+GATEWAY_VERSION = "0.1.0-beta.3"
 _QWN_DISCOVERY_CACHE = {}
 _EVIDENCE_HASH_CACHE = {}
+MODEL_ROOT = Path(os.environ.get("QWANTO_MODEL_ROOT", PROJECT_ROOT / "models")).expanduser().resolve()
+MODEL_PATHS_FILE = Path(os.environ.get("QWANTO_MODEL_PATHS_FILE", PROJECT_ROOT / ".qwanto_model_paths.json")).expanduser().resolve()
 
 
 def _qwnrun_path():
+    configured = os.environ.get("QWANTO_QWNRUN")
     candidates = (
+        Path(configured) if configured else None,
         HERE / "qwnrun.exe",
         HERE / "qwnrun",
         PROJECT_ROOT / "c" / "qwnrun.exe",
         PROJECT_ROOT / "c" / "qwnrun",
     )
-    return next((candidate for candidate in candidates if candidate.is_file()), None)
+    return next((candidate for candidate in candidates if candidate and candidate.is_file()), None)
 
 
 def _qwn_quantization(info):
@@ -205,13 +209,17 @@ def _is_safe_path(target_path: Union[str, Path], allowed_dirs: List[Path] = None
         resolved = Path(target_path).resolve()
         if allowed_dirs:
             return any(resolved == d.resolve() or d.resolve() in resolved.parents for d in allowed_dirs)
-        # Default safety boundary: project root or user app data
-        return resolved == PROJECT_ROOT or PROJECT_ROOT in resolved.parents
+        # Default safety boundary: project root or the explicitly configured
+        # user-managed model library used by the packaged desktop sidecar.
+        return any(resolved == root or root in resolved.parents for root in (PROJECT_ROOT, MODEL_ROOT))
     except Exception:
         return False
 
 
 def _qwn_executable(engine):
+    configured = Path(engine)
+    if configured.is_file():
+        return configured
     suffix = ".exe" if sys.platform == "win32" else ""
     candidate = Path(engine).with_name("qwnrun" + suffix)
     return candidate
@@ -1343,7 +1351,8 @@ def model_object(model_id, created):
     return {"id": model_id, "object": "model", "created": created, "owned_by": "qwanto"}
 
 
-download_manager = SafeDownloadManager(PROJECT_ROOT / "models")
+MODEL_ROOT.mkdir(parents=True, exist_ok=True)
+download_manager = SafeDownloadManager(MODEL_ROOT)
 
 
 class ConversionManager:
@@ -1393,7 +1402,7 @@ class ConversionManager:
         try:
             source_path = Path(self.source).resolve()
             output_path = Path(self.output).resolve()
-            if not _is_safe_path(output_path, allowed_dirs=[PROJECT_ROOT / "models", source_path.parent]):
+            if not _is_safe_path(output_path, allowed_dirs=[MODEL_ROOT, source_path.parent]):
                 raise AcquisitionError("Conversion output must remain in the model library or selected source directory.")
             if self.cancel_event.is_set():
                 raise AcquisitionError("Conversion cancelled by user")
@@ -1402,8 +1411,9 @@ class ConversionManager:
             t0 = time.time()
             src_size = source_path.stat().st_size if source_path.is_file() else 0
             qwnrun = next((candidate for candidate in (
+                Path(os.environ["QWANTO_QWNRUN"]) if os.environ.get("QWANTO_QWNRUN") else None,
                 HERE / "qwnrun.exe", HERE / "qwnrun", PROJECT_ROOT / "c" / "qwnrun.exe", PROJECT_ROOT / "c" / "qwnrun"
-            ) if candidate.is_file()), None)
+            ) if candidate and candidate.is_file()), None)
             manifest = convert_to_qwn(source_path, output_path, self.quant, qwnrun=qwnrun,
                                       overwrite=self.overwrite,
                                       cancel_check=self.cancel_event.is_set)
@@ -2026,12 +2036,13 @@ class APIHandler(BaseHTTPRequestHandler):
                     "max_tokens": self.server.max_tokens,
                     "resources": resources,
                     "capabilities": dataclasses.asdict(self.server.active_backend.capabilities()) if self.server.active_backend else {},
-                    "acquisition": {"converter": True, "downloader": True, "desktop_sidecar": False}
+                    "acquisition": {"converter": True, "downloader": True,
+                                    "desktop_sidecar": os.environ.get("QWANTO_DESKTOP_SIDECAR") == "1"}
                 }
                 self.send_json(200, payload, request_id)
                 return
             if path == "/v1/qwanto/paths":
-                custom_paths_file = Path(__file__).resolve().parent.parent / ".qwanto_model_paths.json"
+                custom_paths_file = MODEL_PATHS_FILE
                 existing = []
                 if custom_paths_file.exists():
                     try:
@@ -2047,7 +2058,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 parent_paths = []
                 
                 # 1. Project models directory
-                proj_models = Path(__file__).resolve().parent.parent / "models"
+                proj_models = MODEL_ROOT
                 if proj_models.exists():
                     parent_paths.append(proj_models)
                 
@@ -2075,7 +2086,7 @@ class APIHandler(BaseHTTPRequestHandler):
                             parent_paths.append(p)
                 
                 # 5. Custom paths stored in config
-                custom_paths_file = Path(__file__).resolve().parent.parent / ".qwanto_model_paths.json"
+                custom_paths_file = MODEL_PATHS_FILE
                 if custom_paths_file.exists():
                     try:
                         import json as _json
@@ -2299,6 +2310,8 @@ class APIHandler(BaseHTTPRequestHandler):
                         "gateway": "qwanto",
                         "api_version": GATEWAY_API_VERSION,
                         "gateway_version": GATEWAY_VERSION,
+                        "model_state": "running" if self.server.model_path else "model_required",
+                        "desktop_sidecar": os.environ.get("QWANTO_DESKTOP_SIDECAR") == "1",
                         "endpoints": {
                             "health": "/health",
                             "models": "/v1/models",
@@ -2328,10 +2341,12 @@ class APIHandler(BaseHTTPRequestHandler):
                     self.send_json(200, payload, request_id)
                     return
                 payload = {
-                    "status": "ok",
+                    "status": "running" if self.server.model_path and self.server.active_backend else "model_required",
                     "gateway": "qwanto",
                     "api_version": GATEWAY_API_VERSION,
                     "gateway_version": GATEWAY_VERSION,
+                    "model_state": "running" if self.server.model_path else "model_required",
+                    "desktop_sidecar": os.environ.get("QWANTO_DESKTOP_SIDECAR") == "1",
                     "endpoints": {
                         "health": "/health",
                         "models": "/v1/models",
@@ -2599,6 +2614,14 @@ class APIHandler(BaseHTTPRequestHandler):
                 p = Path(model_path)
                 if not p.exists():
                     raise APIError(404, f"Path does not exist: {model_path}", "model_path")
+                if p.is_file() and p.suffix.lower() == ".qwn":
+                    try:
+                        validate_qwn(p, include_hash=False)
+                    except Exception as exc:
+                        raise APIError(400, f"QWN validation failed: {exc}", "model_path", "invalid_model")
+                    qwn_exe = _qwn_executable(self.server.engine_executable)
+                    if not qwn_exe.is_file():
+                        raise APIError(503, f"qwnrun is not available at {qwn_exe}", "model_path", "runtime_unavailable")
                 accel = {}
                 for key in ("flash_attention", "kv_cache_quant",
                             "speculative_decoding", "draft_model_path"):
@@ -2627,6 +2650,14 @@ class APIHandler(BaseHTTPRequestHandler):
                     }, request_id)
                 except Exception as e:
                     raise APIError(500, f"Failed to load model: {str(e)}", "model_path")
+                return
+
+            if path == "/v1/qwanto/unload":
+                try:
+                    self.server.reload_backend("", "none")
+                    self.send_json(200, {"status": "success", "model_id": None, "backend": "none"}, request_id)
+                except Exception as exc:
+                    raise APIError(500, f"Failed to stop the active model: {exc}", "model_path")
                 return
                 
             if path == "/v1/qwanto/download":
@@ -2660,7 +2691,7 @@ class APIHandler(BaseHTTPRequestHandler):
                             allow_localhost_http=bool(body.get("allow_localhost_http", False)) and os.environ.get("QWANTO_ALLOW_LOCALHOST_HTTP_TESTS") == "1",
                             expected_size=body.get("expected_size"), sha256=body.get("sha256"),
                         )
-                    library = PROJECT_ROOT / "models"
+                    library = MODEL_ROOT
                     inferred_name = manifest.filename
                     dest_path = library / inferred_name
                     if dest_path_str:
@@ -2725,7 +2756,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     from model_acquisition import detect_source_format
                     detect_source_format(p)
                     output_path = Path(output).resolve()
-                    if not _is_safe_path(output_path, allowed_dirs=[PROJECT_ROOT / "models", p.resolve().parent]):
+                    if not _is_safe_path(output_path, allowed_dirs=[MODEL_ROOT, p.resolve().parent]):
                         raise AcquisitionError("Conversion output must remain in the model library or selected source directory.")
                     if output_path.exists() and not body.get("overwrite", False):
                         raise AcquisitionError("Refusing to overwrite an existing .qwn output without confirmation.")
@@ -2777,7 +2808,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 
             if path == "/v1/qwanto/paths":
                 body = self.read_json() if self.headers.get("content-length", "0") != "0" else {}
-                custom_paths_file = Path(__file__).resolve().parent.parent / ".qwanto_model_paths.json"
+                custom_paths_file = MODEL_PATHS_FILE
                 if body.get("action") == "add":
                     new_path = body.get("path")
                     if not new_path:
@@ -3179,11 +3210,12 @@ class APIHandler(BaseHTTPRequestHandler):
 
 def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
           cap=8, max_tokens=1024, engine=HERE / "glm", env=None, cors_origins=None,
-          max_queue=8, queue_timeout=300, kv_slots=1, backend="auto", backend_url=None):
+          max_queue=8, queue_timeout=300, kv_slots=1, backend="auto", backend_url=None,
+          ready_file=None):
     if not 1 <= max_tokens:
         raise ValueError("max_tokens must be positive")
-    if not 1 <= port <= 65535:
-        raise ValueError("port must be between 1 and 65535")
+    if not 0 <= port <= 65535:
+        raise ValueError("port must be between 0 and 65535")
     if max_queue < 0:
         raise ValueError("max_queue cannot be negative")
     if queue_timeout <= 0:
@@ -3241,6 +3273,25 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
     origins = DEFAULT_CORS_ORIGINS if cors_origins is None else tuple(cors_origins)
     server = APIServer((host, port), None, model_id, api_key, max_tokens, origins,
                        max_queue, queue_timeout, kv_slots)
+    # Port 0 lets the OS allocate a free loopback port for packaged desktop
+    # launches. Publish the bound address only after the listener exists.
+    server.port = server.server_address[1]
+    ready_payload = {
+        "gateway": "qwanto",
+        "api_version": GATEWAY_API_VERSION,
+        "gateway_version": GATEWAY_VERSION,
+        "host": host,
+        "port": server.port,
+        "url": f"http://{host}:{server.port}",
+    }
+    ready_line = "QWANTO_GATEWAY_READY " + json.dumps(ready_payload, separators=(",", ":"))
+    print(ready_line, flush=True)
+    if ready_file:
+        ready_target = Path(ready_file).expanduser().resolve()
+        ready_target.parent.mkdir(parents=True, exist_ok=True)
+        ready_tmp = ready_target.with_name(ready_target.name + ".part")
+        ready_tmp.write_text(json.dumps(ready_payload, indent=2) + "\n", encoding="utf-8")
+        os.replace(ready_tmp, ready_target)
     server.backend = detected
     server.ctx_size = saved_ctx_size
     server.flash_attention = bool(settings.get("flash_attention", True))
@@ -3326,7 +3377,7 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
                     
         server.runtime_proc = runtime
         server._save_settings()
-        print(f"OpenAI-compatible API listening on http://{host}:{port}/v1", file=sys.stderr)
+        print(f"OpenAI-compatible API listening on http://{host}:{server.port}/v1", file=sys.stderr)
         signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
         server.serve_forever()
     finally:
@@ -3339,7 +3390,7 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default=os.environ.get("QWANTO_MODEL"), required=not os.environ.get("QWANTO_MODEL"))
+    parser.add_argument("--model", default=os.environ.get("QWANTO_MODEL"), required=False)
     parser.add_argument("--engine", default=str(HERE / "glm"))
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -3355,6 +3406,8 @@ def main():
     parser.add_argument("--kv-slots", type=int, default=int(os.environ.get("QWANTO_KV_SLOTS", "1")))
     parser.add_argument("--backend", choices=("native", "ollama", "llama-cpp", "llama.cpp", "openai", "auto"), default="auto")
     parser.add_argument("--backend-url", default=None, help="Explicit URL for openai, ollama, or llama-cpp backends")
+    parser.add_argument("--ready-file", default=os.environ.get("QWANTO_READY_FILE"),
+                        help="Write the structured readiness payload to this path")
     args = parser.parse_args()
     
     # normalize legacy names
@@ -3366,7 +3419,7 @@ def main():
     serve(args.model, args.host, args.port, args.model_id, args.api_key,
           args.cap,args.max_tokens,args.engine,cors_origins=args.cors_origin,
           max_queue=args.max_queue,queue_timeout=args.queue_timeout,kv_slots=args.kv_slots,
-          backend=args.backend, backend_url=args.backend_url)
+          backend=args.backend, backend_url=args.backend_url, ready_file=args.ready_file)
 
 
 if __name__ == "__main__":

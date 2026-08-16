@@ -541,6 +541,15 @@ export interface BenchmarkMetrics {
   gates_passed?: Record<string, boolean>
 }
 
+export async function unloadModel(baseUrl: string, apiKey = "") {
+  const response = await fetch(endpoint(baseUrl, "qwanto/unload"), {
+    method: "POST",
+    headers: headers(apiKey),
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as { status: string; model_id: string | null; backend: string }
+}
+
 export async function getAcquisitionProviders(baseUrl: string, apiKey = ""): Promise<AcquisitionProvider[]> {
   const response = await fetch(endpoint(baseUrl, "qwanto/providers"), { headers: headers(apiKey) })
   if (!response.ok) throw new Error(await responseError(response))

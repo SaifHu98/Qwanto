@@ -11,9 +11,15 @@ on:
     tags:
       - "v*"
       - "package-validation-*"
+  schedule:
+    - cron: "17 2 * * 1"
 
 permissions:
   contents: read
+
+concurrency:
+  group: qwanto-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   package:
@@ -54,6 +60,17 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Setup Python for the local gateway sidecar
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build the target-native gateway sidecar
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m PyInstaller --clean --noconfirm c/qwanto_gateway.spec
+
       - name: Build shared web UI
         working-directory: web
         run: |
@@ -77,6 +94,7 @@ jobs:
         run: |
           mkdir -p desktop/src-tauri/resources
           if [ "$RUNNER_OS" = "Windows" ]; then cp c/qwnrun.exe desktop/src-tauri/resources/qwnrun; else cp c/qwnrun desktop/src-tauri/resources/qwnrun; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then cp dist/qwanto-gateway.exe desktop/src-tauri/resources/qwanto-gateway; else cp dist/qwanto-gateway desktop/src-tauri/resources/qwanto-gateway; fi
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0.0" --locked
@@ -96,6 +114,7 @@ jobs:
         shell: bash
         run: |
           test -f desktop/src-tauri/resources/qwnrun
+          test -f desktop/src-tauri/resources/qwanto-gateway
           if find desktop/src-tauri/target/release/bundle -type f \( -iname '*.qwn' -o -iname '*.gguf' -o -iname '*.safetensors' \) | grep -q .; then exit 1; fi
           git diff --check
 

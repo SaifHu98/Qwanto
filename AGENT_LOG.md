@@ -221,3 +221,11 @@
   Ubuntu, and the GitHub prerelease publisher. `v0.1.0-beta.1` contains the
   five expected unsigned installers and no model files.
 - **Release:** https://github.com/SaifHu98/Qwanto/releases/tag/v0.1.0-beta.1
+
+## 2026-08-16 — Beta.3 desktop sidecar and coding-agent shell
+
+- **Change:** Added a target-native frozen gateway sidecar with loopback dynamic-port readiness handshake, desktop supervision, model-required standby state, and graceful shutdown. Reworked the shared UI into a desktop Project/Chats/Files/Changes/Settings shell while keeping browser chat filesystem- and terminal-free; moved advanced acquisition, conversion, diagnostics, benchmark, security, and log controls into Settings.
+- **Change:** Optimized CI with concurrency cancellation, path filters, sccache/Rust/Tauri caches, one native qwnrun artifact, preserved Linux Tauri dependencies and NumPy, and scheduled/manual/tag-only package validation. Release packaging now includes the gateway sidecar and verifies no model files.
+- **Change:** Updated Beta.3 README/docs/release readiness and added sidecar/integrity/responsive UI tests.
+- **Validation:** Decoder `2 passed`; full Python suite `202 passed, 14 skipped`; gateway sidecar integration `2 passed`; web build and `47` Vitest tests passed; docs links and secret audit passed; PyInstaller frozen Windows sidecar started and reported loopback readiness plus `model_required`. Cargo check/test/clippy were attempted but Cargo is unavailable on this workstation.
+- **Decision:** Preserve `v0.1.0-beta.2`; target `v0.1.0-beta.3` only after hosted Rust and package gates are green. No model weights are bundled.

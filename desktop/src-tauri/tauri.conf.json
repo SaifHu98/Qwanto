@@ -32,7 +32,8 @@
         "category": "DeveloperTool",
         "shortDescription": "Local-first Qwanto AI runtime host",
         "resources": [
-            "resources/qwnrun"
+            "resources/qwnrun",
+            "resources/qwanto-gateway"
         ],
         "icon": [
       "icons/32x32.png",

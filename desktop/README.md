@@ -4,9 +4,11 @@ Qwanto Desktop is a Tauri v2 application around the shared React UI in
 `../web`. It adds native runtime and approval-gated agent commands through the
 Rust host; it does not create a second frontend.
 
-The packaged application contains the target-native `qwnrun` executable as a
-resource. It never contains a model. Users select local `.qwn` containers, and
-the Rust host launches the resource with the persistent stdin/stdout protocol.
+The packaged application contains the target-native `qwnrun` executable and
+gateway sidecar as resources. It never contains a model. Users select local
+`.qwn` containers; the Rust host starts the sidecar on loopback using a dynamic
+port, waits for its structured ready handshake, and starts `qwnrun` only after
+a validated model is selected.
 The browser build cannot invoke these Tauri commands or access arbitrary local
 files and processes.
 
@@ -25,8 +27,9 @@ cargo tauri dev
 ```
 
 On Windows, build `c/qwnrun.exe` with the supported native toolchain and copy
-it to `desktop/src-tauri/resources/qwnrun`. The release workflow performs
-this target-specific staging automatically.
+it to `desktop/src-tauri/resources/qwnrun`. The release workflow performs this
+target-specific staging and freezes `c/openai_server.py` into the matching
+gateway sidecar automatically.
 
 ## Agent safety boundary
 
@@ -46,6 +49,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 ```
 
-Release packaging requires `desktop/src-tauri/resources/qwnrun` and produces
-Windows NSIS/MSI, macOS DMG, or Linux AppImage/deb packages depending on the
-runner. Models and benchmark artifacts are intentionally excluded.
+Release packaging requires `desktop/src-tauri/resources/qwnrun` and
+`desktop/src-tauri/resources/qwanto-gateway`, and produces Windows NSIS/MSI,
+macOS DMG, or Linux AppImage/deb packages depending on the runner. Models and
+benchmark artifacts are intentionally excluded.

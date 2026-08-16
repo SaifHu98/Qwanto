@@ -1,4 +1,5 @@
 pub mod runtime_manager;
+pub mod gateway_manager;
 pub mod model_registry;
 pub mod telemetry;
 pub mod permission_policy;
@@ -7,7 +8,8 @@ pub mod session_store;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, RunEvent, State};
+use gateway_manager::{GatewayManager, GatewayStatus};
 use runtime_manager::{QwantoRuntimeManager, RuntimeStatus, StartOptions};
 use model_registry::{ModelInfo, ModelRegistry};
 use telemetry::{TelemetryCollector, TelemetrySnapshot};
@@ -16,6 +18,7 @@ use tool_executor::{ToolExecutor, ToolResult};
 use session_store::{AgentSession, SessionStore};
 
 pub struct AppState {
+    pub gateway_manager: Mutex<GatewayManager>,
     pub runtime_manager: Mutex<QwantoRuntimeManager>,
     pub permission_policy: Mutex<PermissionPolicy>,
     pub session_store: Mutex<SessionStore>,
@@ -30,13 +33,28 @@ struct DesktopCapabilities {
 }
 
 #[tauri::command]
-fn get_desktop_capabilities() -> DesktopCapabilities {
+fn get_desktop_capabilities(state: State<AppState>) -> DesktopCapabilities {
+    let gateway_sidecar_packaged = state
+        .gateway_manager
+        .lock()
+        .map(|mut manager| manager.status().sidecar_packaged)
+        .unwrap_or(false);
     DesktopCapabilities {
-        converter_available: false,
-        downloader_available: false,
-        gateway_sidecar_packaged: false,
-        reason: "The Beta desktop package contains qwnrun only; Python gateway acquisition is not bundled.".into(),
+        converter_available: true,
+        downloader_available: true,
+        gateway_sidecar_packaged,
+        reason: if gateway_sidecar_packaged {
+            "The local gateway sidecar provides model discovery, conversion, and consent-gated acquisition.".into()
+        } else {
+            "Development mode uses the repository gateway; release packages include the target-native sidecar.".into()
+        },
     }
+}
+
+#[tauri::command]
+fn get_gateway_status(state: State<AppState>) -> Result<GatewayStatus, String> {
+    let mut manager = state.gateway_manager.lock().map_err(|error| error.to_string())?;
+    Ok(manager.status())
 }
 
 #[tauri::command]
@@ -174,13 +192,23 @@ fn get_agent_session(session_id: String, state: State<AppState>) -> Result<Optio
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState {
+            gateway_manager: Mutex::new(GatewayManager::new()),
             runtime_manager: Mutex::new(QwantoRuntimeManager::new()),
             permission_policy: Mutex::new(PermissionPolicy::new(None, ExecutionMode::Plan)),
             session_store: Mutex::new(SessionStore::new(None)),
         })
+        .setup(|app| {
+            let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
+            let data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+            let state = app.state::<AppState>();
+            let mut gateway = state.gateway_manager.lock().map_err(|error| error.to_string())?;
+            let _ = gateway.start(&resource_dir, &data_dir);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             discover_models,
             get_desktop_capabilities,
+            get_gateway_status,
             start_model,
             stop_model,
             send_prompt,
@@ -194,6 +222,13 @@ pub fn run() {
             save_agent_session,
             get_agent_session
         ])
-        .run(tauri::generate_context!())
+        .run(|app, event| {
+            if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+                if let Ok(state) = app.state::<AppState>().gateway_manager.lock() {
+                    let mut gateway = state;
+                    gateway.stop();
+                }
+            }
+        })
         .expect("failed to run the Qwanto desktop application");
 }
