@@ -222,7 +222,7 @@ pub fn run() {
             save_agent_session,
             get_agent_session
         ])
-        .run(|app, event| {
+        .run(|app: &AppHandle, event| {
             if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 if let Ok(state) = app.state::<AppState>().gateway_manager.lock() {
                     let mut gateway = state;
