@@ -50,6 +50,22 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Build and stage qwnrun resource (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          make -C c qwnrun
+          mkdir -p desktop/src-tauri/resources
+          cp c/qwnrun desktop/src-tauri/resources/qwnrun
+
+      - name: Build and stage qwnrun resource (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force desktop/src-tauri/resources | Out-Null
+          Set-Location c
+          clang -O3 -mavx2 -mf16c -mfma qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi
+          Copy-Item qwnrun.exe ..\desktop\src-tauri\resources\qwnrun -Force
+
       - name: Cargo Check
         run: cargo check --manifest-path desktop/src-tauri/Cargo.toml
 
