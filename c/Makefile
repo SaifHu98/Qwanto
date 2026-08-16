@@ -211,6 +211,11 @@ ifeq ($(METAL),1)
 ifeq (,$(DARWIN))
 $(error METAL=1 is supported only on macOS)
 endif
+CFLAGS   += -DCOLI_METAL
+LDFLAGS  += -framework Metal -framework Foundation -lc++
+METAL_OBJ = backend_metal.o
+endif
+
 all: glm$(EXE) qwnrun$(EXE)
 
 # phony 'glm' → 'glm.exe' on Windows (so 'make glm' and 'coli build' work on every platform)
