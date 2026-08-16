@@ -194,3 +194,13 @@
 
 - **Change:** Corrected the unconditional x86 `x86intrin.h` include in `c/qwanto_turboquant.c`; ARM64 Apple builds now use the existing scalar/NEON fallback path without importing x86 headers.
 - **Evidence:** Package run `31955416608` failed on `macos-26-arm64` in `make -C c qwnrun` with Clang errors that `immintrin.h` and `mmintrin.h` are x86-only.
+
+## 2026-08-16 — Beta release publication completion
+
+- **Change:** Added checkout and installer-only asset filtering to the release
+  publisher after the package matrix exposed the missing Git repository context
+  and the bundle icon being passed to the GitHub release API.
+- **Evidence:** Final package/publish run `31958474842` passed Windows, macOS,
+  Ubuntu, and the GitHub prerelease publisher. `v0.1.0-beta.1` contains the
+  five expected unsigned installers and no model files.
+- **Release:** https://github.com/SaifHu98/Qwanto/releases/tag/v0.1.0-beta.1

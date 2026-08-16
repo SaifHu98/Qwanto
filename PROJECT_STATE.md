@@ -32,11 +32,11 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
 - Rust gates are pending on this workstation because `cargo` is not installed;
-  CI remains authoritative for Rust and cross-platform packaging.
-- Release status: Beta / not release-ready until fresh CI and a green package
-  workflow provide the remaining evidence. `workflow_dispatch` validates
-  packages; an existing `v*` tag publishes a prerelease only after all matrix
-  jobs pass. No tag or release was created by this work.
+  hosted CI remains authoritative for Rust and cross-platform packaging. CI
+  run `31955118304` and package run `31958474842` passed their required gates.
+- Release status: `v0.1.0-beta.1` is published as a GitHub prerelease after
+  green Windows, macOS, and Linux package jobs. The release contains unsigned
+  platform installers only; model files are not bundled.
 
 ## Active limitations
 
@@ -61,7 +61,7 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   and process operations stay in the desktop host or gateway.
 - Keep benchmark classifications `MEASURED`, `UNAVAILABLE`, `INVALID`,
   `TEST_FIXTURE`, `EXPERIMENTAL`, and `PROJECTED`; never substitute values.
-- Release workflow supports manual or temporary-tag package validation and existing `v*` tags;
-  tagged runs upload unsigned installers to a GitHub prerelease after the
-  package matrix is green, without creating tags.
+- Release workflow supports manual or temporary-tag package validation and
+  existing `v*` tags; tagged runs upload unsigned installers to a GitHub
+  prerelease after the package matrix is green.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
