@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "test:integration": "vitest run src/__tests__/api_integration.test.ts",
+    "test:e2e": "vitest run src/__tests__/e2e_flows.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
