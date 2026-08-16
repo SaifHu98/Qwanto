@@ -1,0 +1,93 @@
+name: Package Qwanto Beta
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundle: nsis,msi
+            artifact: windows
+          - os: macos-latest
+            bundle: dmg
+            artifact: macos
+          - os: ubuntu-22.04
+            bundle: appimage,deb
+            artifact: linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev build-essential clang libomp-dev curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build shared web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+      - name: Build qwnrun on Linux or macOS
+        if: runner.os != 'Windows'
+        run: make -C c qwnrun
+
+      - name: Build qwnrun on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Set-Location c
+          clang -O3 -mavx2 -mf16c -mfma qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi
+
+      - name: Stage target-native qwnrun resource
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/resources
+          if [ "$RUNNER_OS" = "Windows" ]; then cp c/qwnrun.exe desktop/src-tauri/resources/qwnrun; else cp c/qwnrun desktop/src-tauri/resources/qwnrun; fi
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
+      - name: Build desktop packages
+        working-directory: desktop
+        run: cargo tauri build --bundles "${{ matrix.bundle }}"
+
+      - name: Verify package contains the native resource and no model files
+        shell: bash
+        run: |
+          test -f desktop/src-tauri/resources/qwnrun
+          if find desktop/src-tauri/target/release/bundle -type f \( -iname '*.qwn' -o -iname '*.gguf' -o -iname '*.safetensors' \) | grep -q .; then exit 1; fi
+          git diff --check
+
+      - name: Upload ${{ matrix.artifact }} packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwanto-${{ matrix.artifact }}-${{ github.ref_name }}
+          path: desktop/src-tauri/target/release/bundle
+          if-no-files-found: error

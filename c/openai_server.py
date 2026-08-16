@@ -2190,25 +2190,31 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/v1/qwanto/benchmarks":
-                base_file = HERE / "baseline.json"
-                cand_file = HERE / "candidate.json"
-                base_data = None
-                cand_data = None
-                if base_file.exists():
+                evidence_paths = (
+                    PROJECT_ROOT / "benchmark_evidence.json",
+                    HERE / "benchmark_evidence.json",
+                    PROJECT_ROOT / "benchmarks" / "benchmark_evidence.json",
+                )
+                evidence = None
+                evidence_source = None
+                for evidence_path in evidence_paths:
+                    if not evidence_path.is_file():
+                        continue
                     try:
-                        with open(base_file, "r") as f:
-                            base_data = json.load(f)
-                    except Exception:
-                        pass
-                if cand_file.exists():
-                    try:
-                        with open(cand_file, "r") as f:
-                            cand_data = json.load(f)
-                    except Exception:
-                        pass
+                        candidate = json.loads(evidence_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        continue
+                    if candidate.get("evidence_classification") in {"MEASURED", "UNAVAILABLE", "INVALID", "TEST_FIXTURE", "EXPERIMENTAL", "PROJECTED"}:
+                        evidence = candidate
+                        evidence_source = str(evidence_path)
+                        break
                 self.send_json(200, {
-                    "baseline": base_data,
-                    "candidate": cand_data
+                    "classification": evidence.get("evidence_classification") if evidence else "UNAVAILABLE",
+                    "source": evidence_source,
+                    "evidence": evidence,
+                    "baseline": None,
+                    "candidate": None,
+                    "message": "No benchmark evidence artifact is available on this host." if evidence is None else None,
                 }, request_id)
                 return
 

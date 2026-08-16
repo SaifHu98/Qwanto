@@ -290,10 +290,10 @@ export function ConverterView({
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
                     <span className="flex items-center gap-1"><Zap className="size-3 text-primary" /> HyperVSQ</span>
-                    <Badge className="text-[9px] bg-primary/30 text-primary border-primary/50">~87%</Badge>
+                    <Badge className="text-[9px] bg-primary/30 text-primary border-primary/50">Native</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    256-element VNNI octa-superblock with 850+ tok/s SIMD throughput.
+                    256-element VNNI octa-superblock. Throughput depends on the selected host and model.
                   </p>
                 </button>
 
@@ -308,10 +308,10 @@ export function ConverterView({
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
                     <span>VSQ-Ultra</span>
-                    <Badge className="text-[9px] bg-muted text-muted-foreground">~82%</Badge>
+                    <Badge className="text-[9px] bg-muted text-muted-foreground">Native</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    128-element quad-quadrant superblock with 350+ tok/s.
+                    128-element quad-quadrant superblock. Throughput depends on the selected host and model.
                   </p>
                 </button>
 
@@ -326,7 +326,7 @@ export function ConverterView({
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
                     <span>QWN-VSQ</span>
-                    <Badge className="text-[9px] bg-muted text-muted-foreground">~80%</Badge>
+                    <Badge className="text-[9px] bg-muted text-muted-foreground">Native</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
                     64-element dual-scale superblock with shuffle decoding.

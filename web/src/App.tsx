@@ -24,7 +24,6 @@ import {
   Zap,
   Download,
   Server,
-  Globe,
   FolderSync,
   Waypoints,
   Copy,
@@ -32,7 +31,6 @@ import {
   Mic,
   MicOff,
   Paperclip,
-  Search,
   RotateCcw,
   Image,
   File,
@@ -56,6 +54,7 @@ import { WorkbenchView } from "./components/WorkbenchView"
 import { BenchmarksView } from "./components/BenchmarksView"
 import { SecurityView } from "./components/SecurityView"
 import { ConverterView } from "./components/ConverterView"
+import { CodingAgentView } from "./components/CodingAgentView"
 import type { SystemPreset } from "@/lib/api"
 import {
   getHealth,
@@ -81,6 +80,7 @@ import {
   type QwantoConfig,
   type DiscoveredModel,
   type DownloadStatus,
+  isLocalEndpoint,
 } from "@/lib/api"
 import { activeRequests, supportsCacheSlots } from "@/lib/runtime"
 import { Brain } from "./Brain"
@@ -143,9 +143,9 @@ export default function App() {
   const logRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
   const [systemInstruction, setSystemInstruction] = useState("")
-  const [view, setView] = useState<"dashboard" | "chat" | "brain" | "models" | "converter" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
+  const [view, setView] = useState<"dashboard" | "chat" | "brain" | "agent" | "models" | "converter" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
     const saved = stored(localStorage, "qwanto.view", "dashboard")
-    return (["dashboard", "chat", "brain", "models", "converter", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "dashboard") as any
+    return (["dashboard", "chat", "brain", "agent", "models", "converter", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "dashboard") as any
   })
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
@@ -158,8 +158,6 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [attachments, setAttachments] = useState<Array<{name: string, type: string, data: string}>>([])
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Model Manager states
@@ -171,7 +169,7 @@ export default function App() {
   const [downloadStatus, setDownloadStatus] = useState<DownloadStatus | null>(null)
   const [customPath, setCustomPath] = useState("")
   const [downloadUrl, setDownloadUrl] = useState("")
-  const [downloadPath, setDownloadPath] = useState(() => stored(localStorage, "qwanto.downloadPath", "D:\\Models"))
+  const [downloadPath, setDownloadPath] = useState(() => stored(localStorage, "qwanto.downloadPath", ""))
   const [downloadFilename, setDownloadFilename] = useState("")
   const [switchingModel, setSwitchingModel] = useState(false)
   const [modelError, setModelError] = useState("")
@@ -537,15 +535,12 @@ export default function App() {
   }
 
   const canSend = useMemo(() => draft.trim() && model && !loading, [draft, loading, model])
+  const localEndpoint = isLocalEndpoint(baseUrl)
 
   const send = async () => {
     const content = draft.trim()
     if (!content || loading) return
     let fullContent = content
-    // Prepend web search results if enabled
-    if (webSearchEnabled && searchQuery.trim()) {
-      fullContent = `[Web search query: "${searchQuery.trim()}"]\n${fullContent}`
-    }
     // Add attachments as text references
     if (attachments.length > 0) {
       const attachText = attachments.map(a => `[Attached: ${a.name} (${a.type})]`).join("\n")
@@ -555,7 +550,6 @@ export default function App() {
     const assistant = message("assistant", "")
     const history = [...messages, user]
     setDraft("")
-    setSearchQuery("")
     setAttachments([])
     setError("")
     updateMessages([...history, assistant])
@@ -721,6 +715,7 @@ export default function App() {
             <button className={view === "benchmarks" ? "active" : ""} onClick={() => setView("benchmarks")}><BarChart3 className="size-3.5" /> Benchmarks</button>
             <button className={view === "security" ? "active" : ""} onClick={() => setView("security")}><Lock className="size-3.5" /> Security</button>
             <button className={view === "workbench" ? "active" : ""} onClick={() => setView("workbench")}><Code2 className="size-3.5" /> Workbench</button>
+            <button className={view === "agent" ? "active" : ""} onClick={() => setView("agent")}><ShieldCheck className="size-3.5" /> Agent boundary</button>
             <button className={view === "doctor" ? "active" : ""} onClick={() => setView("doctor")}><ShieldCheck className="size-3.5" /> Doctor</button>
             <button className={view === "brain" ? "active" : ""} onClick={() => setView("brain")}><BrainCircuit className="size-3.5" /> Brain</button>
             <button className={view === "models" ? "active" : ""} onClick={() => setView("models")}><Server className="size-3.5" /> Models</button>
@@ -743,6 +738,12 @@ export default function App() {
             </div>
             {loading && <div className="loading-progress-bar"><div className="loading-progress-fill" /></div>}
         </header>
+
+        <div className={cn("mx-6 mt-4 rounded-lg border px-3 py-2 text-xs", localEndpoint ? "border-emerald-800/60 bg-emerald-950/20 text-emerald-200" : "border-amber-700/60 bg-amber-950/20 text-amber-200")} role="status">
+          <strong>{servedByEngine ? "Desktop/gateway boundary:" : "Browser mode:"}</strong>{" "}
+          This UI makes HTTP requests only; it cannot read arbitrary local files, run terminal commands, or use Tauri agent tools.
+          {localEndpoint ? " The configured endpoint is loopback." : " The configured endpoint is not loopback; use an authenticated, intentionally trusted endpoint."}
+        </div>
 
         {view === "dashboard" ? (
           <DashboardView
@@ -799,7 +800,7 @@ export default function App() {
                 
                 {resourceVram === 0 && (
                   <div className="text-[10px] p-2 mb-3 rounded border border-yellow-800 bg-yellow-950/30 text-yellow-400">
-                    ⚠ VRAM at 0% = GPU disabled. Model runs on CPU only (much slower). Set VRAM ≥ 25% to use your RTX 5070 Ti.
+                    ⚠ VRAM at 0% = GPU use is disabled for this session. Model execution may fall back to CPU; choose a higher limit only if the connected gateway reports a compatible GPU.
                   </div>
                 )}
                 
@@ -809,7 +810,7 @@ export default function App() {
                     <span className="font-mono text-primary">{resourceCpu}%</span>
                   </div>
                   <input type="range" min="10" max="100" step="5" value={resourceCpu} onChange={e => { const v = Number(e.target.value); setResourceCpu(v); setResourceLimits(baseUrl, { cpu: v, ram: resourceRam, vram: resourceVram, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
-                  <div className="text-[9px] text-muted-foreground mt-0.5">{Math.ceil(32 * resourceCpu / 100)} of 32 threads</div>
+                  <div className="text-[9px] text-muted-foreground mt-0.5">{health?.hwinfo?.cores ? `${Math.ceil(health.hwinfo.cores * resourceCpu / 100)} of ${health.hwinfo.cores} cores` : "Host core count unavailable"}</div>
                 </div>
 
                 <div className="resource-slider mb-3">
@@ -818,7 +819,7 @@ export default function App() {
                     <span className="font-mono text-primary">{resourceRam}%</span>
                   </div>
                   <input type="range" min="5" max="100" step="5" value={resourceRam} onChange={e => { const v = Number(e.target.value); setResourceRam(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: v, vram: resourceVram, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
-                  <div className="text-[9px] text-muted-foreground mt-0.5">~{Math.round(31.1 * resourceRam / 100)} GB of 31.1 GB</div>
+                  <div className="text-[9px] text-muted-foreground mt-0.5">{health?.hwinfo?.ram_total_gb ? `${(health.hwinfo.ram_total_gb * resourceRam / 100).toFixed(1)} GB of ${health.hwinfo.ram_total_gb.toFixed(1)} GB reported host RAM` : "Host RAM total unavailable"}</div>
                 </div>
 
                 <div className="resource-slider mb-3">
@@ -827,7 +828,7 @@ export default function App() {
                     <span className={cn("font-mono", resourceVram === 0 ? "text-yellow-400" : "text-primary")}>{resourceVram}%</span>
                   </div>
                   <input type="range" min="0" max="100" step="5" value={resourceVram} onChange={e => { const v = Number(e.target.value); setResourceVram(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: resourceRam, vram: v, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
-                  <div className="text-[9px] text-muted-foreground mt-0.5">{resourceVram === 0 ? "GPU disabled" : `~${Math.round(12 * resourceVram / 100)} GB of 12 GB VRAM`}</div>
+                  <div className="text-[9px] text-muted-foreground mt-0.5">{resourceVram === 0 ? "GPU disabled" : health?.hwinfo?.vram_total_gb ? `${(health.hwinfo.vram_total_gb * resourceVram / 100).toFixed(1)} GB of ${health.hwinfo.vram_total_gb.toFixed(1)} GB reported VRAM` : "GPU VRAM total unavailable"}</div>
                 </div>
 
                 <div className="resource-slider mb-3">
@@ -839,8 +840,8 @@ export default function App() {
                 </div>
 
                 <div className="text-[10px] text-muted-foreground mt-2 p-2 bg-[#0a0f12] rounded border border-border">
-                  <div className="font-bold mb-1">Performance: ~{((resourceCpu + resourceRam + (resourceVram * 2) + resourceDisk) / 5).toFixed(0)}%</div>
-                  <div>GPU counts 2× for speed. Changes apply on next model load.</div>
+                  <div className="font-bold mb-1">Requested limits only</div>
+                  <div>These percentages configure the gateway; performance is reported only from runtime telemetry.</div>
                 </div>
               </div>
 
@@ -1017,10 +1018,10 @@ export default function App() {
                         onChange={e => setDownloadFilename(e.target.value)}
                         className="flex-1"
                       />
-                      <Input 
-                        placeholder="Save to folder (e.g. D:\Models)" 
-                        value={downloadPath} 
-                        onChange={e => setDownloadPath(e.target.value)} 
+                      <Input
+                        placeholder="Gateway-managed model folder (optional)"
+                        value={downloadPath}
+                        onChange={e => setDownloadPath(e.target.value)}
                         className="flex-1"
                       />
                       <Button 
@@ -1110,6 +1111,8 @@ export default function App() {
             temperature={temperature}
             maxTokens={maxTokens}
           />
+        ) : view === "agent" ? (
+          <CodingAgentView />
         ) : view === "converter" ? (
           <ConverterView
             baseUrl={baseUrl}
@@ -1205,18 +1208,10 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                {webSearchEnabled && (
-                  <div className="search-bar">
-                    <Search className="size-3.5" />
-                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search query..." />
-                    <button onClick={() => { setWebSearchEnabled(false); setSearchQuery("") }}><X className="size-3" /></button>
-                  </div>
-                )}
                 <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Message Qwanto…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} />
                 <div className="composer-foot">
                   <div className="composer-tools">
                     <button className="tool-btn" title="Attach file" onClick={() => fileInputRef.current?.click()}><Paperclip className="size-3.5" /></button>
-                    <button className={cn("tool-btn", webSearchEnabled && "active")} title="Web search" onClick={() => setWebSearchEnabled(!webSearchEnabled)}><Globe className="size-3.5" /></button>
                     <button className={cn("tool-btn", isRecording && "recording")} title={isRecording ? "Stop recording" : "Voice input"} onClick={() => {
                       if (isRecording) { window._speechRec?.stop(); setIsRecording(false); return }
                       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition

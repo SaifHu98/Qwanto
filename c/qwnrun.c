@@ -367,11 +367,11 @@ int main(int argc,char **argv){
 
         if (has_mode_arg || auto_tune || use_spec || use_fused) {
             printf("\n=================================================================\n");
-            printf(">> OPTIMIZED GENERATION TELEMETRY (%.1fx Acceleration)\n", auto_cfg.speedup_target);
+            printf(">> GENERATION TELEMETRY (configured mode)\n");
             printf("   Generated Tokens : %d tokens\n", rc);
             printf("   Wall Clock Time  : %.2f seconds\n", elapsed);
             printf("   Raw Throughput   : %.2f tok/s\n", tps);
-            printf("   Effective Speed  : %.2f tok/s (%.1fx Speedup)\n", tps > 0.0 ? tps : 71.85, auto_cfg.speedup_target);
+            printf("   Configured target: %.1fx (not an empirical speedup)\n", auto_cfg.speedup_target);
             printf("   Active Pipeline  : %s%s%s%s%sThinking (%s)\n",
                    auto_cfg.use_turboquant ? "TurboQuant (3.5b), " : "",
                    (auto_cfg.use_speculative || use_spec) ? "Saguaro 2.0 (PyramidSD), " : "",

@@ -55,9 +55,9 @@ def run_benchmark(
               f"(Min: {bench_data['min_tok_per_sec']:.2f}, Max: {bench_data['max_tok_per_sec']:.2f})")
 
     # Calculate speedup relative to HIGH mode
-    high_tps = results.get("high", {}).get("avg_tok_per_sec", 1.0)
+    high_tps = results.get("high", {}).get("avg_tok_per_sec", 0.0)
     if high_tps <= 0:
-        high_tps = 1.0
+        raise RuntimeError("high thinking mode did not produce a positive measured throughput")
 
     summary_table = []
     print("\n==========================================================================")

@@ -208,6 +208,8 @@ impl QwantoRuntimeManager {
                     exe_dir.join("qwnrun"),
                     exe_dir.join("resources").join("qwnrun.exe"),
                     exe_dir.join("resources").join("qwnrun"),
+                    exe_dir.join("..").join("Resources").join("qwnrun.exe"),
+                    exe_dir.join("..").join("Resources").join("qwnrun"),
                 ];
                 for p in &packaged_candidates {
                     if p.exists() {
@@ -234,7 +236,11 @@ impl QwantoRuntimeManager {
                 return c.clone();
             }
         }
-        PathBuf::from("qwnrun.exe")
+        if cfg!(windows) {
+            PathBuf::from("qwnrun.exe")
+        } else {
+            PathBuf::from("qwnrun")
+        }
     }
 
     pub fn set_executable_path(&mut self, path: PathBuf) -> Result<(), String> {
@@ -294,6 +300,13 @@ impl QwantoRuntimeManager {
         let model_file = Path::new(model_path);
         if !model_file.exists() {
             return Err(format!("Model container file not found: {}", model_path));
+        }
+        let is_qwn = model_file
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("qwn"));
+        if !is_qwn {
+            return Err(format!("qwnrun requires a .qwn model container: {}", model_path));
         }
 
         let canonical_model = model_file.canonicalize().map_err(|e| format!("Failed to canonicalize model path: {}", e))?;

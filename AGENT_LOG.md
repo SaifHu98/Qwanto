@@ -137,6 +137,17 @@
   - `c/tests/test_autopilot_quality.py`: 2 / 2 pytest tests passed.
   - Pytest repo-wide suite: **170 passed, 12 skipped, 0 failed**.
 
+## 2026-08-16 — Local-first Beta release engineering
+
+- **Change:** Added the release plan, truthful architecture/security/web/desktop/packaging/qwn-format/benchmark documentation, and Beta readiness record; rewrote README claims around current evidence.
+- **Files:** `README.md`, `RELEASE_READINESS.md`, `PROJECT_STATE.md`, `docs/*.md`, `docs/model-manifest.json`, `desktop/README.md`, `.github/workflows/release.yml`.
+- **Change:** Made benchmark evidence schema strict and real-process-only, added failure classifications/tests, removed stale static benchmark artifacts, and made specialized benchmark entry points report `EXPERIMENTAL` or `PROJECTED` instead of fabricated values.
+- **Files:** `benchmarks/benchmark_reproducible.py`, `benchmark_evidence.json`, `c/tests/test_benchmark_harness.py`, `c/openai_server.py`, `c/tools/benchmark_*.py`, `c/tools/qwn_benchmark_*.py`, deleted legacy benchmark JSON artifacts.
+- **Change:** Added browser/local-endpoint boundary UI, truthful telemetry/benchmark rendering, first-class desktop-agent boundary, dynamic reported RAM/VRAM display, and packaged-resource lookup for qwnrun with `.qwn` model validation.
+- **Files:** `web/src/App.tsx`, `web/src/components/*`, `web/src/lib/api.ts`, `web/src/__tests__/*`, `desktop/src-tauri/src/runtime_manager.rs`, `desktop/src-tauri/tauri.conf.json`.
+- **Validation:** decoder `2 passed`; Python suite `194 passed, 14 skipped`; web build passed; Vitest `34 passed`; Rust commands were unavailable because Cargo is not installed. Rebuilt local Windows qwnrun and recorded a real `MEASURED` evidence artifact.
+- **Decision:** Do not create a release tag or GitHub Release; fresh CI and cross-platform package runs remain required before release readiness.
+
 ## 2026-08-15 — Next-Generation Qwanto Core Engine Delivery (10x Speed / 5x Resource Reduction)
 - **Next-Gen Architecture & Subsystems**:
   - **TWLA 1.58-Bit Weights (`c/qwanto_twla.c/h`)**: Post-training ternary weight packing in 66-byte blocks (2.0625 bpw / 1.58 bpw payload) + vectorized AVX2/AVX-512 in-register ternary dot-product kernels (<1.2 GB RAM target).

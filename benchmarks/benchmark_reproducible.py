@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+"""Run a real local qwnrun benchmark and emit auditable evidence.
+
+The harness never supplies a fallback throughput, token count, hardware value,
+or memory value. A run is ``MEASURED`` only when qwnrun exits successfully,
+reports a valid positive token count, and the measured wall time is positive.
+All other outcomes remain explicitly classified and contain no invented
+performance metrics.
 """
-Qwanto Evidence-Producing Benchmark Harness
-Executes the native local Qwanto runtime, records real monotonic timings,
-and produces a verifiable, machine-readable evidence artifact.
-Zero hardcoded performance or hardware values.
-"""
+
+from __future__ import annotations
 
 import argparse
 import ctypes
@@ -12,6 +16,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -21,25 +26,35 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent
+SCHEMA_VERSION = "3.0.0"
+CLASSIFICATIONS = {"MEASURED", "UNAVAILABLE", "INVALID", "TEST_FIXTURE", "EXPERIMENTAL", "PROJECTED"}
+
+_STATUS_RE = re.compile(r"status=(?P<status>ok|error)\b(?:\s+tokens=(?P<tokens>-?\d+))?")
+_GENERATED_RE = re.compile(r"Generated\s+Tokens\s*:\s*(?P<tokens>-?\d+)", re.IGNORECASE)
+_TTFT_RE = re.compile(r"ttft_ms=(?P<ttft>[+-]?(?:\d+(?:\.\d*)?|\.\d+))")
+
 
 def compute_file_sha256(path: Path) -> str:
-    if not path.exists():
+    if not path.exists() or not path.is_file():
         return "file_not_found"
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while chunk := f.read(65536):
-            h.update(chunk)
-    return h.hexdigest()
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            while chunk := stream.read(65536):
+                digest.update(chunk)
+    except OSError:
+        return "file_unreadable"
+    return digest.hexdigest()
+
 
 def detect_host_hardware() -> dict:
-    cpu_model = platform.processor() or "Unknown CPU"
+    cpu_model = platform.processor() or None
     cpu_threads = os.cpu_count() or 1
-
-    # Detect physical RAM
     total_ram_gb = None
+
     if sys.platform == "win32":
         try:
-            class MEMORYSTATUSEX(ctypes.Structure):
+            class MemoryStatus(ctypes.Structure):
                 _fields_ = [
                     ("dwLength", ctypes.c_ulong),
                     ("dwMemoryLoad", ctypes.c_ulong),
@@ -51,280 +66,291 @@ def detect_host_hardware() -> dict:
                     ("ullAvailVirtual", ctypes.c_ulonglong),
                     ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
                 ]
-            stat = MEMORYSTATUSEX()
-            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
-                total_ram_gb = round(stat.ullTotalPhys / (1024 ** 3), 2)
+
+            status = MemoryStatus()
+            status.dwLength = ctypes.sizeof(MemoryStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                total_ram_gb = round(status.ullTotalPhys / (1024 ** 3), 2)
         except Exception:
-            pass
+            total_ram_gb = None
     elif sys.platform.startswith("linux"):
         try:
-            with open("/proc/meminfo", "r") as f:
-                for line in f:
+            with Path("/proc/meminfo").open(encoding="utf-8") as stream:
+                for line in stream:
                     if line.startswith("MemTotal:"):
-                        kb = int(line.split()[1])
-                        total_ram_gb = round(kb / (1024 ** 2), 2)
+                        total_ram_gb = round(int(line.split()[1]) / (1024 ** 2), 2)
                         break
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            total_ram_gb = None
 
-    # Detect GPU hardware dynamically via nvidia-smi / local tools
     gpus = []
-    gpu_detection_status = "queried"
+    gpu_detection_status = "not queried"
     if shutil.which("nvidia-smi"):
+        gpu_detection_status = "queried"
         try:
-            res = subprocess.run(
+            result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                check=False,
             )
-            if res.returncode == 0:
-                for line in res.stdout.strip().splitlines():
-                    parts = [p.strip() for p in line.split(",")]
+            if result.returncode == 0:
+                for line in result.stdout.strip().splitlines():
+                    parts = [part.strip() for part in line.split(",")]
                     if len(parts) >= 3:
+                        try:
+                            vram_mb = float(parts[1])
+                        except ValueError:
+                            vram_mb = None
                         gpus.append({
                             "name": parts[0],
-                            "vram_mb": float(parts[1]),
+                            "vram_mb": vram_mb,
                             "driver_version": parts[2],
-                            "vendor": "NVIDIA"
+                            "vendor": "NVIDIA",
                         })
-        except Exception as e:
-            gpu_detection_status = f"nvidia-smi query error: {e}"
-    
-    if not gpus and sys.platform == "win32":
+        except (OSError, subprocess.SubprocessError):
+            gpu_detection_status = "nvidia-smi query failed"
+
+    if not gpus and sys.platform == "win32" and shutil.which("wmic"):
         try:
-            res = subprocess.run(
+            result = subprocess.run(
                 ["wmic", "path", "win32_videocontroller", "get", "name"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                check=False,
             )
-            if res.returncode == 0:
-                names = [l.strip() for l in res.stdout.splitlines() if l.strip() and l.strip() != "Name"]
-                for n in names:
-                    gpus.append({
-                        "name": n,
-                        "vram_mb": None,
-                        "driver_version": None,
-                        "vendor": "AMD" if "AMD" in n or "Radeon" in n else ("Intel" if "Intel" in n else "Unknown")
-                    })
-        except Exception:
-            pass
+            if result.returncode == 0:
+                names = [line.strip() for line in result.stdout.splitlines() if line.strip() and line.strip() != "Name"]
+                for name in names:
+                    vendor = "AMD" if "AMD" in name or "Radeon" in name else "Intel" if "Intel" in name else "Unknown"
+                    gpus.append({"name": name, "vram_mb": None, "driver_version": None, "vendor": vendor})
+                gpu_detection_status = "queried"
+        except (OSError, subprocess.SubprocessError):
+            gpu_detection_status = "wmic query failed"
 
-    if not gpus:
-        gpu_detection_status = "No dedicated GPU querying tool available"
+    if not gpus and gpu_detection_status == "not queried":
+        gpu_detection_status = "no supported GPU query tool available"
 
     return {
         "os": f"{platform.system()} {platform.release()} ({platform.version()})",
         "cpu_model": cpu_model,
         "cpu_threads": cpu_threads,
         "ram_total_gb": total_ram_gb,
-        "gpus_detected": gpus if gpus else None,
-        "gpu_query_status": gpu_detection_status
+        "gpus_detected": gpus or None,
+        "gpu_query_status": gpu_detection_status,
     }
 
-def resolve_qwnrun_executable(custom_path: str = None) -> Path | None:
+
+def resolve_qwnrun_executable(custom_path: str | None = None) -> Path | None:
+    if custom_path:
+        candidate = Path(custom_path).expanduser()
+        return candidate.resolve() if candidate.is_file() else None
+
     candidates = [
-        Path(custom_path) if custom_path else None,
         PROJECT_ROOT / "c" / "qwnrun_msvc.exe",
         PROJECT_ROOT / "c" / "qwnrun.exe",
         PROJECT_ROOT / "c" / "qwnrun",
         Path("qwnrun.exe"),
         Path("qwnrun"),
     ]
-    for c in candidates:
-        if c and c.exists():
-            return c.resolve()
-    which_exe = shutil.which("qwnrun")
-    return Path(which_exe).resolve() if which_exe else None
+    for candidate in candidates:
+        if candidate and candidate.is_file():
+            return candidate.resolve()
+    found = shutil.which("qwnrun")
+    return Path(found).resolve() if found else None
+
+
+def parse_runtime_output(stdout: str, stderr: str) -> tuple[int | None, str | None]:
+    """Parse qwnrun's one-shot result line without accepting guessed values."""
+    matches = list(_STATUS_RE.finditer(stderr)) + list(_STATUS_RE.finditer(stdout))
+    generated = list(_GENERATED_RE.finditer(stdout)) + list(_GENERATED_RE.finditer(stderr))
+
+    if not matches:
+        return None, "runtime output did not contain a status record"
+    if len(matches) > 1 and {match.group("status") for match in matches} != {"ok"}:
+        return None, "runtime emitted conflicting status records"
+    if any(match.group("status") == "error" for match in matches):
+        return None, "runtime reported generation failure"
+
+    token_values = [int(match.group("tokens")) for match in matches if match.group("tokens") is not None]
+    token_values.extend(int(match.group("tokens")) for match in generated)
+    if not token_values:
+        return None, "runtime output did not contain a token-count record"
+    if len(set(token_values)) != 1:
+        return None, "runtime emitted conflicting token counts"
+    return token_values[0], None
+
+
+def parse_ttft_ms(stdout: str, stderr: str) -> tuple[float | None, str | None]:
+    """Read TTFT only when qwnrun exposes it in its measured result record."""
+    values = [float(match.group("ttft")) for match in _TTFT_RE.finditer(stderr)]
+    values.extend(float(match.group("ttft")) for match in _TTFT_RE.finditer(stdout))
+    if not values:
+        return None, None
+    if len(set(values)) != 1:
+        return None, "runtime emitted conflicting TTFT values"
+    if values[0] < 0:
+        return None, "runtime reported a negative TTFT"
+    return values[0], None
+
+
+def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable: Path | None, cmd: list[str]) -> dict:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "benchmark_id": f"qwn-bench-{time.time_ns()}",
+        "timestamp_utc": timestamp_utc,
+        "evidence_classification": "UNAVAILABLE",
+        "error_reason": None,
+        "host_environment": host_hw,
+        "runtime_metadata": {
+            "executable_path": str(executable) if executable else None,
+            "executable_sha256": compute_file_sha256(executable) if executable else "file_not_found",
+        },
+        "model_metadata": {
+            "path": str(model_file),
+            "file_size_bytes": model_file.stat().st_size if model_file.is_file() else None,
+            "sha256": compute_file_sha256(model_file),
+        },
+        "benchmark_parameters": {
+            "prompt_length_chars": None,
+            "max_tokens_requested": None,
+            "command_argv": cmd,
+        },
+        "execution_evidence": {
+            "returncode": None,
+            "timed_out": False,
+            "stdout_sha256": None,
+            "stderr_sha256": None,
+        },
+        "measured_evidence": None,
+        "unavailable_metrics": {
+            "vram_allocated_gb": "NVML process polling inactive",
+            "nvme_bandwidth_mb_s": "Direct block device counter inactive",
+        },
+    }
+
+
+def _finish_report(report: dict, classification: str, reason: str | None) -> dict:
+    if classification not in CLASSIFICATIONS:
+        raise ValueError(f"unknown evidence classification: {classification}")
+    report["evidence_classification"] = classification
+    report["error_reason"] = reason
+    if classification != "MEASURED":
+        report["unavailable_metrics"]["execution"] = reason or "No valid measured execution evidence"
+    return report
+
 
 def execute_real_benchmark(
     model_path: str,
     prompt: str,
     max_tokens: int = 64,
-    custom_executable: str = None
+    custom_executable: str | None = None,
+    timeout_seconds: float = 60.0,
 ) -> dict:
     timestamp_utc = datetime.now(timezone.utc).isoformat()
     host_hw = detect_host_hardware()
-
-    model_file = Path(model_path).resolve()
+    model_file = Path(model_path).expanduser().resolve()
     executable = resolve_qwnrun_executable(custom_executable)
+    cmd = [str(executable) if executable else "qwnrun", str(model_file), prompt, str(max_tokens), "4096"]
+    report = _report_base(timestamp_utc, host_hw, model_file, executable, cmd)
+    report["benchmark_parameters"].update({
+        "prompt_length_chars": len(prompt),
+        "max_tokens_requested": max_tokens,
+    })
 
-    unavailable_metrics = {}
-
-    if not executable or not executable.exists():
-        return {
-            "schema_version": "2.0.0",
-            "benchmark_id": f"qwn-bench-err-{int(time.time())}",
-            "timestamp_utc": timestamp_utc,
-            "evidence_classification": "UNAVAILABLE",
-            "error_reason": f"qwnrun executable not found (checked project and PATH)",
-            "host_environment": host_hw,
-            "measured_evidence": None,
-            "unavailable_metrics": {"all": "Runtime executable unavailable"}
-        }
-
-    if not model_file.exists():
-        return {
-            "schema_version": "2.0.0",
-            "benchmark_id": f"qwn-bench-err-{int(time.time())}",
-            "timestamp_utc": timestamp_utc,
-            "evidence_classification": "UNAVAILABLE",
-            "error_reason": f"Model container file not found: {model_file}",
-            "host_environment": host_hw,
-            "measured_evidence": None,
-            "unavailable_metrics": {"all": "Model container file unavailable"}
-        }
-
-    model_size = model_file.stat().st_size
-    model_sha256 = compute_file_sha256(model_file)
-
-    # Launch actual qwnrun process in one-shot / benchmark mode
-    cmd = [
-        str(executable),
-        str(model_file),
-        prompt,
-        str(max_tokens),
-        "4096"
-    ]
+    if max_tokens <= 0 or not prompt:
+        return _finish_report(report, "INVALID", "prompt must be non-empty and max_tokens must be positive")
+    if executable is None:
+        return _finish_report(report, "UNAVAILABLE", "qwnrun executable not found in the project or PATH")
+    if not model_file.is_file():
+        return _finish_report(report, "UNAVAILABLE", f"model container file not found: {model_file}")
 
     start_monotonic = time.perf_counter()
-    first_token_monotonic = None
-    generated_tokens = 0
-    raw_stdout = []
-    raw_stderr = []
-
+    timed_out = False
     try:
-        proc = subprocess.Popen(
+        process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1
+            encoding="utf-8",
+            errors="replace",
         )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.kill()
+            stdout, stderr = process.communicate()
+        wall_seconds = time.perf_counter() - start_monotonic
+    except OSError as error:
+        return _finish_report(report, "UNAVAILABLE", f"qwnrun process could not be started: {error}")
 
-        # Read stdout in real-time to capture first payload time
-        for line in proc.stdout:
-            raw_stdout.append(line)
-            if first_token_monotonic is None and line.strip() and not line.startswith("Prompt tokens:"):
-                first_token_monotonic = time.perf_counter()
-            if "Generated Tokens :" in line or "status=ok tokens=" in line:
-                # Parse generated token count from runtime output
-                for part in line.split():
-                    if part.isdigit():
-                        generated_tokens = int(part)
-                        break
+    stdout = stdout or ""
+    stderr = stderr or ""
+    report["execution_evidence"].update({
+        "returncode": process.returncode,
+        "timed_out": timed_out,
+        "stdout_sha256": hashlib.sha256(stdout.encode("utf-8")).hexdigest(),
+        "stderr_sha256": hashlib.sha256(stderr.encode("utf-8")).hexdigest(),
+    })
 
-        proc.wait(timeout=60)
-        end_monotonic = time.perf_counter()
-        stderr_output = proc.stderr.read()
-        raw_stderr.append(stderr_output)
+    if timed_out:
+        return _finish_report(report, "UNAVAILABLE", f"qwnrun timed out after {timeout_seconds:g} seconds")
+    if process.returncode != 0:
+        return _finish_report(report, "INVALID", f"qwnrun exited with status {process.returncode}")
 
-        wall_seconds = end_monotonic - start_monotonic
-        ttft_ms = (first_token_monotonic - start_monotonic) * 1000.0 if first_token_monotonic else None
+    generated_tokens, parse_error = parse_runtime_output(stdout, stderr)
+    if parse_error:
+        return _finish_report(report, "INVALID", parse_error)
+    ttft_ms, ttft_error = parse_ttft_ms(stdout, stderr)
+    if ttft_error:
+        return _finish_report(report, "INVALID", ttft_error)
+    if generated_tokens is None or generated_tokens <= 0:
+        return _finish_report(report, "INVALID", "qwnrun reported zero or negative generated tokens")
+    if wall_seconds <= 0:
+        return _finish_report(report, "INVALID", "monotonic wall time was not positive")
 
-        # Parse tokens from stderr diagnostics if not found in stdout
-        if generated_tokens == 0:
-            for line in stderr_output.splitlines():
-                if "tokens=" in line:
-                    for part in line.split():
-                        if part.startswith("tokens="):
-                            try:
-                                generated_tokens = int(part.split("=")[1])
-                            except ValueError:
-                                pass
+    report["measured_evidence"] = {
+        "generated_tokens": generated_tokens,
+        "wall_seconds": round(wall_seconds, 6),
+        "tok_per_sec": round(generated_tokens / wall_seconds, 6),
+        "ttft_ms": ttft_ms,
+    }
+    return _finish_report(report, "MEASURED", None)
 
-        tok_per_sec = (generated_tokens / wall_seconds) if (wall_seconds > 0 and generated_tokens > 0) else None
 
-        stdout_full = "".join(raw_stdout)
-        stderr_full = "".join(raw_stderr)
-
-        is_success = (proc.returncode == 0 and generated_tokens > 0 and tok_per_sec is not None)
-        classification = "MEASURED" if is_success else "UNAVAILABLE"
-
-        return {
-            "schema_version": "2.0.0",
-            "benchmark_id": f"qwn-bench-{int(time.time())}",
-            "timestamp_utc": timestamp_utc,
-            "evidence_classification": classification,
-            "execution_status": "ok" if is_success else f"failed_exit_{proc.returncode}",
-            "host_environment": host_hw,
-            "runtime_metadata": {
-                "executable_path": str(executable),
-                "executable_sha256": compute_file_sha256(executable)
-            },
-            "model_metadata": {
-                "path": str(model_file),
-                "file_size_bytes": model_size,
-                "sha256": model_sha256
-            },
-            "benchmark_parameters": {
-                "prompt_length_chars": len(prompt),
-                "max_tokens_requested": max_tokens,
-                "command_argv": cmd
-            },
-            "measured_evidence": {
-                "generated_tokens": generated_tokens,
-                "wall_seconds": round(wall_seconds, 4),
-                "tok_per_sec": round(tok_per_sec, 2) if tok_per_sec is not None else None,
-                "ttft_ms": round(ttft_ms, 2) if ttft_ms is not None else None,
-                "stdout_sha256": hashlib.sha256(stdout_full.encode("utf-8")).hexdigest(),
-                "stderr_sha256": hashlib.sha256(stderr_full.encode("utf-8")).hexdigest()
-            },
-            "unavailable_metrics": {
-                "vram_allocated_gb": "NVML process polling inactive",
-                "nvme_bandwidth_mb_s": "Direct block device counter inactive"
-            }
-        }
-    except Exception as e:
-        return {
-            "schema_version": "2.0.0",
-            "benchmark_id": f"qwn-bench-err-{int(time.time())}",
-            "timestamp_utc": timestamp_utc,
-            "evidence_classification": "UNAVAILABLE",
-            "error_reason": f"Process execution failed: {e}",
-            "host_environment": host_hw,
-            "measured_evidence": None,
-            "unavailable_metrics": {"execution": str(e)}
-        }
-
-def main():
-    parser = argparse.ArgumentParser(description="Qwanto Evidence-Producing Benchmark Harness")
-    parser.add_argument("--model", default="experiments/results/4B_hyper_vsq2.qwn", help="Path to .qwn model file")
-    parser.add_argument("--prompt", default="Explain zero-copy NVMe memory tiering in Qwanto.", help="Input prompt")
-    parser.add_argument("--max-tokens", type=int, default=64, help="Max tokens to generate")
-    parser.add_argument("--executable", default=None, help="Custom path to qwnrun binary")
-    parser.add_argument("--output", default="benchmark_evidence.json", help="Output evidence JSON path")
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", default="experiments/results/4B_hyper_vsq2.qwn", help="Path to a local .qwn model")
+    parser.add_argument("--prompt", default="Explain zero-copy NVMe memory tiering in Qwanto.")
+    parser.add_argument("--max-tokens", type=int, default=64)
+    parser.add_argument("--executable", default=None, help="Custom local qwnrun path")
+    parser.add_argument("--output", default="benchmark_evidence.json", help="Evidence JSON output path")
+    parser.add_argument("--timeout", type=float, default=60.0)
     args = parser.parse_args()
-
-    print("=================================================================", file=sys.stderr)
-    print(">> QWANTO EVIDENCE-PRODUCING BENCHMARK HARNESS (EMPIRICAL MEASUREMENT)", file=sys.stderr)
-    print("=================================================================", file=sys.stderr)
 
     report = execute_real_benchmark(
         model_path=args.model,
         prompt=args.prompt,
         max_tokens=args.max_tokens,
-        custom_executable=args.executable
+        custom_executable=args.executable,
+        timeout_seconds=args.timeout,
     )
-
-    out_path = Path(args.output)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
-
-    classification = report.get("evidence_classification")
-    print(f"\n[STATUS] Classification: {classification}")
-    if classification == "MEASURED":
-        meas = report["measured_evidence"]
-        print(f"[MEASURED] Tokens Generated: {meas['generated_tokens']}")
-        print(f"[MEASURED] Wall Clock Time:  {meas['wall_seconds']}s")
-        print(f"[MEASURED] Throughput:       {meas['tok_per_sec']} tok/s")
-        print(f"[MEASURED] TTFT:             {meas['ttft_ms']} ms")
+    output_path = Path(args.output)
+    output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"[STATUS] Classification: {report['evidence_classification']}")
+    if report["measured_evidence"]:
+        evidence = report["measured_evidence"]
+        print(f"[MEASURED] Tokens Generated: {evidence['generated_tokens']}")
+        print(f"[MEASURED] Wall Clock Time:  {evidence['wall_seconds']}s")
+        print(f"[MEASURED] Throughput:       {evidence['tok_per_sec']} tok/s")
     else:
-        print(f"[BLOCKED] Reason: {report.get('error_reason')}")
+        print(f"[STATUS] Reason: {report['error_reason']}")
+    print(f"[OUTPUT] Artifact written to {output_path.resolve()}")
 
-    print(f"[OUTPUT] Artifact written to {out_path.resolve()}")
 
 if __name__ == "__main__":
     main()

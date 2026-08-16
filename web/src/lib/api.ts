@@ -70,6 +70,15 @@ export function serverEndpoint(baseUrl: string, path: string) {
   return endpoint(baseUrl.replace(/\/v1\/?$/, ""), path)
 }
 
+export function isLocalEndpoint(baseUrl: string): boolean {
+  try {
+    const parsed = new URL(baseUrl)
+    return parsed.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]", "::1"].includes(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
 function headers(apiKey: string) {
   return {
     "Content-Type": "application/json",
@@ -189,6 +198,7 @@ export interface QwantoConfig {
   proxy_url: string | null
   kv_slots: number
   max_tokens: number
+  ctx_size?: number
   capabilities: {
     streaming: boolean
     tool_calls: boolean
@@ -474,9 +484,41 @@ export interface BenchmarkMetrics {
   gates_passed?: Record<string, boolean>
 }
 
+export type BenchmarkClassification =
+  | "MEASURED"
+  | "UNAVAILABLE"
+  | "INVALID"
+  | "TEST_FIXTURE"
+  | "EXPERIMENTAL"
+  | "PROJECTED"
+
+export interface BenchmarkEvidence {
+  schema_version?: string
+  benchmark_id?: string
+  timestamp_utc?: string
+  evidence_classification: BenchmarkClassification
+  error_reason?: string | null
+  host_environment?: Record<string, unknown>
+  runtime_metadata?: Record<string, unknown>
+  model_metadata?: Record<string, unknown>
+  benchmark_parameters?: Record<string, unknown>
+  execution_evidence?: Record<string, unknown>
+  measured_evidence?: {
+    generated_tokens?: number
+    wall_seconds?: number
+    tok_per_sec?: number
+    ttft_ms?: number | null
+  } | null
+  unavailable_metrics?: Record<string, string>
+}
+
 export interface BenchmarkReport {
   baseline?: BenchmarkMetrics | null
   candidate?: BenchmarkMetrics | null
+  classification?: BenchmarkClassification
+  source?: string | null
+  evidence?: BenchmarkEvidence | null
+  message?: string | null
 }
 
 export async function getBenchmarks(baseUrl: string, apiKey = ""): Promise<BenchmarkReport> {

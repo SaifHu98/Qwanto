@@ -128,22 +128,22 @@ describe("Telemetry, Doctor & Security APIs", () => {
       total_tokens_generated: 1254000,
       uptime_seconds: 43200,
       uptime_formatted: "12h 00m 00s",
-      active_backend: "NVIDIA CUDA (SM89)",
+      active_backend: "TEST_FIXTURE backend",
       model_id: "deepseek-4b",
       model_path: "D:/models/4b.qwn",
       hardware: {
         cpu_cores: 16,
         ram_available_gb: 28.5,
-        gpus_detected: 2,
-        gpu_names: ["NVIDIA GeForce RTX 5070 Ti Laptop GPU", "AMD Radeon(TM) 610M Graphics"]
+        gpus_detected: 1,
+        gpu_names: ["TEST_FIXTURE GPU"]
       },
       recent_requests: []
     }
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(mockTelemetry))))
 
     const data = await getTelemetry("http://localhost:8000/v1", "")
-    expect(data.hardware.gpus_detected).toBe(2)
-    expect(data.active_backend).toContain("NVIDIA CUDA")
+    expect(data.hardware.gpus_detected).toBe(1)
+    expect(data.active_backend).toContain("TEST_FIXTURE")
   })
 
   it("getDoctorReport verifies system integrity", async () => {

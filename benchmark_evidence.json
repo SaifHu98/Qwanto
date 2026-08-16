@@ -1,8 +1,9 @@
 {
-  "schema_version": "2.0.0",
-  "benchmark_id": "qwn-bench-1786881554",
-  "timestamp_utc": "2026-08-16T11:59:08.114846+00:00",
+  "schema_version": "3.0.0",
+  "benchmark_id": "qwn-bench-1786889283394915900",
+  "timestamp_utc": "2026-08-16T14:08:00.812702+00:00",
   "evidence_classification": "MEASURED",
+  "error_reason": null,
   "host_environment": {
     "os": "Windows 11 (10.0.26200)",
     "cpu_model": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
@@ -19,8 +20,8 @@
     "gpu_query_status": "queried"
   },
   "runtime_metadata": {
-    "executable_path": "D:\\EcoUni\\qwanto\\c\\qwnrun_msvc.exe",
-    "executable_sha256": "71772920373c3eca96c2db1496be4960a4b7b93dede5a2cc21825a9165b7331a"
+    "executable_path": "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+    "executable_sha256": "ef531123975ab13d8484b81b7347fd4bc2a8c6b7f9371c9299c2c3c9ab8ea68d"
   },
   "model_metadata": {
     "path": "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
@@ -31,20 +32,24 @@
     "prompt_length_chars": 48,
     "max_tokens_requested": 64,
     "command_argv": [
-      "D:\\EcoUni\\qwanto\\c\\qwnrun_msvc.exe",
+      "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
       "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
       "Explain zero-copy NVMe memory tiering in Qwanto.",
       "64",
       "4096"
     ]
   },
+  "execution_evidence": {
+    "returncode": 0,
+    "timed_out": false,
+    "stdout_sha256": "46bb5a158cd8d6d0a35471c26ba329d3b3c736c56b55c62202b3ac2015e09b14",
+    "stderr_sha256": "6f1568b591b4e64fe0e6638d65e50a2490ba542f6060e294613bd352c9cd35d1"
+  },
   "measured_evidence": {
     "generated_tokens": 64,
-    "wall_seconds": 3.2977,
-    "tok_per_sec": 19.41,
-    "ttft_ms": null,
-    "stdout_sha256": "46bb5a158cd8d6d0a35471c26ba329d3b3c736c56b55c62202b3ac2015e09b14",
-    "stderr_sha256": "1f0f1edfe5f80ca96ae0a5a6e343dc076f2c9281b2422b8a4b1335c02380e1e1"
+    "wall_seconds": 8.952839,
+    "tok_per_sec": 7.148571,
+    "ttft_ms": 0.0
   },
   "unavailable_metrics": {
     "vram_allocated_gb": "NVML process polling inactive",
