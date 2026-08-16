@@ -26,6 +26,22 @@ typedef enum {
 } QwnGPUBackendType;
 
 typedef struct {
+    int index;
+    QwnGPUBackendType backend;
+    char name[256];
+    char vendor[64];
+    uint64_t total_vram_bytes;
+    uint64_t free_vram_bytes;
+    int compute_major;
+    int compute_minor;
+    float arch_gen_score;       /* 1.0 Blackwell, 0.9 Hopper, 0.85 Ada, 0.7 Ampere, 0.5 Turing, 0.75 RDNA3, 0.6 RDNA2, 0.8 Apple M */
+    bool is_discrete;
+    float current_utilization;   /* 0.0 - 1.0 */
+    float temperature_c;
+    float composite_score;      /* 0.4*VRAM + 0.3*Compute + 0.2*Arch + 0.1*(1.0-util) */
+} QwnGPUDeviceInfo;
+
+typedef struct {
     QwnGPUBackendType active_backend;
     char backend_name[32];
     char device_name[256];
@@ -53,6 +69,9 @@ typedef struct {
     /* BitDecoding Engine */
     QwnBitDecodingEngine bitdec_engine;
     
+    /* Selected Device Details */
+    QwnGPUDeviceInfo selected_device_info;
+    
     /* Diagnostic string */
     char diagnostic_msg[512];
 } QwnGPUContext;
@@ -76,8 +95,23 @@ typedef struct {
  * GPU Fabric APIs
  * ------------------------------------------------------------------------- */
 
-/* Initialize GPU context with target backend (or QWN_GPU_BACKEND_AUTO) */
+/* Initialize GPU context with target backend (or QWN_GPU_BACKEND_AUTO with intelligent scoring) */
 bool qwn_gpu_init(QwnGPUContext *ctx, QwnGPUBackendType preferred_backend);
+
+/* Initialize specific device index directly */
+bool qwn_gpu_init_device(QwnGPUContext *ctx, int device_index);
+
+/* Enumerate all available GPUs and compute their suitability scores */
+int qwn_gpu_enumerate_devices(QwnGPUDeviceInfo *devices, int max_devices);
+
+/* Compute composite score for a device (0.4*VRAM + 0.3*Compute + 0.2*Arch + 0.1*(1.0-Util)) */
+float qwn_gpu_calculate_score(const QwnGPUDeviceInfo *info);
+
+/* Select highest-scoring device (preferring discrete GPU if VRAM > 4GB) */
+int qwn_gpu_select_best_device(const QwnGPUDeviceInfo *devices, int num_devices);
+
+/* List all GPUs with detailed specifications, score breakdown, and recommended selection */
+void qwn_gpu_list_all_devices(void);
 
 /* Parse backend string: "auto", "cuda", "rocm", "metal", "sycl", "vulkan", "cpu" */
 QwnGPUBackendType qwn_gpu_parse_backend_name(const char *name);

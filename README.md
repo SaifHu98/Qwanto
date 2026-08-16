@@ -266,12 +266,15 @@ Traditional container formats (like GGUF or Safetensors) are designed primarily 
 - **Warp-Level Dequantization Parallelism**: Reorganizes low-bit KV caches into swizzled $16 \times 16$ and $16 \times 32$ tiles aligned directly with hardware Tensor Cores (`mma.sync`, Hopper `wgmma`, and Blackwell `NVFP4`).
 - **Mixed-Precision Tensor Execution**: Unlocks **7.5x faster decoding throughput** over standard FP16 attention and **2x over standard CUDA core kernels** with less than 0.2% perplexity divergence.
 
-### 9. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
+### 9. 🎮 Multi-Vendor GPU Dynamic Runtime Loader & Intelligent Auto-Selection
 Qwanto requires **zero manual configuration or proprietary SDK installs**:
 - **NVIDIA CUDA**: Automatically detects system driver (`nvcuda.dll` / `libcuda.so.1`) and CUDA runtimes (`cudart64_*.dll`).
 - **Apple Silicon Metal**: Direct dispatch to Metal and MetalPerformanceShaders (MPS).
 - **Vulkan Unified Compute**: High-speed GLSL compute shaders (`qwn_attention_vulkan.comp`) on any modern GPU.
 - **AMD ROCm / HIP & Intel oneAPI SYCL**: Seamless dynamic loading with automatic fallback to Multi-Core CPU OpenMP.
+- **Intelligent GPU Power Scoring & Auto-Selection**: When multiple GPUs are detected (e.g. discrete NVIDIA RTX + integrated AMD/Intel iGPU), Qwanto calculates a weighted composite suitability score:
+  $$\text{Score} = 0.4 \cdot \text{VRAM} + 0.3 \cdot \text{ComputeCapability} + 0.2 \cdot \text{ArchGeneration} + 0.1 \cdot (1 - \text{Utilization})$$
+  and automatically selects the most powerful discrete GPU while preserving fallback capabilities.
 
 ---
 
@@ -326,7 +329,19 @@ clang -O3 -march=x86-64-v3 -mavxvnni -fopenmp \
     -o c/qwnrun
 ```
 
-### 2. Run Single-Command Inference
+### 2. Inspect & Manage Hardware GPUs
+```bash
+# List all detected GPUs, VRAM capacities, architectures, and power ranking scores:
+./c/qwnrun --list-gpus
+
+# Force execution on specific GPU device index:
+./c/qwnrun model.qwn "Write a Python script" --gpu --gpu-device 0
+
+# Or force via environment variable:
+QWN_GPU_DEVICE=0 ./c/qwnrun model.qwn "Write a Python script"
+```
+
+### 3. Run Single-Command Inference
 ```bash
 # For instant, auto-optimized inference, simply run:
 ./c/qwnrun your_model.qwn "Your prompt" --auto-tune

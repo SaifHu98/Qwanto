@@ -201,6 +201,10 @@ int main(int argc,char **argv){
         print_build_info();
         return 0;
     }
+    if (argc >= 2 && (strcmp(argv[1], "--list-gpus") == 0 || strcmp(argv[1], "-l") == 0)) {
+        qwn_gpu_list_all_devices();
+        return 0;
+    }
     if (argc >= 3 && strcmp(argv[2], "--serve") == 0) {
         return serve_mode(argv[1]);
     }
@@ -215,7 +219,10 @@ int main(int argc,char **argv){
         const char *model=getenv("SNAP");if(!model||!*model){fprintf(stderr,"SNAP missing\n");return 2;}
         return serve_mode(model);
     }
-    if(argc<3){fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--mode balanced] [--auto-tune]\n");return 2;}
+    if(argc<3){
+        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--mode balanced] [--auto-tune] [--gpu] [--gpu-device N] [--list-gpus]\n");
+        return 2;
+    }
 
     const char *model_path = argv[1];
     const char *prompt_str = argv[2];
@@ -230,6 +237,7 @@ int main(int argc,char **argv){
     int saguro_tier = 3;
     int num_threads = 0;
     bool force_gpu = false;
+    int gpu_device_idx = -1;
     const char *gpu_backend_str = "auto";
 
     for (int a = 3; a < argc; a++) {
@@ -240,6 +248,9 @@ int main(int argc,char **argv){
             max_tokens = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--auto-tune") == 0) {
             auto_tune = true;
+        } else if (strcmp(argv[a], "--list-gpus") == 0) {
+            qwn_gpu_list_all_devices();
+            return 0;
         } else if (strcmp(argv[a], "--speculative") == 0 || strcmp(argv[a], "--saguro") == 0) {
             use_spec = true;
         } else if (strcmp(argv[a], "--saguro-draft") == 0 && a + 1 < argc) {
@@ -254,6 +265,9 @@ int main(int argc,char **argv){
             num_threads = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--gpu") == 0) {
             force_gpu = true;
+        } else if (strcmp(argv[a], "--gpu-device") == 0 && a + 1 < argc) {
+            force_gpu = true;
+            gpu_device_idx = atoi(argv[++a]);
         } else if (strcmp(argv[a], "--gpu-backend") == 0 && a + 1 < argc) {
             force_gpu = true;
             gpu_backend_str = argv[++a];
@@ -270,10 +284,14 @@ int main(int argc,char **argv){
     }
 #endif
 
-    /* Initialize GPU Context */
+    /* Initialize GPU Context with Intelligent Auto-Selection or User Device Override */
     QwnGPUContext gpu_ctx;
-    QwnGPUBackendType preferred_gpu = force_gpu ? qwn_gpu_parse_backend_name(gpu_backend_str) : QWN_GPU_BACKEND_AUTO;
-    qwn_gpu_init(&gpu_ctx, preferred_gpu);
+    if (gpu_device_idx >= 0) {
+        qwn_gpu_init_device(&gpu_ctx, gpu_device_idx);
+    } else {
+        QwnGPUBackendType preferred_gpu = force_gpu ? qwn_gpu_parse_backend_name(gpu_backend_str) : QWN_GPU_BACKEND_AUTO;
+        qwn_gpu_init(&gpu_ctx, preferred_gpu);
+    }
     if (force_gpu || auto_tune) {
         qwn_gpu_print_diagnostics(&gpu_ctx);
     }
