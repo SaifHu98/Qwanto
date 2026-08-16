@@ -52,6 +52,13 @@ MODEL_ROOT = Path(os.environ.get("QWANTO_MODEL_ROOT", PROJECT_ROOT / "models")).
 MODEL_PATHS_FILE = Path(os.environ.get("QWANTO_MODEL_PATHS_FILE", PROJECT_ROOT / ".qwanto_model_paths.json")).expanduser().resolve()
 
 
+def _hidden_process_kwargs():
+    """Prevent internal Windows runtime children from opening a console window."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+
+
 def _qwnrun_path():
     configured = os.environ.get("QWANTO_QWNRUN")
     candidates = (
@@ -107,6 +114,18 @@ def _qwn_hardware_fit(size_bytes):
     }
 
 
+def _model_file_metadata(path):
+    try:
+        size_bytes = path.stat().st_size
+    except OSError:
+        size_bytes = 0
+    return {
+        "size_bytes": size_bytes,
+        "size_formatted": f"{size_bytes / (1024 ** 3):.2f} GB",
+        "disk_location": str(path),
+    }
+
+
 def _describe_qwn(path):
     stat = path.stat()
     cache_key = (str(path), stat.st_size, stat.st_mtime_ns)
@@ -124,7 +143,9 @@ def _describe_qwn(path):
             "arch_dims": info.get("arch_dims"),
             "supported_by_qwnrun": bool(_qwnrun_path()),
             "hardware_fit": _qwn_hardware_fit(stat.st_size),
+            "format": ".qwn container",
         }
+        descriptor.update(_model_file_metadata(path))
     except Exception as exc:
         descriptor = {
             "qwn_validation": {"status": "failed", "reason": str(exc)},
@@ -134,7 +155,9 @@ def _describe_qwn(path):
             "arch_dims": None,
             "supported_by_qwnrun": False,
             "hardware_fit": {"status": "not_evaluated", "reason": "QWN validation failed."},
+            "format": ".qwn container",
         }
+        descriptor.update(_model_file_metadata(path))
     _QWN_DISCOVERY_CACHE[cache_key] = descriptor
     return dict(descriptor)
 
@@ -1163,6 +1186,7 @@ class Engine:
         self.process = subprocess.Popen(
             [str(executable), str(cap)], env=child_env, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, bufsize=0,
+            **_hidden_process_kwargs(),
         )
         self.write_lock = threading.Lock()
         self.pending_lock = threading.Lock()
@@ -1741,7 +1765,10 @@ class APIServer(ThreadingHTTPServer):
                     try:
                         if cmd:
                             _llama_log = open(HERE / "llama_server.log", "w")
-                            self.runtime_proc = subprocess.Popen(cmd, stdout=_llama_log, stderr=subprocess.STDOUT)
+                            self.runtime_proc = subprocess.Popen(
+                                cmd, stdout=_llama_log, stderr=subprocess.STDOUT,
+                                **_hidden_process_kwargs(),
+                            )
                     except OSError as e:
                         if e.winerror == 4551:
                             print(f"WARNING: Windows AppLocker/WDAC blocked llama-server (WinError 4551).", file=sys.stderr)
@@ -2108,30 +2135,41 @@ class APIHandler(BaseHTTPRequestHandler):
                                     model.update(_describe_qwn(entry))
                                     models.append(model)
                                 elif lower.endswith(".gguf"):
-                                    models.append({
+                                    model = {
                                         "name": entry.name, "path": str(entry), "type": "gguf",
                                         "compatibility_state": "external_runtime_only",
                                         "qwn_validation": {"status": "not_applicable", "reason": "GGUF is outside the native qwnrun boundary."},
-                                    })
+                                        "format": "GGUF",
+                                    }
+                                    model.update(_model_file_metadata(entry))
+                                    models.append(model)
                                 elif lower.endswith(".safetensors"):
-                                    models.append({
+                                    model = {
                                         "name": entry.name, "path": str(entry), "type": "safetensors",
                                         "compatibility_state": "conversion_source",
                                         "qwn_validation": {"status": "not_applicable", "reason": "Convert to QWN before native activation."},
-                                    })
+                                        "format": "Safetensors",
+                                    }
+                                    model.update(_model_file_metadata(entry))
+                                    models.append(model)
                                 elif lower.endswith(".pt") or lower.endswith(".pth") or lower.endswith(".bin"):
-                                    models.append({
+                                    model = {
                                         "name": entry.name, "path": str(entry), "type": "pytorch",
                                         "compatibility_state": "conversion_source",
                                         "qwn_validation": {"status": "not_applicable", "reason": "Convert to QWN before native activation."},
-                                    })
+                                        "format": "PyTorch checkpoint",
+                                    }
+                                    model.update(_model_file_metadata(entry))
+                                    models.append(model)
                             elif entry.is_dir():
                                 if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") or f.name.endswith(".safetensors") for f in entry.iterdir()):
-                                    models.append({
+                                    model = {
                                         "name": entry.name,
                                         "path": str(entry),
                                         "type": "native"
-                                    })
+                                    }
+                                    model.update(_model_file_metadata(entry))
+                                    models.append(model)
                     except Exception:
                         pass
                 self.send_json(200, {
@@ -2237,14 +2275,6 @@ class APIHandler(BaseHTTPRequestHandler):
                     "tls_proxy_supported": True
                 }
                 self.send_json(200, sec_report, request_id)
-                return
-
-            if path == "/v1/qwanto/search":
-                body = self.read_json()
-                query = body.get("query") if isinstance(body, dict) else None
-                from capabilities import web_search
-                results = web_search(query or "")
-                self.send_json(200, {"query": query or "", "results": results}, request_id)
                 return
 
             if path == "/v1/qwanto/fetch":
@@ -2495,6 +2525,17 @@ class APIHandler(BaseHTTPRequestHandler):
             self.require_auth()
             path = urlsplit(self.path).path
             print(f"[api] POST {path} (backend={self.server.backend}, model_id={self.server.model_id})", file=sys.stderr)
+
+            if path == "/v1/qwanto/search":
+                expected_desktop_token = os.environ.get("QWANTO_DESKTOP_SEARCH_TOKEN")
+                if not expected_desktop_token or self.headers.get("X-Qwanto-Desktop-Approval") != expected_desktop_token:
+                    raise APIError(403, "External search is available only through the approved desktop boundary.", code="desktop_approval_required")
+                body = self.read_json()
+                query = body.get("query") if isinstance(body, dict) else None
+                from capabilities import web_search
+                results = web_search(query or "")
+                self.send_json(200, {"query": query or "", "results": results}, request_id)
+                return
 
             if path == "/v1/agentic/task":
                 body = self.read_json()
@@ -3326,7 +3367,10 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
             except Exception:
                 print("Ollama is not running. Attempting to start Ollama...", file=sys.stderr)
                 try:
-                    subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(
+                        ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        **_hidden_process_kwargs(),
+                    )
                     time.sleep(3)
                 except Exception as e:
                     print(f"Warning: Could not start Ollama: {e}", file=sys.stderr)
@@ -3354,7 +3398,10 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
                         cmd = _build_llama_cmd(llm_exe, model, server.ctx_size, num_threads, server=server)
                         try:
                             _llama_log = open(HERE / "llama_server.log", "w")
-                            runtime = subprocess.Popen(cmd, stdout=_llama_log, stderr=subprocess.STDOUT)
+                            runtime = subprocess.Popen(
+                                cmd, stdout=_llama_log, stderr=subprocess.STDOUT,
+                                **_hidden_process_kwargs(),
+                            )
                             server.runtime_proc = runtime
                             for _ in range(30):
                                 time.sleep(1)

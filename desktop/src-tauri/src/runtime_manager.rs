@@ -4,9 +4,22 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use crate::model_registry::ModelRegistry;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn configure_hidden(command: &mut Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_hidden(_command: &mut Command) {}
 
 type RequestTracking = Arc<Mutex<HashMap<String, (Instant, Option<Instant>)>>>;
 
@@ -353,6 +366,7 @@ impl QwantoRuntimeManager {
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
+        configure_hidden(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn qwnrun ({}): {}", self.executable_path.display(), e))?;
         let pid = child.id();

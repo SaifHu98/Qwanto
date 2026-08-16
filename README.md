@@ -8,6 +8,8 @@
 
 > A local-first native runtime, supervised loopback gateway, and OpenCode-style desktop coding agent for validated QWN models.
 
+<p align="center"><img src="assets/brand/qwanto-icon.png" width="96" height="96" alt="Qwanto" /></p>
+
 Qwanto is a Beta local-first AI runtime for running supported dense transformer
 models through a native C decoder, a supervised loopback OpenAI-compatible
 gateway, a shared React dashboard, and a Tauri desktop coding agent.
@@ -15,6 +17,30 @@ gateway, a shared React dashboard, and a Tauri desktop coding agent.
 The repository is engineering-complete for its tested paths, but it is not a
 promise that every model, GPU backend, sensor, or platform is production-ready.
 Read the status and evidence before relying on a path.
+
+## Engine Highlights
+
+- **QWN containers:** validated 4 KiB headers, aligned tensor payloads, 64-byte
+  padding, and tiered VRAM → RAM → NVMe mmap with layer-ahead prefetch.
+- **Persistent `qwnrun --serve`:** one supervised native process handles the
+  protocol and avoids per-request process startup.
+- **Local gateway:** loopback-only OpenAI-compatible endpoints with explicit
+  model validation and user-managed model files.
+- **Approval-gated agent:** the desktop shell can inspect a selected workspace,
+  but file writes, commands, and external search require a visible approval.
+- **Platform support:** Tauri packaging targets Windows, macOS, and Linux;
+  platform packages remain unsigned unless the protected signing gates pass.
+
+## Verified Native Performance
+
+The measured result below is the repository’s current native evidence. It is
+separate from experimental, external-provider, and projected results; it is
+not a universal throughput promise. See the [benchmark methodology](docs/benchmark-methodology.md)
+for the required evidence fields and classification rules.
+
+| Host evidence | Model | Runtime | Tokens | Wall time | Throughput | TTFT |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Windows local run | `experiments/results/4B_hyper_vsq2.qwn` | `c/qwnrun.exe` | 64 | 8.952839 s | 7.148571 tok/s | Unavailable |
 
 ## Why Qwanto
 

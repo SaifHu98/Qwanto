@@ -1,8 +1,21 @@
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use serde::{Deserialize, Serialize};
 use crate::permission_policy::{ActionDetails, PermissionPolicy, PolicyOutcome};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn configure_hidden(command: &mut Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_hidden(_command: &mut Command) {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
@@ -524,6 +537,7 @@ impl ToolExecutor {
                     cmd.current_dir(validated_cwd);
                     cmd.stdout(Stdio::piped());
                     cmd.stderr(Stdio::piped());
+                    configure_hidden(&mut cmd);
 
                     match cmd.output() {
                         Ok(output) => {

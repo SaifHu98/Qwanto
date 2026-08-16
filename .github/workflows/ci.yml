@@ -162,6 +162,8 @@ jobs:
           sudo apt-get install -y clang libomp-dev
       - name: Install Python test dependencies
         run: python -m pip install --upgrade pip pytest numpy
+      - name: Verify official Qwanto brand assets
+        run: python c/tools/check_brand_assets.py
       - name: Run Python tests
         run: python -m pytest c/tests/ -q
       - name: Check documentation links

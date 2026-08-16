@@ -1,12 +1,27 @@
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::{Arc, mpsc};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 const READY_PREFIX: &str = "QWANTO_GATEWAY_READY ";
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn configure_hidden(command: &mut Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_hidden(_command: &mut Command) {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GatewayReady {
@@ -46,6 +61,10 @@ pub fn parse_ready_line(line: &str) -> Result<GatewayReady, String> {
 pub struct GatewayManager {
     child: Option<Child>,
     status: GatewayStatus,
+    resource_dir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    desktop_search_token: Option<String>,
+    stderr_lines: Arc<std::sync::Mutex<VecDeque<String>>>,
 }
 
 impl GatewayManager {
@@ -59,6 +78,10 @@ impl GatewayManager {
                 error: None,
                 sidecar_packaged: false,
             },
+            resource_dir: None,
+            data_dir: None,
+            desktop_search_token: None,
+            stderr_lines: Arc::new(std::sync::Mutex::new(VecDeque::new())),
         }
     }
 
@@ -103,6 +126,17 @@ impl GatewayManager {
 
     pub fn start(&mut self, resource_dir: &Path, data_dir: &Path) -> Result<GatewayStatus, String> {
         self.stop();
+        self.resource_dir = Some(resource_dir.to_path_buf());
+        self.data_dir = Some(data_dir.to_path_buf());
+        let search_token = format!(
+            "qwanto-search-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+        );
+        self.desktop_search_token = Some(search_token.clone());
+        if let Ok(mut lines) = self.stderr_lines.lock() {
+            lines.clear();
+        }
         self.status = GatewayStatus {
             state: "starting".into(),
             api_url: None,
@@ -137,6 +171,7 @@ impl GatewayManager {
             .arg(&ready_file)
             .env("QWANTO_DISABLE_SETTINGS", "1")
             .env("QWANTO_DESKTOP_SIDECAR", "1")
+            .env("QWANTO_DESKTOP_SEARCH_TOKEN", &search_token)
             .env("QWANTO_MODEL_ROOT", &model_root)
             .env("QWANTO_MODEL_PATHS", &model_root);
         if let Some(qwnrun) = qwnrun {
@@ -146,13 +181,20 @@ impl GatewayManager {
                 .env("QWANTO_QWNRUN", &qwnrun);
         }
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        configure_hidden(&mut command);
 
         let mut child = command.spawn().map_err(|error| self.fail(format!("Failed to start gateway sidecar: {error}")))?;
         let stdout = child.stdout.take().ok_or_else(|| self.fail("Gateway stdout was not piped.".into()))?;
         if let Some(stderr) = child.stderr.take() {
+            let stderr_lines = Arc::clone(&self.stderr_lines);
             std::thread::spawn(move || {
                 let reader = BufReader::new(stderr);
-                for _line in reader.lines().map_while(Result::ok) {}
+                for line in reader.lines().map_while(Result::ok) {
+                    if let Ok(mut lines) = stderr_lines.lock() {
+                        lines.push_back(line);
+                        while lines.len() > 80 { lines.pop_front(); }
+                    }
+                }
             });
         }
 
@@ -210,7 +252,8 @@ impl GatewayManager {
             .and_then(|child| child.try_wait().ok().flatten());
         if let Some(exit) = exit {
             self.status.state = "failed".into();
-            self.status.error = Some(format!("Gateway exited with {exit}"));
+            let diagnostics = self.stderr_lines.lock().ok().map(|lines| lines.iter().rev().take(8).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")).unwrap_or_default();
+            self.status.error = Some(if diagnostics.is_empty() { format!("Gateway exited with {exit}") } else { format!("Gateway exited with {exit}\n{diagnostics}") });
             self.child = None;
         }
         self.status.clone()
@@ -221,7 +264,10 @@ impl GatewayManager {
             #[cfg(windows)]
             {
                 let pid = child.id().to_string();
-                let _ = Command::new("taskkill").args(["/PID", &pid, "/T", "/F"]).status();
+                let mut taskkill = Command::new("taskkill");
+                taskkill.args(["/PID", &pid, "/T", "/F"]);
+                configure_hidden(&mut taskkill);
+                let _ = taskkill.status();
             }
             #[cfg(not(windows))]
             {
@@ -232,6 +278,22 @@ impl GatewayManager {
         self.status.state = "stopped".into();
         self.status.api_url = None;
         self.status.port = None;
+    }
+
+    pub fn restart(&mut self) -> Result<GatewayStatus, String> {
+        let resource_dir = self
+            .resource_dir
+            .clone()
+            .ok_or_else(|| "Gateway has not been initialized.".to_string())?;
+        let data_dir = self
+            .data_dir
+            .clone()
+            .ok_or_else(|| "Gateway data directory is unavailable.".to_string())?;
+        self.start(&resource_dir, &data_dir)
+    }
+
+    pub fn desktop_search_token(&self) -> Option<&str> {
+        self.desktop_search_token.as_deref()
     }
 }
 
@@ -266,5 +328,54 @@ mod tests {
             r#"QWANTO_GATEWAY_READY {"gateway":"qwanto","api_version":"1","gateway_version":"0.1.0-beta.3","host":"0.0.0.0","port":43210,"url":"http://0.0.0.0:43210"}"#,
         );
         assert!(result.is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn packaged_gateway_smoke_is_hidden_and_serves_health() {
+        use std::io::{Read, Write};
+
+        let resource_dir = match std::env::var_os("QWANTO_GATEWAY_RESOURCE_DIR") {
+            Some(path) => PathBuf::from(path),
+            None if std::env::var("QWANTO_REQUIRE_SIDECAR_SMOKE").ok().as_deref() == Some("1") => {
+                panic!("QWANTO_GATEWAY_RESOURCE_DIR is required for the packaged gateway smoke test")
+            }
+            None => return,
+        };
+        if !resource_dir.join("qwanto-gateway.exe").is_file() {
+            if std::env::var("QWANTO_REQUIRE_SIDECAR_SMOKE").ok().as_deref() == Some("1") {
+                panic!("packaged gateway was not found in {}", resource_dir.display());
+            }
+            return;
+        }
+        let data_dir = std::env::temp_dir().join(format!("qwanto-gateway-smoke-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&data_dir);
+        let _ = fs::create_dir_all(&data_dir);
+        let before = forbidden_console_process_count();
+        let mut manager = GatewayManager::new();
+        let status = manager.start(&resource_dir, &data_dir).expect("gateway sidecar should start");
+        assert_eq!(forbidden_console_process_count(), before, "desktop must not launch a console host");
+        let url = status.api_url.expect("gateway URL");
+        let authority = url.strip_prefix("http://").expect("loopback HTTP URL");
+        let mut address = authority.split(':');
+        let host = address.next().unwrap_or("127.0.0.1");
+        let port = address.next().expect("gateway port").parse::<u16>().expect("valid port");
+        let mut stream = std::net::TcpStream::connect((host, port)).expect("health connection");
+        stream.write_all(format!("GET /health HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n").as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"), "health response: {response}");
+        manager.stop();
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[cfg(windows)]
+    fn forbidden_console_process_count() -> usize {
+        ["cmd.exe", "powershell.exe", "windowsterminal.exe"].iter().map(|name| {
+            let mut command = Command::new("tasklist");
+            command.arg("/FI").arg(format!("IMAGENAME eq {name}")).args(["/FO", "CSV", "/NH"]);
+            configure_hidden(&mut command);
+            command.output().ok().map(|output| String::from_utf8_lossy(&output.stdout).lines().filter(|line| !line.trim().is_empty() && !line.contains("INFO:")).count()).unwrap_or(0)
+        }).sum()
     }
 }

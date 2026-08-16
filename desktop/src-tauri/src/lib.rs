@@ -5,7 +5,10 @@ pub mod telemetry;
 pub mod permission_policy;
 pub mod tool_executor;
 pub mod session_store;
+pub mod project_memory;
 
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, RunEvent, State};
@@ -16,6 +19,7 @@ use telemetry::{TelemetryCollector, TelemetrySnapshot};
 use permission_policy::{ExecutionMode, PermissionPolicy};
 use tool_executor::{ToolExecutor, ToolResult};
 use session_store::{AgentSession, SessionStore};
+use project_memory::{ProjectMemory, ProjectMemoryStore};
 
 pub struct AppState {
     pub gateway_manager: Mutex<GatewayManager>,
@@ -55,6 +59,12 @@ fn get_desktop_capabilities(state: State<AppState>) -> DesktopCapabilities {
 fn get_gateway_status(state: State<AppState>) -> Result<GatewayStatus, String> {
     let mut manager = state.gateway_manager.lock().map_err(|error| error.to_string())?;
     Ok(manager.status())
+}
+
+#[tauri::command]
+fn restart_gateway(state: State<AppState>) -> Result<GatewayStatus, String> {
+    let mut manager = state.gateway_manager.lock().map_err(|error| error.to_string())?;
+    manager.restart()
 }
 
 #[tauri::command]
@@ -188,6 +198,147 @@ fn get_agent_session(session_id: String, state: State<AppState>) -> Result<Optio
     Ok(store.get_session(&session_id))
 }
 
+fn workspace_root(state: &State<AppState>) -> Result<PathBuf, String> {
+    let policy = state.permission_policy.lock().map_err(|error| error.to_string())?;
+    policy
+        .workspace_root
+        .clone()
+        .ok_or_else(|| "Open a local project before using project memory.".to_string())
+}
+
+#[tauri::command]
+fn get_project_memory(state: State<AppState>) -> Result<ProjectMemory, String> {
+    let root = workspace_root(&state)?;
+    ProjectMemoryStore::load(&root)
+}
+
+#[tauri::command]
+fn save_project_memory(memory: ProjectMemory, state: State<AppState>) -> Result<ProjectMemory, String> {
+    let root = workspace_root(&state)?;
+    ProjectMemoryStore::save(&root, memory)
+}
+
+#[tauri::command]
+fn clear_project_memory(state: State<AppState>) -> Result<ProjectMemory, String> {
+    let root = workspace_root(&state)?;
+    ProjectMemoryStore::clear(&root)
+}
+
+#[tauri::command]
+fn export_project_memory(state: State<AppState>) -> Result<String, String> {
+    let root = workspace_root(&state)?;
+    ProjectMemoryStore::export(&root)
+}
+
+#[tauri::command]
+fn set_project_memory_enabled(enabled: bool, state: State<AppState>) -> Result<ProjectMemory, String> {
+    let root = workspace_root(&state)?;
+    let mut memory = ProjectMemoryStore::load(&root)?;
+    memory.enabled = enabled;
+    ProjectMemoryStore::save(&root, memory)
+}
+
+fn loopback_post_json(api_url: &str, path: &str, payload: serde_json::Value, desktop_search_token: Option<&str>) -> Result<serde_json::Value, String> {
+    let authority = api_url
+        .strip_prefix("http://")
+        .ok_or_else(|| "Gateway search requires an HTTP loopback sidecar.".to_string())?
+        .trim_end_matches('/');
+    let mut parts = authority.splitn(2, ':');
+    let host = parts.next().unwrap_or_default();
+    if host != "127.0.0.1" && host != "localhost" && host != "[::1]" {
+        return Err("Gateway search is restricted to the loopback sidecar.".into());
+    }
+    let port = parts
+        .next()
+        .ok_or_else(|| "Gateway readiness did not include a port.".to_string())?
+        .parse::<u16>()
+        .map_err(|error| format!("Invalid gateway port: {error}"))?;
+    let body = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
+    let address = (host.trim_matches(&['[', ']'][..]), port)
+        .to_socket_addrs()
+        .map_err(|error| format!("Gateway address unavailable: {error}"))?
+        .next()
+        .ok_or_else(|| "Gateway address unavailable.".to_string())?;
+    let mut stream = TcpStream::connect_timeout(&address, std::time::Duration::from_secs(3))
+        .map_err(|error| format!("Gateway search connection failed: {error}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(15)))
+        .map_err(|error| error.to_string())?;
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n",
+        body.len(),
+        desktop_search_token.map(|token| format!("X-Qwanto-Desktop-Approval: {token}\r\n")).unwrap_or_default()
+    );
+    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
+    stream.write_all(&body).map_err(|error| error.to_string())?;
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).map_err(|error| error.to_string())?;
+    let separator = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "Gateway returned an invalid HTTP response.".to_string())?;
+    let header = String::from_utf8_lossy(&response[..separator]);
+    if !header.starts_with("HTTP/1.1 200") && !header.starts_with("HTTP/1.0 200") {
+        return Err(format!("Gateway search was rejected: {}", header.lines().next().unwrap_or("unknown status")));
+    }
+    serde_json::from_slice(&response[separator + 4..]).map_err(|error| format!("Invalid gateway search response: {error}"))
+}
+
+#[tauri::command]
+fn web_search(query: String, approval_token: Option<String>, state: State<AppState>) -> Result<ToolResult, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() || query.len() > 256 {
+        return Err("Search query must be between 1 and 256 characters.".into());
+    }
+    let session_id = "desktop-internet";
+    let args_hash = format!("web-search:{query}");
+    let policy = state.permission_policy.lock().map_err(|error| error.to_string())?;
+    let outcome = policy.evaluate_action(session_id, "web_search", None, Some("external web search"), &args_hash, Some(&query));
+    let (token, details) = match outcome {
+        permission_policy::PolicyOutcome::Deny { reason } => return Ok(ToolResult {
+            success: false, outcome: "denied".into(), output: String::new(), error: Some(reason),
+            truncated: false, approval_token: None, action_details: None,
+        }),
+        permission_policy::PolicyOutcome::NeedsApproval { token, details } => (token, details),
+        permission_policy::PolicyOutcome::Allow => return Err("Web search must remain approval-gated.".into()),
+    };
+    let provided = match approval_token.as_deref() {
+        Some(value) => value,
+        None => return Ok(ToolResult {
+            success: false, outcome: "needs_approval".into(), output: String::new(), error: None,
+            truncated: false, approval_token: Some(token), action_details: Some(details),
+        }),
+    };
+    let root = policy.workspace_root.clone().ok_or_else(|| "Open a local project before approving external search.".to_string())?;
+    policy.token_registry.consume_token(provided, session_id, "web_search", &args_hash, &root, policy.mode)
+        .map_err(|error| format!("Authorization Denied: {error}"))?;
+    drop(policy);
+    let (api_url, desktop_search_token) = {
+        let mut manager = state.gateway_manager.lock().map_err(|error| error.to_string())?;
+        let url = manager.status().api_url.ok_or_else(|| "Gateway is not ready.".to_string())?;
+        let token = manager.desktop_search_token().ok_or_else(|| "Desktop search approval channel is unavailable.".to_string())?.to_string();
+        (url, token)
+    };
+    let mut result = loopback_post_json(&api_url, "/v1/qwanto/search", serde_json::json!({"query": query}), Some(&desktop_search_token))?;
+    if let Some(items) = result.get_mut("results").and_then(serde_json::Value::as_array_mut) {
+        let timestamp = chrono_like_timestamp();
+        for item in items {
+            if let Some(object) = item.as_object_mut() {
+                object.insert("timestamp".into(), serde_json::Value::String(timestamp.clone()));
+                object.insert("included_in_context".into(), serde_json::Value::Bool(false));
+            }
+        }
+    }
+    Ok(ToolResult {
+        success: true, outcome: "executed".into(), output: serde_json::to_string_pretty(&result).unwrap_or_default(),
+        error: None, truncated: false, approval_token: None, action_details: None,
+    })
+}
+
+fn chrono_like_timestamp() -> String {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -209,6 +360,7 @@ pub fn run() {
             discover_models,
             get_desktop_capabilities,
             get_gateway_status,
+            restart_gateway,
             start_model,
             stop_model,
             send_prompt,
@@ -220,7 +372,13 @@ pub fn run() {
             execute_agent_tool,
             list_agent_sessions,
             save_agent_session,
-            get_agent_session
+            get_agent_session,
+            get_project_memory,
+            save_project_memory,
+            clear_project_memory,
+            export_project_memory,
+            set_project_memory_enabled,
+            web_search
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Qwanto desktop application")
@@ -229,6 +387,9 @@ pub fn run() {
                 if let Ok(state) = app.state::<AppState>().gateway_manager.lock() {
                     let mut gateway = state;
                     gateway.stop();
+                }
+                if let Ok(runtime) = app.state::<AppState>().runtime_manager.lock() {
+                    let _ = runtime.stop_model();
                 }
             }
         })

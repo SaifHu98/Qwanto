@@ -23,6 +23,13 @@ host also verifies the loopback URL before passing it to the web UI. A missing,
 invalid, or crashed sidecar is shown as a failed desktop status; it is never
 silently replaced by a remote service.
 
+On Windows, the gateway, `qwnrun`, converter, downloader, and integrated agent
+commands keep their standard streams piped into the host and use
+`CREATE_NO_WINDOW`. Shutdown terminates the supervised process tree, including
+the hidden `taskkill` cleanup helper. Gateway failures stay in the app with
+Open logs and Restart gateway actions; no console or Windows Terminal window is
+used for internal work.
+
 The shared Model Library keeps conversion and download controls in Settings.
 They require explicit user consent, disk/source/checksum validation, and use
 the sidecar’s local acquisition paths described in
@@ -42,3 +49,12 @@ returned or persisted.
 
 The browser cannot access these commands. A browser can call the HTTP gateway,
 but that is not desktop-agent permission.
+
+## Local memory and resume
+
+Project memory is stored at `.qwanto/project-memory.json` in the selected
+workspace. It contains only user-reviewable summary, architecture notes,
+conventions, decisions, and task checkpoints. The desktop session store keeps
+redacted local checkpoints so an interrupted conversation can be resumed from
+the Project view. Both stores are local-only and can be edited, exported,
+cleared, or disabled; neither is uploaded as an inference fallback.

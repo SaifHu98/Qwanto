@@ -241,3 +241,11 @@
 - **Change:** Published the annotated `v0.1.0-beta.3` GitHub prerelease with target-native installers and the generated SHA-256 manifest; the obsolete PNG asset is no longer uploaded.
 - **Validation:** Package/publish workflow run `31966709143` passed on Ubuntu, macOS, and Windows. The public release is non-draft/prerelease and exposes five installers plus `Qwanto_v0.1.0-beta.3_SHA256SUMS.txt`.
 - **Decision:** Keep the release unsigned and without notarization or bundled model weights; macOS signing/notarization remains a separate maintainer credential gate.
+
+## 2026-08-16 — Beta.4 desktop agent and release gates
+
+- **Change:** Reworked desktop Settings into accessible internal navigation with validated model library actions/queues, real runtime-backed agent profiles, compact usage metrics, local project memory, resumable session checkpoints, and approval-gated external search with a per-sidecar token boundary.
+- **Change:** Replaced visible lettermarks with the approved `assets/brand/qwanto-icon.png` source and checked Tauri/web mirrors; added hidden Windows process flags, in-app gateway restart/log actions, and packaged Windows gateway smoke coverage.
+- **Change:** Added protected Windows Authenticode, macOS Developer ID/notarization, and Linux detached GPG release gates; added truthful signing status to release notes and README engine/performance evidence sections.
+- **Validation:** Decoder `2 passed`; full Python suite `203 passed, 14 skipped` including the desktop search-boundary test; web build passed; Vitest `50 passed`; documentation links and brand checks passed. `cargo check`, `cargo test`, and `cargo clippy -D warnings` were run in order but are blocked because Cargo is not installed locally.
+- **Decision:** Do not tag or publish Beta.4 until hosted Rust/package checks pass and signing status is configured and verified; Beta.3 remains unchanged.

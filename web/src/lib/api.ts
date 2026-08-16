@@ -69,6 +69,8 @@ export interface StreamChatResult {
   usage: TokenUsage | null
   requestId: string | null
   queueWaitMs: number | null
+  ttftMs: number | null
+  tokensPerSecond: number | null
 }
 
 export function endpoint(baseUrl: string, path: string) {
@@ -192,11 +194,17 @@ export async function streamChat(options: StreamChatOptions): Promise<StreamChat
 
   const queueWaitHeader = response.headers.get("x-qwanto-queue-wait-ms")
   const parsedQueueWait = queueWaitHeader === null ? null : Number(queueWaitHeader)
+  const ttftHeader = response.headers.get("x-qwanto-ttft-ms")
+  const speedHeader = response.headers.get("x-qwanto-tok-per-sec")
+  const parsedTtft = ttftHeader === null ? null : Number(ttftHeader)
+  const parsedSpeed = speedHeader === null ? null : Number(speedHeader)
   return {
     finishReason,
     usage,
     requestId: response.headers.get("x-request-id"),
     queueWaitMs: parsedQueueWait !== null && Number.isFinite(parsedQueueWait) ? parsedQueueWait : null,
+    ttftMs: parsedTtft !== null && Number.isFinite(parsedTtft) ? parsedTtft : null,
+    tokensPerSecond: parsedSpeed !== null && Number.isFinite(parsedSpeed) ? parsedSpeed : null,
   }
 }
 
@@ -237,6 +245,11 @@ export interface DiscoveredModel {
   arch_dims?: number[] | null
   recommended?: boolean
   recommendation_reason?: string
+  format?: string
+  size_bytes?: number
+  size_formatted?: string
+  disk_location?: string
+  metadata_status?: string
 }
 
 export interface ModelPathsResponse {
@@ -359,12 +372,15 @@ export async function loadModel(baseUrl: string, modelPath: string, backend = "a
   return (await response.json()) as { status: string; model_id: string; backend: string }
 }
 
-export async function downloadModel(baseUrl: string, url: string, filename?: string, destPath?: string, apiKey = "", options?: { approvedHost?: string; allowLocalhostHttp?: boolean; sha256?: string; expectedSize?: number; overwrite?: boolean }) {
+export async function downloadModel(baseUrl: string, url: string, filename?: string, destPath?: string, apiKey = "", options?: { approvedHost?: string; allowLocalhostHttp?: boolean; sha256?: string; expectedSize?: number; overwrite?: boolean; provider?: string; path?: string; licenseConfirmed?: boolean }) {
   const response = await fetch(endpoint(baseUrl, "qwanto/download"), {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({
       url, filename, dest_path: destPath,
+      provider: options?.provider,
+      path: options?.path,
+      license_confirmed: options?.licenseConfirmed,
       allowed_hosts: options?.approvedHost ? [options.approvedHost] : undefined,
       allow_localhost_http: options?.allowLocalhostHttp || undefined,
       sha256: options?.sha256,
@@ -539,6 +555,10 @@ export interface BenchmarkMetrics {
   cache_state?: string
   backend?: string
   gates_passed?: Record<string, boolean>
+}
+
+export async function importLocalModel(baseUrl: string, path: string, apiKey = "", destination?: string) {
+  return downloadModel(baseUrl, "", undefined, destination, apiKey, { provider: "local_file", path })
 }
 
 export async function unloadModel(baseUrl: string, apiKey = "") {

@@ -95,7 +95,10 @@ impl SessionStore {
             f.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
             f.sync_all().map_err(|e| e.to_string())?;
         }
-
+        #[cfg(windows)]
+        if file_path.exists() {
+            fs::remove_file(&file_path).map_err(|e| e.to_string())?;
+        }
         fs::rename(&tmp_path, &file_path).map_err(|e| e.to_string())?;
         Ok(())
     }

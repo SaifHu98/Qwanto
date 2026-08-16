@@ -84,3 +84,42 @@ def test_local_gateway_exposes_stable_control_plane_endpoints(tmp_path):
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate(timeout=5)
+
+
+def test_web_search_requires_the_desktop_approval_channel(tmp_path):
+    port = _free_port()
+    env = os.environ.copy()
+    env["QWANTO_DISABLE_SETTINGS"] = "1"
+    process = subprocess.Popen(
+        [sys.executable, str(SERVER), "--model", str(tmp_path / "missing.qwn"), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            try:
+                _get_json(f"http://127.0.0.1:{port}/health")
+                break
+            except (urllib.error.URLError, ConnectionError):
+                if process.poll() is not None:
+                    break
+                time.sleep(0.1)
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/qwanto/search",
+            data=json.dumps({"query": "should not leave the desktop boundary"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(request, timeout=3)
+        except urllib.error.HTTPError as error:
+            assert error.code == 403
+        else:
+            raise AssertionError("web search must require the desktop approval channel")
+    finally:
+        process.terminate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=5)

@@ -33,6 +33,13 @@ class AcquisitionError(ValueError):
     """A user-actionable acquisition or validation failure."""
 
 
+def _hidden_process_kwargs() -> dict:
+    """Keep the internal qwnrun smoke process out of the Windows desktop UI."""
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+
+
 @dataclass(frozen=True)
 class ProviderManifest:
     provider: str
@@ -527,6 +534,7 @@ def native_smoke_test(path: Path | str, executable: Optional[Path | str]) -> dic
             [str(executable), str(Path(path)), "--serve"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=env,
+            **_hidden_process_kwargs(),
         )
         stdout, stderr = process.communicate(input=b"PING\n", timeout=10)
         if b"PONG" in stdout:

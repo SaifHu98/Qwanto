@@ -26,19 +26,21 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `202 passed, 14 skipped` in `c/tests/`; the decoder
+- Native/Python validation: `203 passed, 14 skipped` in `c/tests/`; the decoder
   test passed separately (`2 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
-- Web validation: production build passed and Vitest passed (`47 tests`). The
+- Web validation: production build passed and Vitest passed (`50 tests`). The
   desktop surface has exactly five primary destinations—Project, Chats, Files,
-  Changes, Settings—while the browser surface remains chat-only.
+  Changes, Settings—while the browser surface remains chat-only. Settings now
+  uses an internal one-section-at-a-time navigation with viewport contracts for
+  1280px, 1440px, and short laptop heights.
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
 - Rust gates are pending on this workstation because `cargo` is not installed;
-  hosted CI remains authoritative for Rust and cross-platform packaging. CI
-  run `31966186386` passed native, web, security, Rust check/test/clippy, and
-  changed-area gates.
+  hosted CI remains authoritative for Rust and cross-platform packaging. The
+  current local web/Python gates pass, but this change still needs a hosted
+  Rust/package run before release publication.
 - Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, and `v0.1.0-beta.3` are
   published GitHub prereleases and must remain unchanged. Beta.3 hosted CI run
   `31966186386` and package/publish run `31966709143` passed. The public
@@ -63,6 +65,10 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   outside `/v1`, while models/config/telemetry remain under `/v1`.
 - macOS signing/notarization and installed-package smoke tests require the
   corresponding maintainer-owned platform credentials/runners.
+- Windows Artifact Signing, macOS notarization, and Linux GPG signing are
+  implemented as protected `release-signing` environment gates. They are not
+  enabled or verified in this local workspace, so the next Beta remains
+  explicitly unsigned unless the maintainers configure and pass them.
 
 ## Important decisions
 
@@ -74,4 +80,6 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   scheduled validation plus existing `v*` tags; tagged runs upload unsigned
   installers to a GitHub prerelease after the package matrix is green, with
   checksums and release notes.
+- Beta.3 remains unchanged. Beta.4 has not been tagged or published because
+  local Cargo and cross-platform signing/package gates are not available here.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.

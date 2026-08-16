@@ -37,6 +37,40 @@ export interface DesktopToolResult {
   } | null
 }
 
+export interface ProjectMemory {
+  schema_version: number
+  workspace_root: string
+  enabled: boolean
+  summary: string
+  architecture_notes: string
+  user_conventions: string
+  accepted_decisions: string[]
+  task_checkpoints: string[]
+  updated_at: string
+}
+
+export interface AgentStep {
+  id: string
+  timestamp: string
+  step_type: string
+  content: string
+  tool_name?: string | null
+  tool_args?: Record<string, unknown> | null
+  tool_result?: unknown
+  approval_status?: string | null
+}
+
+export interface AgentSession {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+  workspace_root: string
+  active_model: string
+  mode: string
+  steps: AgentStep[]
+}
+
 type TauriInternals = {
   invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>
 }

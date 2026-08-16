@@ -46,7 +46,31 @@ version tag such as `v0.1.0-beta.1` and push it; the tag-triggered workflow
 publishes a prerelease only after every Windows, macOS, and Linux package job
 is green.
 
+## Branding
+
+`assets/brand/qwanto-icon.png` is the approved 512x512 source mark. The Tauri
+PNG/ICO/ICNS files and `web/public/qwanto-icon.png` are checked against the
+source hash by `c/tools/check_brand_assets.py`; the same check runs in CI and
+the package workflow. Do not introduce a second lettermark or favicon.
+
+## Signing policy
+
+Packaging and signing are separate gates. The release environment uses these
+protected variables to opt into real verification:
+
+| Platform | Enable variable | Protected credentials and verification |
+| --- | --- | --- |
+| Windows | `QWANTO_WINDOWS_SIGNING_ENABLED=true` | Azure Artifact Signing OIDC identity, account/profile variables; all staged sidecars and EXE/MSI files receive timestamped Authenticode signatures and `Get-AuthenticodeSignature` must report `Valid`. |
+| macOS | `QWANTO_MACOS_NOTARIZATION_ENABLED=true` | Developer ID certificate, keychain password, Apple notarization credentials; nested Mach-O files, app, and DMG are signed, submitted, stapled, then checked with `codesign` and `spctl`. |
+| Linux | `QWANTO_LINUX_SIGNING_ENABLED=true` | Protected GPG private key and key ID; AppImage, DEB, and the Linux SHA256SUMS file receive detached ASCII-armored signatures and `gpg --verify` runs in CI. |
+
+The Windows implementation uses the official [Azure Artifact Signing
+Action](https://github.com/Azure/artifact-signing-action). Credentials belong
+only in the protected `release-signing` GitHub Environment. If an enable
+variable is not set to `true`, the package is intentionally unsigned and the
+release notes say so; the workflow never labels it production-ready.
+
 Packages contain the native runtime and gateway sidecar, but no model weights.
-The sidecar is bound to loopback and supervised by the desktop host. Packages
-are not described as signed unless real signing and verification have been
-configured.
+The sidecar is bound to loopback, starts with hidden child-process flags on
+Windows, and is supervised by the desktop host. Packages are not described as
+signed unless real signing and verification have been configured.

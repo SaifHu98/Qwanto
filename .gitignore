@@ -38,6 +38,7 @@ c/tests/test_compat_direct.exe
 
 # impostazioni runtime (model_id, model_path, backend)
 .qwanto_settings.json
+.qwanto/
 
 # oracoli tiny generati (make_glm_oracle.py) e dati benchmark scaricati
 c/glm_tiny/

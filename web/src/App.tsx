@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react"
-import { Feather } from "lucide-react"
 import { BrowserChatView } from "@/components/BrowserChatView"
 import { DesktopAgentView } from "@/components/DesktopAgentView"
 import { DesktopSettingsView } from "@/components/DesktopSettingsView"
 import type { ChatMessage, DiscoveredModel, HealthResponse } from "@/lib/api"
 import { getHealth, listDiscoveredModels, listModels, loadModel, streamChat, unloadModel } from "@/lib/api"
 import { chooseRecommendedModel, classifyGatewayFailure, gatewayStateFromHealth, type GatewayConnectionState } from "@/lib/gateway"
-import { desktopInvoke, type DesktopGatewayStatus } from "@/lib/desktop"
+import { desktopInvoke, type AgentSession, type DesktopGatewayStatus } from "@/lib/desktop"
 import { stored } from "@/lib/storage"
+import { profileConfig, type AgentProfile } from "@/lib/agent"
+import type { SessionUsage } from "@/components/DesktopSettingsView"
 
 const makeMessage = (role: ChatMessage["role"], content: string): ChatMessage => ({
   id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -36,6 +37,7 @@ export default function App() {
   const [gatewayMessage, setGatewayMessage] = useState("Connect to an already-running local gateway.")
   const [desktopGateway, setDesktopGateway] = useState<DesktopGatewayStatus | null>(null)
   const [agentMode, setAgentMode] = useState<"plan" | "agent">("plan")
+  const [agentProfile, setAgentProfile] = useState<AgentProfile>("balanced")
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(512)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -44,6 +46,8 @@ export default function App() {
   const [loadingModel, setLoadingModel] = useState(false)
   const [error, setError] = useState("")
   const [logs, setLogs] = useState<Array<{ time: string; type: "error" | "warn" | "info"; message: string }>>([])
+  const [sessionUsage, setSessionUsage] = useState<SessionUsage>({ promptTokens: null, completionTokens: null, totalTokens: null, elapsedMs: null, ttftMs: null, tokensPerSecond: null, contextUse: null, toolCalls: 0, queueState: "idle" })
+  const [searchContext, setSearchContext] = useState("")
   const abortRef = useRef<AbortController | null>(null)
   const desktopProbeRef = useRef(false)
 
@@ -72,7 +76,8 @@ export default function App() {
       setConnected(true)
       setGatewayState(state)
       const choice = chooseRecommendedModel(inventory.models || [], model)
-      if (choice.model && !model) setModel(choice.model.path)
+      if (choice.model && choice.model.path !== model) setModel(choice.model.path)
+      if (!choice.model && model) setModel("")
       setGatewayMessage(state === "model-required" ? "Gateway ready. Choose a validated local QWN model to start inference." : "Local gateway ready.")
     } catch (cause) {
       setConnected(false)
@@ -135,7 +140,8 @@ export default function App() {
     setLoadingModel(true)
     setError("")
     try {
-      const result = await loadModel(baseUrl, path, "auto", undefined, apiKey)
+      const profile = profileConfig(agentProfile)
+      const result = await loadModel(baseUrl, path, "auto", undefined, apiKey, profile.contextSize)
       setModel(result.model_id)
       await connect()
     } catch (cause) {
@@ -164,27 +170,44 @@ export default function App() {
   const send = async () => {
     const content = draft.trim()
     if (!content || !connected || !model || loading) return
-    const user = makeMessage("user", content)
+    const profile = profileConfig(agentProfile)
+    const contextualContent = searchContext ? `${content}\n\n[Approved web sources]\n${searchContext}` : content
+    const user = makeMessage("user", contextualContent)
     const assistant = makeMessage("assistant", "")
     const history = [...messages, user]
     setMessages([...history, assistant])
     setDraft("")
     setLoading(true)
+    const startedAt = performance.now()
+    setSessionUsage((current) => ({ ...current, queueState: "queued", toolCalls: 0 }))
     setError("")
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      await streamChat({
+      const result = await streamChat({
         baseUrl,
         apiKey,
         model,
         messages: history,
-        temperature,
-        maxTokens,
+        temperature: desktopShell ? profile.temperature : temperature,
+        maxTokens: desktopShell ? profile.maxTokens : maxTokens,
         enableThinking: false,
         signal: controller.signal,
         onDelta: (delta) => setMessages((current) => current.map((item) => item.id === assistant.id ? { ...item, content: item.content + delta } : item)),
       })
+      const elapsedMs = performance.now() - startedAt
+      setSessionUsage({
+        promptTokens: result.usage?.prompt_tokens ?? null,
+        completionTokens: result.usage?.completion_tokens ?? null,
+        totalTokens: result.usage?.total_tokens ?? null,
+        elapsedMs,
+        ttftMs: result.ttftMs,
+        tokensPerSecond: result.tokensPerSecond,
+        contextUse: null,
+        toolCalls: 0,
+        queueState: result.queueWaitMs != null && result.queueWaitMs > 0 ? `waited ${Math.round(result.queueWaitMs)} ms` : "complete",
+      })
+      setSearchContext("")
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : "Generation failed.")
@@ -198,6 +221,12 @@ export default function App() {
   }
 
   const clear = () => setMessages([])
+
+  const resumeSession = (session: AgentSession) => {
+    setMessages(session.steps.filter((step) => step.step_type === "user" || step.step_type === "assistant").map((step) => ({ id: step.id, role: step.step_type as ChatMessage["role"], content: step.content })))
+    setModel(session.active_model)
+    setAgentMode(session.mode === "agent" ? "agent" : "plan")
+  }
 
   if (desktopShell) return <DesktopAgentView
     gateway={desktopGateway}
@@ -214,15 +243,23 @@ export default function App() {
     loadingModel={loadingModel}
     mode={agentMode}
     onModeChange={(mode) => void handleMode(mode)}
+    profile={agentProfile}
+    onProfileChange={setAgentProfile}
     messages={messages}
     draft={draft}
     onDraftChange={setDraft}
     onSend={() => void send()}
     onStopGeneration={() => abortRef.current?.abort()}
     onClear={clear}
+    onResumeSession={resumeSession}
+    usage={sessionUsage}
     loading={loading}
     error={error}
-    settingsContent={<DesktopSettingsView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} logs={logs} onSelectModel={setModel} />}
+    onRestartGateway={async () => {
+      try { await desktopInvoke("restart_gateway"); await connect() }
+      catch (cause) { setError(cause instanceof Error ? cause.message : "Gateway restart failed."); addLog("error", `Gateway restart: ${cause instanceof Error ? cause.message : cause}`) }
+    }}
+    settingsContent={<DesktopSettingsView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} logs={logs} model={model} models={discoveredModels} onSelectModel={setModel} onActivateModel={(path) => void handleLoadModel(path)} loadingModel={loadingModel} profile={agentProfile} onProfileChange={setAgentProfile} usage={sessionUsage} onIncludeSearchContext={(sources) => setSearchContext(sources.map((source) => `${source.title}\n${source.url}\n${source.snippet}`).join("\n\n"))} />}
   />
 
   return <BrowserChatView
@@ -255,5 +292,5 @@ export default function App() {
 }
 
 export function QwantoBrand() {
-  return <span className="desktop-mark" aria-label="Qwanto"><Feather className="size-4" /></span>
+  return <img className="brand-icon" src="/qwanto-icon.png" alt="Qwanto" />
 }
