@@ -7,6 +7,7 @@
 #include "qwanto_pagedeviction.h"
 #include "qwanto_saguro.h"
 #include "qwanto_jetspec.h"
+#include "qwanto_talon.h"
 #include "qwanto_sparsity.h"
 #include "qwanto_fused.h"
 #include "qwn_container.h"
@@ -27,6 +28,7 @@ typedef struct {
     QwnPagedEvictionPool kv_virtual_pool;
     QwnSaguaro2Engine speculative_engine;
     QwnJetSpecEngine jetspec_engine;
+    QwnTalonEngine talon_engine;
     QwnAdaptiveSparsityContext sparsity_ctx;
     QwnContainer container;
     QwnGPUContext gpu;

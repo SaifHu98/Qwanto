@@ -12,6 +12,7 @@ set "OUT1=D:\EcoUni\qwanto\c\test_gpu_detection.exe"
 set "OUT2=D:\EcoUni\qwanto\c\test_gpu_kernels.exe"
 set "OUT3=D:\EcoUni\qwanto\c\test_bitdecoding.exe"
 set "OUT4=D:\EcoUni\qwanto\c\test_jetspec.exe"
+set "OUT5=D:\EcoUni\qwanto\c\test_talon.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
@@ -45,8 +46,17 @@ clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
 
 if %ERRORLEVEL% NEQ 0 (echo BUILD JETSPEC FAILED & exit /b 1)
 
+clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
+    -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
+    "%SRC%\tests\test_talon.c" "%SRC%\qwanto_talon.c" ^
+    -o "%OUT5%" ^
+    -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
+
+if %ERRORLEVEL% NEQ 0 (echo BUILD TALON FAILED & exit /b 1)
+
 echo Built: %OUT1%
 echo Built: %OUT2%
 echo Built: %OUT3%
 echo Built: %OUT4%
+echo Built: %OUT5%
 endlocal

@@ -177,11 +177,15 @@ Traditional container formats (like GGUF or Safetensors) are designed primarily 
 - **Tree-Causal Attention Masking**: Verifies all candidate tree branches simultaneously in a single batched target forward pass, with every token attending strictly to its causal ancestors.
 - **Block-Wise Supervision**: Achieves **42.8% rank-1 branch faithfulness** (vs 6.0% for diffusion drafters), unlocking up to **9.64x speculative speedup** with zero loss in output distribution.
 
-### 6. ⚡ BitDecoding: Tensor Core KV-Cache Acceleration *(HPCA 2026)*
+### 6. 🦅 Talon: Asynchronous Hybrid Speculative Decoding *(AAAI 2026)*
+- **Asynchronous Execution Paradigm**: Completely decouples draft generation from verification, eliminating the mutual waiting barrier between the draft engine and target models.
+- **Adaptive Hybrid Drafting**: Dynamically routes between model-based neural drafting for code/math reasoning and sub-vector trie retrieval for knowledge-intensive domains, delivering **4.04x–6.52x acceleration** across diverse benchmarks (HumanEval, GSM8K, MT-Bench).
+
+### 7. ⚡ BitDecoding: Tensor Core KV-Cache Acceleration *(HPCA 2026)*
 - **Warp-Level Dequantization Parallelism**: Reorganizes low-bit KV caches into swizzled $16 \times 16$ and $16 \times 32$ tiles aligned directly with hardware Tensor Cores (`mma.sync`, Hopper `wgmma`, and Blackwell `NVFP4`).
 - **Mixed-Precision Tensor Execution**: Unlocks **7.5x faster decoding throughput** over standard FP16 attention and **2x over standard CUDA core kernels** with less than 0.2% perplexity divergence.
 
-### 7. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
+### 8. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
 Qwanto requires **zero manual configuration or proprietary SDK installs**:
 - **NVIDIA CUDA**: Automatically detects system driver (`nvcuda.dll` / `libcuda.so.1`) and CUDA runtimes (`cudart64_*.dll`).
 - **Apple Silicon Metal**: Direct dispatch to Metal and MetalPerformanceShaders (MPS).
