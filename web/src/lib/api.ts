@@ -5,6 +5,11 @@ export interface ChatMessage {
   role: ChatRole
   content: string
   attachments?: ChatAttachment[]
+  skill?: {
+    id: string
+    label: string
+    capabilities: string[]
+  }
 }
 
 export interface ChatAttachment {

@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"local-benchmark","name":"Local Benchmark","version":"1.0.0","capabilities":["diagnostics.read","terminal.execute"],"entrypoint":"SKILL.md","builtin":true}

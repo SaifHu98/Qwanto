@@ -8,6 +8,7 @@ pub mod session_store;
 pub mod project_memory;
 pub mod attachments;
 pub mod diagnostics;
+pub mod extensions;
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -24,6 +25,7 @@ use session_store::{AgentSession, SessionStore};
 use project_memory::{ProjectMemory, ProjectMemoryStore};
 use attachments::StoredAttachment;
 use diagnostics::FeedbackBundle;
+use extensions::{InstalledPlugin, PluginManifest, PluginValidation};
 
 pub struct AppState {
     pub gateway_manager: Mutex<GatewayManager>,
@@ -254,6 +256,24 @@ fn create_feedback_bundle(category: String, description: String, logs: String, s
     diagnostics::create(&root, &category, &description, &logs, screenshot.as_deref())
 }
 
+#[tauri::command]
+fn list_plugins(app: AppHandle) -> Result<Vec<InstalledPlugin>, String> { extensions::list_plugins(&app) }
+
+#[tauri::command]
+fn validate_plugin_manifest(manifest: PluginManifest, package: Vec<u8>) -> Result<PluginValidation, String> { Ok(extensions::validate_manifest(&manifest, &package)) }
+
+#[tauri::command]
+fn install_plugin(manifest: PluginManifest, package: Vec<u8>, app: AppHandle) -> Result<PluginValidation, String> { extensions::install_plugin(&app, manifest, &package) }
+
+#[tauri::command]
+fn set_plugin_enabled(id: String, enabled: bool, app: AppHandle) -> Result<(), String> { extensions::set_plugin_enabled(&app, &id, enabled) }
+
+#[tauri::command]
+fn quarantine_plugin(id: String, app: AppHandle) -> Result<(), String> { extensions::quarantine_plugin(&app, &id) }
+
+#[tauri::command]
+fn uninstall_plugin(id: String, app: AppHandle) -> Result<(), String> { extensions::uninstall_plugin(&app, &id) }
+
 fn loopback_post_json(api_url: &str, path: &str, payload: serde_json::Value, desktop_search_token: Option<&str>) -> Result<serde_json::Value, String> {
     let authority = api_url
         .strip_prefix("http://")
@@ -396,6 +416,12 @@ pub fn run() {
             set_project_memory_enabled,
             store_chat_attachment,
             create_feedback_bundle,
+            list_plugins,
+            validate_plugin_manifest,
+            install_plugin,
+            set_plugin_enabled,
+            quarantine_plugin,
+            uninstall_plugin,
             web_search
         ])
         .build(tauri::generate_context!())

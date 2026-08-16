@@ -85,6 +85,12 @@ jobs:
       - name: Verify official Qwanto brand assets
         run: python c/tools/check_brand_assets.py
 
+      - name: Verify built-in skill packages
+        run: python c/tools/check_skill_packages.py
+
+      - name: Verify release workflow policy
+        run: python c/tools/check_release_workflow.py
+
       - name: Build qwnrun on Linux or macOS
         if: runner.os != 'Windows'
         run: make -C c qwnrun
@@ -103,8 +109,47 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then cp c/qwnrun.exe desktop/src-tauri/resources/qwnrun; else cp c/qwnrun desktop/src-tauri/resources/qwnrun; fi
           if [ "$RUNNER_OS" = "Windows" ]; then cp dist/qwanto-gateway.exe desktop/src-tauri/resources/qwanto-gateway; else cp dist/qwanto-gateway desktop/src-tauri/resources/qwanto-gateway; fi
 
+      - name: Validate Windows signing configuration
+        if: runner.os == 'Windows' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_ENDPOINT: ${{ vars.QWANTO_AZURE_SIGNING_ENDPOINT }}
+          AZURE_ACCOUNT: ${{ vars.QWANTO_AZURE_SIGNING_ACCOUNT }}
+          AZURE_PROFILE: ${{ vars.QWANTO_AZURE_CERTIFICATE_PROFILE }}
+        run: |
+          $required = @('AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID','AZURE_ENDPOINT','AZURE_ACCOUNT','AZURE_PROFILE')
+          foreach ($name in $required) { if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) { throw "Windows signing is enabled but $name is missing." } }
+
+      - name: Validate macOS signing configuration
+        if: runner.os == 'macOS' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true'
+        shell: bash
+        env:
+          MAC_CERT: ${{ secrets.MACOS_SIGNING_CERT_P12_B64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+          MAC_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          MAC_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$MAC_CERT" && test -n "$MAC_CERT_PASSWORD" && test -n "$MAC_IDENTITY" && test -n "$MAC_KEYCHAIN_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_TEAM_ID" && test -n "$APPLE_PASSWORD"
+
+      - name: Validate Linux signing configuration
+        if: runner.os == 'Linux' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_LINUX_SIGNING_ENABLED == 'true'
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
+          GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PRIVATE_KEY_B64" && test -n "$GPG_KEY_ID"
+
       - name: Authenticate to Azure Artifact Signing
-        if: runner.os == 'Windows' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
+        if: runner.os == 'Windows' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -112,7 +157,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Sign native Windows sidecars
-        if: runner.os == 'Windows' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
+        if: runner.os == 'Windows' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
         uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ vars.QWANTO_AZURE_SIGNING_ENDPOINT }}
@@ -139,17 +184,17 @@ jobs:
           cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 
       - name: Build desktop packages
-        if: runner.os != 'macOS' || vars.QWANTO_MACOS_NOTARIZATION_ENABLED != 'true'
+        if: runner.os != 'macOS' || vars.SIGNING_ENABLED != 'true' || vars.QWANTO_MACOS_NOTARIZATION_ENABLED != 'true'
         working-directory: desktop
         run: cargo tauri build --bundles "${{ matrix.bundle }}"
 
       - name: Build macOS application for signing
-        if: runner.os == 'macOS' && vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true'
+        if: runner.os == 'macOS' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true'
         working-directory: desktop
         run: cargo tauri build --bundles app
 
       - name: Sign, notarize, and verify macOS bundle
-        if: runner.os == 'macOS' && vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true'
+        if: runner.os == 'macOS' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true'
         shell: bash
         env:
           MACOS_SIGNING_CERT_P12_B64: ${{ secrets.MACOS_SIGNING_CERT_P12_B64 }}
@@ -189,6 +234,8 @@ jobs:
           xcrun stapler staple "$dmg"
           codesign --verify --verbose=2 "$dmg"
           spctl --assess --type open --context context:primary-signature "$dmg"
+          mkdir -p desktop/src-tauri/target/release/bundle/dmg
+          cp "$dmg" "desktop/src-tauri/target/release/bundle/dmg/Qwanto_Code_${GITHUB_REF_NAME}_macOS.dmg"
 
       - name: Verify package contains the native resource and no model files
         shell: bash
@@ -199,7 +246,7 @@ jobs:
           git diff --check
 
       - name: Sign Windows packages
-        if: runner.os == 'Windows' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
+        if: runner.os == 'Windows' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
         uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ vars.QWANTO_AZURE_SIGNING_ENDPOINT }}
@@ -213,7 +260,7 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Verify Windows Authenticode signatures
-        if: runner.os == 'Windows' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
+        if: runner.os == 'Windows' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true'
         shell: powershell
         run: |
           $targets = @(
@@ -228,7 +275,7 @@ jobs:
           }
 
       - name: Create Linux detached signatures
-        if: runner.os == 'Linux' && vars.QWANTO_LINUX_SIGNING_ENABLED == 'true'
+        if: runner.os == 'Linux' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_LINUX_SIGNING_ENABLED == 'true'
         shell: bash
         env:
           GPG_PRIVATE_KEY_B64: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
@@ -245,6 +292,42 @@ jobs:
           sign "$checksum"
           gpg --batch --verify "$checksum.asc" "$checksum"
 
+      - name: Summarize signing status
+        if: always()
+        shell: bash
+        env:
+          WINDOWS_SIGNING_ENABLED: ${{ vars.QWANTO_WINDOWS_SIGNING_ENABLED }}
+          MACOS_NOTARIZATION_ENABLED: ${{ vars.QWANTO_MACOS_NOTARIZATION_ENABLED }}
+          LINUX_SIGNING_ENABLED: ${{ vars.QWANTO_LINUX_SIGNING_ENABLED }}
+          SIGNING_ENABLED: ${{ vars.SIGNING_ENABLED }}
+          PACKAGE_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          echo "### Signing status" >> "$GITHUB_STEP_SUMMARY"
+          case "$RUNNER_OS" in
+            Windows)
+              if [ "$SIGNING_ENABLED" = "true" ] && [ "$WINDOWS_SIGNING_ENABLED" = "true" ]; then
+                if [ "$PACKAGE_JOB_STATUS" = "success" ]; then echo "Windows signing: SIGNED and SignTool-verified" >> "$GITHUB_STEP_SUMMARY"; else echo "Windows signing: ENABLED / VERIFICATION FAILED" >> "$GITHUB_STEP_SUMMARY"; fi
+              else
+                echo "Windows signing: UNSIGNED" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            macOS)
+              if [ "$SIGNING_ENABLED" = "true" ] && [ "$MACOS_NOTARIZATION_ENABLED" = "true" ]; then
+                if [ "$PACKAGE_JOB_STATUS" = "success" ]; then echo "macOS notarization: SIGNED / NOTARIZED / STAPLED" >> "$GITHUB_STEP_SUMMARY"; else echo "macOS notarization: ENABLED / VERIFICATION FAILED" >> "$GITHUB_STEP_SUMMARY"; fi
+              else
+                echo "macOS notarization: UNSIGNED / NOT NOTARIZED" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            Linux)
+              if [ "$SIGNING_ENABLED" = "true" ] && [ "$LINUX_SIGNING_ENABLED" = "true" ]; then
+                if [ "$PACKAGE_JOB_STATUS" = "success" ]; then echo "Linux artifact signature: SIGNED and GPG-verified" >> "$GITHUB_STEP_SUMMARY"; else echo "Linux artifact signature: ENABLED / VERIFICATION FAILED" >> "$GITHUB_STEP_SUMMARY"; fi
+              else
+                echo "Linux artifact signature: UNSIGNED" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+          esac
+
       - name: Upload ${{ matrix.artifact }} packages
         uses: actions/upload-artifact@v4
         with:
@@ -252,43 +335,10 @@ jobs:
           path: desktop/src-tauri/target/release/bundle
           if-no-files-found: error
 
-  production-release-gate:
-    name: Production release signing gate
-    if: github.event_name == 'push' && github.ref_name == 'v0.1.0-beta.4'
-    needs: package
-    runs-on: ubuntu-22.04
-    environment: release-signing
-    steps:
-      - name: Require all protected signing credentials
-        env:
-          WINDOWS_ENABLED: ${{ vars.QWANTO_WINDOWS_SIGNING_ENABLED }}
-          MACOS_ENABLED: ${{ vars.QWANTO_MACOS_NOTARIZATION_ENABLED }}
-          LINUX_ENABLED: ${{ vars.QWANTO_LINUX_SIGNING_ENABLED }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_ENDPOINT: ${{ vars.QWANTO_AZURE_SIGNING_ENDPOINT }}
-          AZURE_ACCOUNT: ${{ vars.QWANTO_AZURE_SIGNING_ACCOUNT }}
-          AZURE_PROFILE: ${{ vars.QWANTO_AZURE_CERTIFICATE_PROFILE }}
-          MAC_CERT: ${{ secrets.MACOS_SIGNING_CERT_P12_B64 }}
-          MAC_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
-          GPG_ID: ${{ vars.GPG_KEY_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$WINDOWS_ENABLED" = true && test -n "$AZURE_CLIENT_ID" && test -n "$AZURE_TENANT_ID" && test -n "$AZURE_SUBSCRIPTION_ID" && test -n "$AZURE_ENDPOINT" && test -n "$AZURE_ACCOUNT" && test -n "$AZURE_PROFILE"
-          test "$MACOS_ENABLED" = true && test -n "$MAC_CERT" && test -n "$MAC_IDENTITY" && test -n "$APPLE_ID" && test -n "$APPLE_TEAM_ID" && test -n "$APPLE_PASSWORD"
-          test "$LINUX_ENABLED" = true && test -n "$GPG_KEY" && test -n "$GPG_ID"
-          echo 'All protected Windows, macOS, and Linux signing credentials are present.'
-
   publish:
     name: Publish GitHub Beta release assets
-    if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.package.result == 'success' && (github.ref_name != 'v0.1.0-beta.4' || needs.production-release-gate.result == 'success')
-    needs: [package, production-release-gate]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: package
     runs-on: ubuntu-22.04
     environment: release-signing
     permissions:
@@ -308,9 +358,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          WINDOWS_SIGNING_ENABLED: ${{ vars.QWANTO_WINDOWS_SIGNING_ENABLED }}
+          MACOS_NOTARIZATION_ENABLED: ${{ vars.QWANTO_MACOS_NOTARIZATION_ENABLED }}
+          LINUX_SIGNING_ENABLED: ${{ vars.QWANTO_LINUX_SIGNING_ENABLED }}
+          SIGNING_ENABLED: ${{ vars.SIGNING_ENABLED }}
         shell: bash
         run: |
-          cp assets/brand/qwanto-icon.png release-assets/qwanto-icon.png
           mapfile -t assets < <(find release-assets -type f \( \
             -iname '*.exe' -o \
             -iname '*.msi' -o \
@@ -320,9 +373,18 @@ jobs:
             -iname '*.asc' -o \
             -iname '*_LINUX_SHA256SUMS.txt' \
           \) -print)
-          assets+=(release-assets/qwanto-icon.png)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No installer assets were downloaded" >&2
+            exit 1
+          fi
+          installer_count=0
+          for asset in "${assets[@]}"; do
+            case "$asset" in
+              *.exe|*.msi|*.dmg|*.AppImage|*.appimage|*.deb) installer_count=$((installer_count + 1)) ;;
+            esac
+          done
+          if [ "$installer_count" -eq 0 ]; then
+            echo "No Windows, macOS, or Linux installer assets were downloaded" >&2
             exit 1
           fi
           checksum_file="Qwanto_${TAG}_SHA256SUMS.txt"
@@ -330,22 +392,47 @@ jobs:
           for asset in "${assets[@]}"; do
             (cd "$(dirname "$asset")" && sha256sum "$(basename "$asset")") >> "$checksum_file"
           done
+          for asset in "${assets[@]}"; do
+            basename="$(basename "$asset")"
+            grep -Fq "$basename" "$checksum_file" || { echo "Missing checksum for $basename" >&2; exit 1; }
+          done
           notes_file="Qwanto_${TAG}_RELEASE_NOTES.md"
           cat > "$notes_file" <<EOF
           # Qwanto Code ${TAG}
 
           Beta release of Qwanto Code, the local-first runtime and coding agent.
 
-          - Windows signing: ${{ vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true' && 'enabled and Authenticode-verified' || 'disabled; packages are unsigned' }}.
-          - macOS signing/notarization: ${{ vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true' && 'enabled, stapled, and verified' || 'disabled; packages are unsigned and not notarized' }}.
-          - Linux detached signatures: ${{ vars.QWANTO_LINUX_SIGNING_ENABLED == 'true' && 'enabled and GPG-verified' || 'disabled' }}.
-          - This is a Beta prerelease and is not production-ready unless the applicable signing gates pass.
+          EOF
+          if [ "$SIGNING_ENABLED" = "true" ] && [ "$WINDOWS_SIGNING_ENABLED" = "true" ]; then
+            echo "- Windows signing: SIGNED and SignTool-verified." >> "$notes_file"
+          else
+            echo "- Windows signing: UNSIGNED." >> "$notes_file"
+          fi
+          if [ "$SIGNING_ENABLED" = "true" ] && [ "$MACOS_NOTARIZATION_ENABLED" = "true" ]; then
+            echo "- macOS notarization: SIGNED / NOTARIZED / STAPLED." >> "$notes_file"
+          else
+            echo "- macOS notarization: UNSIGNED / NOT NOTARIZED." >> "$notes_file"
+          fi
+          if [ "$SIGNING_ENABLED" = "true" ] && [ "$LINUX_SIGNING_ENABLED" = "true" ]; then
+            echo "- Linux artifact signature: SIGNED and GPG-verified." >> "$notes_file"
+          else
+            echo "- Linux artifact signature: UNSIGNED." >> "$notes_file"
+          fi
+          if [ "$SIGNING_ENABLED" != "true" ] || [ "$WINDOWS_SIGNING_ENABLED" != "true" ] || [ "$MACOS_NOTARIZATION_ENABLED" != "true" ] || [ "$LINUX_SIGNING_ENABLED" != "true" ]; then
+            cat >> "$notes_file" <<'EOF'
+
+          This is an unsigned beta release. Windows SmartScreen and macOS Gatekeeper may display warnings. Verify the SHA-256 checksum before installing.
+          This prerelease is not production-ready.
+          EOF
+          fi
+          cat >> "$notes_file" <<'EOF'
+
           - No model weights are bundled. Models remain user-managed and are imported or downloaded explicitly through the local gateway.
           - Verify installer integrity with the attached SHA-256 checksum file.
           EOF
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" "$checksum_file" --clobber
-            gh release edit "$TAG" --title "Qwanto Code $TAG" --notes-file "$notes_file" --prerelease
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" "$checksum_file" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Qwanto Code $TAG" --notes-file "$notes_file" --prerelease
           else
-            gh release create "$TAG" "${assets[@]}" "$checksum_file" --prerelease --title "Qwanto Code $TAG" --notes-file "$notes_file"
+            gh release create "$TAG" "${assets[@]}" "$checksum_file" --repo "$GITHUB_REPOSITORY" --prerelease --title "Qwanto Code $TAG" --notes-file "$notes_file"
           fi

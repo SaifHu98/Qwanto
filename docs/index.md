@@ -15,6 +15,7 @@ command or importing a model.
 ## Desktop coding agent
 
 - [Desktop runtime and agent](desktop-agent.md)
+- [Skills and plugins](skills-and-plugins.md)
 - [Web UI boundary](web-ui.md)
 - [Packaging](packaging.md)
 - [Release engineering plan](release-engineering-plan.md)

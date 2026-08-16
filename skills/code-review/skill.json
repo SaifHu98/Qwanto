@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"code-review","name":"Code Review","version":"1.0.0","capabilities":["workspace.read","git.read"],"entrypoint":"SKILL.md","builtin":true}

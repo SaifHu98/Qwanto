@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"test-and-fix","name":"Test and Fix","version":"1.0.0","capabilities":["workspace.read","workspace.write","terminal.execute"],"entrypoint":"SKILL.md","builtin":true}

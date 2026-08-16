@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"release-readiness","name":"Release Readiness","version":"1.0.0","capabilities":["workspace.read","diagnostics.read","git.read"],"entrypoint":"SKILL.md","builtin":true}

@@ -30,7 +30,7 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   test passed separately (`2 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
-- Web validation: production build passed and Vitest passed (`50 tests`). The
+- Web validation: production build passed and Vitest passed (`54 tests`). The
   desktop surface has exactly five primary destinations—Project, Chats, Files,
   Changes, Settings—while the browser surface remains chat-only. Settings now
   uses an internal one-section-at-a-time navigation with viewport contracts for
@@ -39,13 +39,14 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
 - Rust gates are pending on this workstation because `cargo` is not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The
-  current local web/Python gates pass, but this change still needs a hosted
+  current local web/Python gates pass, but this follow-up still needs a hosted
   Rust/package run before release publication.
 - Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, and `v0.1.0-beta.3` are
   published GitHub prereleases and must remain unchanged. Beta.3 hosted CI run
-  `31966186386` and package/publish run `31966709143` passed. The public
-  release contains five target-native installers, an installer SHA-256
-  manifest, and factual unsigned/no-model release notes.
+  `31966186386` and package/publish run `31966709143` passed. Beta.4 is not
+  tagged or published; its policy is an explicitly unsigned prerelease when
+  protected signing credentials are absent, with installers and SHA-256
+  coverage only.
 
 ## Active limitations
 
@@ -63,12 +64,19 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   local sensor query supplies them.
 - The gateway control-plane contract is versioned at schema `1`; `/health` is
   outside `/v1`, while models/config/telemetry remain under `/v1`.
+- Third-party plugin execution remains unavailable by design until a native
+  sandbox/supervisor and publisher trust store are configured; manifest
+  validation and disabled-by-default app-data storage are implemented.
 - macOS signing/notarization and installed-package smoke tests require the
   corresponding maintainer-owned platform credentials/runners.
 - Windows Artifact Signing, macOS notarization, and Linux GPG signing are
-  implemented as protected `release-signing` environment gates. They are not
-  enabled or verified in this local workspace, so the next Beta remains
-  explicitly unsigned unless the maintainers configure and pass them.
+  implemented as conditional protected `release-signing` environment gates.
+  With credentials absent, Beta.4 is explicitly unsigned; enabling a platform
+  gate without complete credentials or verification fails that package job.
+- Skills and Plugins are available under Settings > Agent. Built-in skills are
+  locally invokable with `@skill-name`; native plugin manifests are checksum-
+  and capability-validated, stored in app data disabled by default, and never
+  executed without a future supervised sandbox.
 
 ## Important decisions
 
@@ -77,15 +85,16 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
 - Keep benchmark classifications `MEASURED`, `UNAVAILABLE`, `INVALID`,
   `TEST_FIXTURE`, `EXPERIMENTAL`, and `PROJECTED`; never substitute values.
 - Release workflow supports manual or temporary-tag package validation and
-  scheduled validation plus existing `v*` tags; the Beta4 publish job is
-  blocked unless all protected Windows, macOS, and Linux signing credentials
-  are present and the package jobs verify them.
+  scheduled validation plus existing `v*` tags; the Beta4 publish job runs
+  after successful package jobs whether signing is absent or conditionally
+  enabled and verified. Unsigned notes and checksum coverage are mandatory.
 - Qwanto Code stores chat attachments and redacted feedback bundles only under
   the selected workspace; unsupported file/image model input is shown as
   unavailable instead of being sent to the runtime.
 - GitHub connection is intentionally unavailable until a native OS-keychain
   credential backend is added; the Settings surface provides only safe public
-  repository links and never accepts a token in browser storage.
+  repository links, an approval-gated reporter skill, and never accepts a
+  token in browser storage.
 - Beta.3 remains unchanged. Beta.4 has not been tagged or published because
   local Cargo and cross-platform signing/package gates are not available here.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.

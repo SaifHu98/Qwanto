@@ -257,3 +257,16 @@
 - **Change:** Changed the Beta4 release workflow so the production publish job cannot run without protected signing credentials and SignTool verification.
 - **Validation:** Web build, Vitest, brand verification, documentation links, workflow YAML parsing, and `git diff --check` passed. Rust and hosted CI/package checks remain pending because local Cargo/GitHub CLI and signing credentials are unavailable.
 - **Decision:** Do not tag, push, or publish Beta4 until hosted CI and the protected signing gate succeed; Beta3 remains unchanged.
+
+## 2026-08-17 — Unsigned Beta.4 release policy and Skills & Plugins
+
+- **Change:** Made Windows, macOS, and Linux signing conditional on their protected enable variables. Absent credentials now publish an explicitly unsigned prerelease, skip SignTool/signature verification, emit platform signing status, restrict release assets to installers/checksum coverage, and include the required SmartScreen/Gatekeeper warning. Removed the Beta4 all-credentials production gate.
+- **Change:** Added local built-in skills with `@skill-name` chat invocation and timeline permission display; added native app-data plugin manifest/checksum/capability validation, disabled-by-default installation, quarantine/uninstall controls, and a Settings > Agent Skills & Plugins review surface.
+- **Change:** Documented the unsigned policy and plugin security boundary; third-party plugin execution remains fail-closed until a native sandbox/supervisor and publisher trust store are available.
+- **Validation:** Web build passed; Vitest `54 passed`; release workflow YAML parsing and `git diff --check` passed. Cargo check/test/clippy, hosted CI, package verification, and signing verification remain pending because Cargo/GitHub CLI and signing credentials are unavailable locally.
+- **Decision:** Do not tag, push, or publish Beta.4 until hosted CI/package checks are green. With no signing credentials, publish it only as explicitly unsigned; Beta.3 remains unchanged.
+
+## 2026-08-17 — Built-in skill packages and literal signing guard
+
+- **Change:** Added nine readable local skill packages and CI/package shape validation, with `skills/**` path-filter coverage. The release workflow now requires global `SIGNING_ENABLED=true` in addition to each platform gate before any signing action can run.
+- **Validation:** Web build and Vitest `54 passed`; native/Python `2 passed` decoder and `203 passed, 14 skipped` full suite; release/skill checks, brand, documentation links, secret audit, workflow YAML parsing, and `git diff --check` passed. Cargo and `make` are unavailable locally.

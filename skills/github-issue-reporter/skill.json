@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"github-issue-reporter","name":"GitHub Issue Reporter","version":"1.0.0","capabilities":["github.read","github.write","diagnostics.read"],"entrypoint":"SKILL.md","builtin":true}

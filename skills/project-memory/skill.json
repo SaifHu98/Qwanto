@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"project-memory","name":"Project Memory","version":"1.0.0","capabilities":["workspace.read","workspace.write"],"entrypoint":"SKILL.md","builtin":true}

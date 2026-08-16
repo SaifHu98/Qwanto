@@ -37,12 +37,14 @@ jobs:
               - '**/Makefile'
             python:
               - 'c/**'
+              - 'skills/**'
               - 'docs/**'
               - 'README.md'
               - 'RELEASE_READINESS.md'
               - '.github/workflows/**'
             web:
               - 'web/**'
+              - 'skills/**'
               - 'desktop/**'
               - '.github/workflows/**'
 
@@ -164,6 +166,10 @@ jobs:
         run: python -m pip install --upgrade pip pytest numpy
       - name: Verify official Qwanto brand assets
         run: python c/tools/check_brand_assets.py
+      - name: Verify built-in skill packages
+        run: python c/tools/check_skill_packages.py
+      - name: Verify release workflow policy
+        run: python c/tools/check_release_workflow.py
       - name: Run Python tests
         run: python -m pytest c/tests/ -q
       - name: Check documentation links

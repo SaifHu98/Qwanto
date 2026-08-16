@@ -8,13 +8,15 @@ import { chooseRecommendedModel, classifyGatewayFailure, gatewayStateFromHealth,
 import { desktopInvoke, type AgentSession, type DesktopGatewayStatus } from "@/lib/desktop"
 import { stored } from "@/lib/storage"
 import { profileConfig, type AgentProfile } from "@/lib/agent"
+import { resolveSkillInvocation } from "@/lib/extensions"
 import type { SessionUsage } from "@/components/DesktopSettingsView"
 
-const makeMessage = (role: ChatMessage["role"], content: string, attachments?: ChatAttachment[]): ChatMessage => ({
+const makeMessage = (role: ChatMessage["role"], content: string, attachments?: ChatAttachment[], skill?: ChatMessage["skill"]): ChatMessage => ({
   id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   role,
   content,
   ...(attachments?.length ? { attachments } : {}),
+  ...(skill ? { skill } : {}),
 })
 
 export function isDesktopShell(): boolean {
@@ -174,8 +176,10 @@ export default function App() {
     const content = draft.trim()
     if (!content || !connected || !model || loading) return
     const profile = profileConfig(agentProfile)
-    const contextualContent = searchContext ? `${content}\n\n[Approved web sources]\n${searchContext}` : content
-    const user = makeMessage("user", contextualContent, attachments)
+    const invocation = resolveSkillInvocation(content)
+    const prompt = invocation?.prompt || content
+    const contextualContent = searchContext ? `${prompt}\n\n[Approved web sources]\n${searchContext}` : prompt
+    const user = makeMessage("user", contextualContent, attachments, invocation?.skill)
     const assistant = makeMessage("assistant", "")
     const history = [...messages, user]
     setMessages([...history, assistant])

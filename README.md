@@ -12,7 +12,7 @@
 
 Qwanto Code is a Beta local-first AI runtime for running supported dense transformer
 models through a native C decoder, a supervised loopback OpenAI-compatible
-gateway, a shared React dashboard, and a Tauri desktop coding agent.
+gateway, a shared React UI, and a Tauri desktop coding agent.
 
 The repository is engineering-complete for its tested paths, but it is not a
 promise that every model, GPU backend, sensor, or platform is production-ready.
@@ -35,6 +35,9 @@ Read the status and evidence before relying on a path.
   issue or email attachment. Nothing is uploaded or emailed without a user action.
 - **Optional GitHub and internet tools:** external features remain disabled until
   explicitly enabled and approved; local inference never falls back to cloud AI.
+- **Skills & Plugins:** local built-in skills can be invoked with `@skill-name`;
+  third-party plugin manifests are reviewed for publisher, checksum, entrypoint,
+  and capabilities and stay disabled until a supervised runtime is available.
 - **Platform support:** Tauri packaging targets Windows, macOS, and Linux;
   platform packages remain unsigned unless the protected signing gates pass.
 
@@ -93,7 +96,7 @@ tools. Models are never bundled.
 | Native decoder and persistent serve protocol | Beta-supported | C/Python tests and CI |
 | Loopback gateway and OpenAI-compatible API | Beta-supported | `c/tests/` |
 | Shared web dashboard | Beta-supported | `npm run build`, `npm test` |
-| Windows NSIS/MSI, macOS DMG, Linux AppImage/DEB | Package workflow; Beta4 publish is blocked unless real signing is configured and verified | `.github/workflows/release.yml` |
+| Windows NSIS/MSI, macOS DMG, Linux AppImage/DEB | Package workflow; Beta4 is explicitly unsigned when signing credentials are absent, with conditional future signing | `.github/workflows/release.yml` |
 | GGUF, Safetensors, PyTorch `.pt`/`.pth`/PyTorch `.bin` | Converter-supported source formats; fixture coverage is conditional | [model acquisition design](docs/model-acquisition-design.md) |
 | ONNX, Keras/H5, arbitrary `.bin` | Unsupported; converter fails fast | [model acquisition design](docs/model-acquisition-design.md) |
 
@@ -245,6 +248,7 @@ desktop title is `Qwanto Code — Local Coding Agent`.
 - [QWN format](docs/qwn-format.md)
 - [Web UI boundary](docs/web-ui.md)
 - [Desktop agent](docs/desktop-agent.md)
+- [Skills and plugins](docs/skills-and-plugins.md)
 - [Security model](docs/security-model.md)
 - [Packaging](docs/packaging.md)
 - [Model acquisition design](docs/model-acquisition-design.md)

@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"git-commit-branch-pull-request","name":"Git Commit / Branch / Pull Request","version":"1.0.0","capabilities":["git.read","git.write","github.write"],"entrypoint":"SKILL.md","builtin":true}

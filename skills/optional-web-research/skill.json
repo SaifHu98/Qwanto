@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"optional-web-research","name":"Optional Web Research","version":"1.0.0","capabilities":["network.search"],"entrypoint":"SKILL.md","builtin":true}
