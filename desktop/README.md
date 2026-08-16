@@ -1,8 +1,9 @@
-# Qwanto Code desktop shell
+# Qwanto Native — Qwanto Code desktop surface
 
-Qwanto Code is a Tauri v2 application around the shared React UI in
-`../web`. It adds native runtime and approval-gated agent commands through the
-Rust host; it does not create a second frontend.
+Qwanto Code is the desktop agent surface of Qwanto Native. It is a Tauri v2
+application around the shared React UI in `../web`. It adds native runtime and
+approval-gated agent commands through the Rust host; it does not create a
+second frontend.
 
 The packaged application contains the target-native `qwnrun` executable and
 gateway sidecar as resources. It never contains a model. Users select local

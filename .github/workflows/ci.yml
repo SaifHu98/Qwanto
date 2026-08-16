@@ -37,6 +37,7 @@ jobs:
               - '**/Makefile'
             python:
               - 'c/**'
+              - 'benchmarks/**'
               - 'skills/**'
               - 'docs/**'
               - 'README.md'

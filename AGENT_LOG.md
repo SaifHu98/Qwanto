@@ -270,3 +270,11 @@
 
 - **Change:** Added nine readable local skill packages and CI/package shape validation, with `skills/**` path-filter coverage. The release workflow now requires global `SIGNING_ENABLED=true` in addition to each platform gate before any signing action can run.
 - **Validation:** Web build and Vitest `54 passed`; native/Python `2 passed` decoder and `203 passed, 14 skipped` full suite; release/skill checks, brand, documentation links, secret audit, workflow YAML parsing, and `git diff --check` passed. Cargo and `make` are unavailable locally.
+
+## 2026-08-17 — Qwanto Native hierarchy and reproducible QWN report
+
+- **Change:** Rewrote `README.md` around Qwanto Native as the umbrella product with Native Runtime, Qwanto Web, and Qwanto Code surfaces; aligned browser, desktop, diagnostics, documentation, and release naming.
+- **Change:** Added `benchmarks/generate_performance_report.py`, generated JSON/Markdown evidence, and tests that keep native qwnrun inference, conversion-only measurements, and external GGUF evidence separate while rejecting mismatched artifacts.
+- **Change:** Updated the unsigned Beta.4 release note to the exact SHA-256 checksum warning and added benchmark path-filter coverage.
+- **Validation:** Decoder `1 passed, 1 skipped`; full Python suite `204 passed, 15 skipped`; Web build and Vitest `54 passed`; documentation links, brand, skills, secret scan, workflow YAML, release contract, report tests, and `git diff --check` passed. Cargo and make are unavailable locally.
+- **Decision:** Do not tag or publish Beta.4 until hosted Rust/native/package/release checks pass. Preserve Beta.3 and preserve the local feature tree when integrating the divergent remote main branch.

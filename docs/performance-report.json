@@ -1,0 +1,207 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_utc": "2026-08-16T21:40:50.376939+00:00",
+  "generator": "benchmarks/generate_performance_report.py",
+  "policy": {
+    "native_inference_numbers_require": "successful qwnrun evidence with matching model hash",
+    "unavailable_value": "Unavailable",
+    "external_results_are_not_native_claims": true,
+    "projections_are_not_measurements": true
+  },
+  "source_files": {
+    "manifest": "docs/model-manifest.json",
+    "benchmark_evidence": [
+      "benchmark_evidence.json"
+    ],
+    "conversion_evidence": "experiments/results/bpw_report.csv",
+    "external_evidence": "experiments/results/empirical_summary.json"
+  },
+  "native_qwn_rows": [
+    {
+      "model": "DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2",
+      "source_format": "QWN container",
+      "qwn_quantization": "HyperVSQ-2",
+      "file_size_bytes": 1266202104,
+      "bits_per_weight": 2.34028,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": null,
+      "tokens_per_second": 7.148571,
+      "hardware": "Windows 11 (10.0.26200); CPU: AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD; GPU: NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+      "evidence_class": "MEASURED",
+      "measurement_scope": "native qwnrun inference",
+      "evidence": {
+        "manifest": "docs/model-manifest.json",
+        "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+        "artifact": "benchmark_evidence.json",
+        "benchmark_id": "qwn-bench-1786889283394915900"
+      }
+    }
+  ],
+  "conversion_rows": [
+    {
+      "model": "4B conversion fixture",
+      "source_format": "GGUF source",
+      "qwn_quantization": "HyperVSQ",
+      "file_size_bytes": 2360129016,
+      "bits_per_weight": 4.363096,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": null,
+      "tokens_per_second": null,
+      "hardware": "Windows conversion host; inference hardware not recorded",
+      "evidence_class": "MEASURED_CONVERSION",
+      "measurement_scope": "QWN conversion only; native qwnrun inference was not measured",
+      "evidence": {
+        "artifact": "experiments/results/4B_hyper_vsq.qwn",
+        "artifact_sha256": "390d7a3655822030cc9391b5f4ee8985de9ce29b39a3a6a94f14eaa8dda35a41",
+        "source": "experiments/results/bpw_report.csv",
+        "conversion_wall_seconds": 19.722783100005472,
+        "conversion_throughput_mb_s": 114.12154230726854
+      }
+    },
+    {
+      "model": "4B conversion fixture",
+      "source_format": "GGUF source",
+      "qwn_quantization": "HyperVSQ-2",
+      "file_size_bytes": 1266202104,
+      "bits_per_weight": 2.34028,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": null,
+      "tokens_per_second": null,
+      "hardware": "Windows conversion host; inference hardware not recorded",
+      "evidence_class": "MEASURED_CONVERSION",
+      "measurement_scope": "QWN conversion only; native qwnrun inference was not measured",
+      "evidence": {
+        "artifact": "experiments/results/4B_hyper_vsq2.qwn",
+        "artifact_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+        "source": "experiments/results/bpw_report.csv",
+        "conversion_wall_seconds": 19.119678299990483,
+        "conversion_throughput_mb_s": 63.15715186300789
+      }
+    },
+    {
+      "model": "4B conversion fixture",
+      "source_format": "GGUF source",
+      "qwn_quantization": "Unquantized QWN (conversion mode)",
+      "file_size_bytes": 8655201784,
+      "bits_per_weight": 16.003599,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": null,
+      "tokens_per_second": null,
+      "hardware": "Windows conversion host; inference hardware not recorded",
+      "evidence_class": "MEASURED_CONVERSION",
+      "measurement_scope": "QWN conversion only; native qwnrun inference was not measured",
+      "evidence": {
+        "artifact": "experiments/results/4B_none.qwn",
+        "artifact_sha256": "8e05ff68f8b484054d7c25d0dd982e59ebe93989123fc60fe99a098c7af913c7",
+        "source": "experiments/results/bpw_report.csv",
+        "conversion_wall_seconds": 15.214987300001667,
+        "conversion_throughput_mb_s": 542.5074291526653
+      }
+    },
+    {
+      "model": "4B conversion fixture",
+      "source_format": "GGUF source",
+      "qwn_quantization": "VSQ",
+      "file_size_bytes": 2441553400,
+      "bits_per_weight": 4.513471,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": null,
+      "tokens_per_second": null,
+      "hardware": "Windows conversion host; inference hardware not recorded",
+      "evidence_class": "MEASURED_CONVERSION",
+      "measurement_scope": "QWN conversion only; native qwnrun inference was not measured",
+      "evidence": {
+        "artifact": "experiments/results/4B_vsq.qwn",
+        "artifact_sha256": "2f3e611d918cfefebf09aec23ec9fa6627b2de253a5a54c515f0937a2e1ef805",
+        "source": "experiments/results/bpw_report.csv",
+        "conversion_wall_seconds": 18.47134499999811,
+        "conversion_throughput_mb_s": 126.05723999603677
+      }
+    },
+    {
+      "model": "4B conversion fixture",
+      "source_format": "GGUF source",
+      "qwn_quantization": "VSQ-Ultra",
+      "file_size_bytes": 2380518904,
+      "bits_per_weight": 4.40086,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": null,
+      "tokens_per_second": null,
+      "hardware": "Windows conversion host; inference hardware not recorded",
+      "evidence_class": "MEASURED_CONVERSION",
+      "measurement_scope": "QWN conversion only; native qwnrun inference was not measured",
+      "evidence": {
+        "artifact": "experiments/results/4B_vsq_ultra.qwn",
+        "artifact_sha256": "4b62ed20415e46b420f23839c1bedcff4a2da3144058dbd9907d5c13a68f9c00",
+        "source": "experiments/results/bpw_report.csv",
+        "conversion_wall_seconds": 20.71501120000903,
+        "conversion_throughput_mb_s": 109.59394211977862
+      }
+    }
+  ],
+  "excluded_conversion_records": [
+    {
+      "mode": "q4_0",
+      "reason": "artifact size 2448692728 differs from evidence size 2438014456"
+    }
+  ],
+  "external_gguf_rows": [
+    {
+      "model": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+      "source_format": "GGUF",
+      "evidence_class": "EXPERIMENTAL_EXTERNAL",
+      "cold_load_seconds": 2.0689816999947652,
+      "ttft_ms_mean": 106.97380000419798,
+      "tokens_per_second_mean": 201.42600062596347,
+      "tokens_per_second_median": 203.10107712585025,
+      "evidence": "experiments/results/empirical_summary.json"
+    },
+    {
+      "model": "DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf",
+      "source_format": "GGUF",
+      "evidence_class": "EXPERIMENTAL_EXTERNAL",
+      "cold_load_seconds": 7.779932399993413,
+      "ttft_ms_mean": 1683.7020000020857,
+      "tokens_per_second_mean": 48.155665106601475,
+      "tokens_per_second_median": 47.942937722003144,
+      "evidence": "experiments/results/empirical_summary.json"
+    }
+  ],
+  "format_status": [
+    {
+      "format": "FP32",
+      "status": "implemented container dtype; no current report evidence",
+      "evidence_class": "UNAVAILABLE"
+    },
+    {
+      "format": "FP16",
+      "status": "implemented container dtype; no current report evidence",
+      "evidence_class": "UNAVAILABLE"
+    },
+    {
+      "format": "Q4_0",
+      "status": "implemented and container-validated; no matching native inference row",
+      "evidence_class": "UNAVAILABLE"
+    },
+    {
+      "format": "HyperVSQ-2",
+      "status": "validated conversion and measured native qwnrun evidence",
+      "evidence_class": "MEASURED"
+    },
+    {
+      "format": "TWLA 1.58-bit",
+      "status": "implemented/tested kernel path; no complete model evidence",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "LittleBit",
+      "status": "implemented/tested library path; not a QWN container dtype",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "TurboQuant",
+      "status": "implemented/tested KV path; no complete model evidence",
+      "evidence_class": "EXPERIMENTAL"
+    }
+  ]
+}

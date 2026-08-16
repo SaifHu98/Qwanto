@@ -1,4 +1,4 @@
-name: Package Qwanto Code Beta
+name: Package Qwanto Native Beta
 
 on:
   workflow_dispatch:
@@ -398,9 +398,9 @@ jobs:
           done
           notes_file="Qwanto_${TAG}_RELEASE_NOTES.md"
           cat > "$notes_file" <<EOF
-          # Qwanto Code ${TAG}
+          # Qwanto Native ${TAG}
 
-          Beta release of Qwanto Code, the local-first runtime and coding agent.
+          Beta release of Qwanto Native, including the Qwanto Code desktop coding-agent surface.
 
           EOF
           if [ "$SIGNING_ENABLED" = "true" ] && [ "$WINDOWS_SIGNING_ENABLED" = "true" ]; then
@@ -421,7 +421,7 @@ jobs:
           if [ "$SIGNING_ENABLED" != "true" ] || [ "$WINDOWS_SIGNING_ENABLED" != "true" ] || [ "$MACOS_NOTARIZATION_ENABLED" != "true" ] || [ "$LINUX_SIGNING_ENABLED" != "true" ]; then
             cat >> "$notes_file" <<'EOF'
 
-          This is an unsigned beta release. Windows SmartScreen and macOS Gatekeeper may display warnings. Verify the SHA-256 checksum before installing.
+          This is an unsigned beta release. Windows SmartScreen and macOS Gatekeeper may display warnings. Verify SHA-256 checksums before installing.
           This prerelease is not production-ready.
           EOF
           fi
@@ -432,7 +432,7 @@ jobs:
           EOF
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" "$checksum_file" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Qwanto Code $TAG" --notes-file "$notes_file" --prerelease
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Qwanto Native $TAG" --notes-file "$notes_file" --prerelease
           else
-            gh release create "$TAG" "${assets[@]}" "$checksum_file" --repo "$GITHUB_REPOSITORY" --prerelease --title "Qwanto Code $TAG" --notes-file "$notes_file"
+            gh release create "$TAG" "${assets[@]}" "$checksum_file" --repo "$GITHUB_REPOSITORY" --prerelease --title "Qwanto Native $TAG" --notes-file "$notes_file"
           fi

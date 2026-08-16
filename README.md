@@ -1,263 +1,260 @@
-# Qwanto Code
+<p align="center">
+  <img src="assets/brand/qwanto-icon.png" width="112" height="112" alt="Qwanto Native logo" />
+</p>
 
-[![CI](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml)
-[![Latest beta](https://img.shields.io/github/v/release/SaifHu98/Qwanto?include_prereleases&label=latest%20beta)](https://github.com/SaifHu98/Qwanto/releases)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Local-first](https://img.shields.io/badge/runtime-local--first-2f855a.svg)](docs/local-only.md)
-[![Desktop](https://img.shields.io/badge/desktop-Windows%20%7C%20macOS%20%7C%20Linux-4c6fff.svg)](docs/packaging.md)
+<p align="center">
+  <a href="https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml"><img src="https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/SaifHu98/Qwanto/releases"><img src="https://img.shields.io/github/v/release/SaifHu98/Qwanto?include_prereleases&label=release" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-8bd5ca" alt="Apache 2.0 license" /></a>
+</p>
 
-> A local-first native runtime, supervised loopback gateway, and OpenCode-style desktop coding agent for validated QWN models.
+# Qwanto Native — Local AI Runtime, QWN Format, Web Console, and Coding Agent
 
-<p align="center"><img src="assets/brand/qwanto-icon.png" width="96" height="96" alt="Qwanto Code" /></p>
+Qwanto Native combines a native runtime, validated `.qwn` containers, a local
+gateway, Qwanto Web, and Qwanto Code.
 
-Qwanto Code is a Beta local-first AI runtime for running supported dense transformer
-models through a native C decoder, a supervised loopback OpenAI-compatible
-gateway, a shared React UI, and a Tauri desktop coding agent.
+## Native Engine Highlights
 
-The repository is engineering-complete for its tested paths, but it is not a
-promise that every model, GPU backend, sensor, or platform is production-ready.
-Read the status and evidence before relying on a path.
+- **Native C runtime:** `qwnrun` opens validated QWN containers, runs the
+  decoder, and exposes a persistent line-oriented `--serve` protocol for the
+  gateway and desktop host.
+- **Validated container boundary:** the loader checks QWN metadata, tensor
+  counts, descriptor bounds, payload bounds, and supported dtypes before
+  inference. The implemented layout has a 4 KiB header, 64-byte tensor
+  payload padding, and a tail-block offset recorded by the converter.
+- **Native execution paths:** target-specific SIMD kernels are compiled for
+  supported CPU targets. HyperVSQ-2 and Q4_0 paths are exercised by native
+  tests; TWLA, LittleBit, and TurboQuant remain explicitly scoped to their
+  implemented/tested kernel or KV paths until complete model evidence exists.
+- **Memory-aware runtime:** the QWN loader uses memory mapping and layer-ahead
+  prefetching. The runtime also contains CPU/RAM/NVMe residency planning and an
+  optional dynamically probed CUDA VRAM path; actual placement depends on the
+  selected model, build, and hardware.
+- **Loopback gateway:** `c/openai_server.py` serves local health, model,
+  telemetry, and OpenAI-compatible `/v1` endpoints. It supervises the native
+  process and binds to loopback by default.
+- **Model lifecycle:** the local registry, converter, validator, acquisition
+  flow, and measured telemetry keep model provenance explicit. A model is not
+  activated from a filename alone.
+- **Qwanto Code boundary:** the Tauri desktop surface adds approval-gated
+  workspace tools, files, diffs, skills, plugins, and project memory around
+  the shared runtime.
+- **No bundled weights:** installers contain runtime resources only. Users
+  import or download model files explicitly; no model weights are shipped.
 
-## Engine Highlights
+## Verified Performance Evidence
 
-- **QWN containers:** validated 4 KiB headers, aligned tensor payloads, 64-byte
-  padding, and tiered VRAM → RAM → NVMe mmap with layer-ahead prefetch.
-- **Persistent `qwnrun --serve`:** one supervised native process handles the
-  protocol and avoids per-request process startup.
-- **Local gateway:** loopback-only OpenAI-compatible endpoints with explicit
-  model validation and user-managed model files.
-- **Approval-gated agent:** the desktop shell can inspect a selected workspace,
-  but file writes, commands, and external search require a visible approval.
-- **Desktop coding workspace:** Project, Chats, Files, Changes, and Settings stay
-  focused; local attachments are stored in the workspace with a hard size limit,
-  and unsupported model input types remain explicitly unavailable.
-- **Local feedback:** Diagnostics can create a redacted ZIP for manual GitHub
-  issue or email attachment. Nothing is uploaded or emailed without a user action.
-- **Optional GitHub and internet tools:** external features remain disabled until
-  explicitly enabled and approved; local inference never falls back to cloud AI.
-- **Skills & Plugins:** local built-in skills can be invoked with `@skill-name`;
-  third-party plugin manifests are reviewed for publisher, checksum, entrypoint,
-  and capabilities and stay disabled until a supervised runtime is available.
-- **Platform support:** Tauri packaging targets Windows, macOS, and Linux;
-  platform packages remain unsigned unless the protected signing gates pass.
+Performance claims are evidence claims, not product slogans. The current
+native record is a real local `qwnrun` run of the 4B HyperVSQ-2 QWN fixture:
 
-## Verified Native Performance
+| Model | Source Format | QWN Quantization | File Size | Bits/Weight if known | RAM / VRAM Measurement | TTFT | Tokens/s | Hardware | Evidence Class |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container | HyperVSQ-2 | 1.18 GiB (1,266,202,104 bytes) | 2.34028 bpw | Unavailable | Unavailable | 7.148571 | Windows 11; AMD64 Family 26 Model 68; NVIDIA GeForce RTX 5070 Ti Laptop GPU | MEASURED native `qwnrun` |
 
-The measured result below is the repository’s current native evidence. It is
-separate from experimental, external-provider, and projected results; it is
-not a universal throughput promise. See the [benchmark methodology](docs/benchmark-methodology.md)
-for the required evidence fields and classification rules.
+This row is valid only for the recorded executable hash, model hash, prompt,
+token limit, and host. It is not a universal throughput claim. The full
+machine-readable evidence and generator are in
+[`docs/performance.md`](docs/performance.md),
+[`docs/performance-report.json`](docs/performance-report.json), and
+[`benchmarks/generate_performance_report.py`](benchmarks/generate_performance_report.py).
+Unknown values remain `Unavailable`; the report never substitutes zeros,
+host guesses, or projections. External GGUF/`llama-server` measurements are
+kept in a separate `EXPERIMENTAL_EXTERNAL` section.
 
-| Host evidence | Model | Runtime | Tokens | Wall time | Throughput | TTFT |
-| --- | --- | --- | ---: | ---: | ---: | ---: |
-| Windows local run | `experiments/results/4B_hyper_vsq2.qwn` | `c/qwnrun.exe` | 64 | 8.952839 s | 7.148571 tok/s | Unavailable |
+## QWN Quantization and Container Formats
 
-## Why Qwanto
+QWN is a validated native container, not only a file extension. Its layout
+and validation rules are documented in
+[`docs/qwn-format.md`](docs/qwn-format.md):
 
-Qwanto keeps model execution on the user’s machine. The native runtime reads a
-validated `.qwn` container through the project’s VRAM → RAM → NVMe tiered
-memory design, while the local gateway exposes a familiar API and the React
-dashboard reports the gateway’s actual state. The Tauri desktop shell packages
-the UI, target-native `qwnrun`, and the target-native gateway sidecar; it never
-bundles model weights.
+- a 4 KiB header with tensor and payload metadata;
+- 64-byte-aligned tensor payload blocks for predictable native access;
+- descriptor and payload bounds validation before a tensor is used;
+- memory-mapped loading with prefetch hooks;
+- explicit dtype IDs for FP32, FP16, Q4_0, HyperVSQ-2, TWLA 1.58-bit, and
+  TurboQuant where the implementation supports them.
 
-### User stories
+The current evidence distinguishes formats precisely:
 
-- As a local developer, I can start a gateway and use `/v1/chat/completions`
-  from the dashboard or another OpenAI-compatible client.
-- As a model owner, I can import a supported local checkpoint, convert it to
-  `.qwn`, validate it, and see why a native model is or is not selectable.
-- As a performance engineer, I can inspect measured benchmark evidence tied to
-  a model and runtime hash without seeing fabricated TTFT or throughput.
-- As a desktop user, I can use the shared web experience with approval-gated
-  native commands while model files remain user-managed.
+| Format | Current status | Trade-off |
+| --- | --- | --- |
+| FP32 / FP16 | Implemented container dtypes; no current performance row | Precision and compatibility at a larger memory footprint. |
+| Q4_0 | Implemented and container-validated; no matching native inference row in the current report | Conventional 4-bit compression; speed and quality require same-host measurement. |
+| HyperVSQ-2 | Validated conversion and measured native QWN evidence | Lower storage and memory pressure; model quality and speed remain workload-dependent. |
+| TWLA 1.58-bit | Implemented/tested kernel path; no complete model evidence | Experimental sub-2-bit path, not a model-level claim. |
+| LittleBit | Implemented/tested library path, not a QWN dtype | Low-rank binary factors trade representation size against approximation error. |
+| TurboQuant | Implemented/tested KV path; no complete model evidence | Low-bit KV-cache storage trades capacity against approximation behavior. |
+
+Conversion MB/s is not inference tokens/s. Different model sizes, hosts,
+backends, token limits, and runtime hashes must not be compared as though they
+were one benchmark.
+
+## Product Surfaces
+
+Qwanto Native is the umbrella product. Qwanto Code is its desktop coding-agent
+surface, not an unrelated product:
+
+```text
+Qwanto Native
+├── Native Runtime
+│   ├── qwnrun
+│   ├── .qwn format
+│   ├── quantization and validation
+│   └── local OpenAI-compatible gateway
+├── Qwanto Web
+│   └── safe browser console for local chat and model status
+└── Qwanto Code
+    └── desktop coding agent with workspace, files, diffs, approvals, skills, plugins, and project memory
+```
+
+Qwanto Web is a safe browser client. It can call the configured local HTTP
+gateway for chat and model status, but it cannot read arbitrary files, execute
+tools, launch subprocesses, or access Tauri commands. Qwanto Code is the
+desktop agent surface and shares the native runtime with Qwanto Web. Internet
+search and GitHub integration are optional, explicit external opt-ins;
+inference remains local-first.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  Browser[web/ React UI] -->|HTTP only| Gateway[c/openai_server.py]
-  Desktop[desktop/ Tauri shell] -->|same shared UI| Browser
-  Desktop -->|native commands and approvals| Rust[desktop/src-tauri]
-  Rust -->|starts and supervises| Sidecar[packaged gateway sidecar]
-  Sidecar -->|persistent stdin/stdout| Qwnrun[c/qwnrun --serve]
-  Qwnrun -->|mmap / prefetch| QWN[(user-managed .qwn model)]
+    Web[Qwanto Web\nBrowser-safe React console] -->|loopback HTTP| Gateway[Local gateway\nhealth + OpenAI-compatible /v1]
+    Code[Qwanto Code\nTauri desktop surface] --> Host[Rust host\napprovals + supervision]
+    Host --> Gateway
+    Gateway -->|persistent stdin/stdout protocol| Runtime[qwnrun\nNative C runtime]
+    Runtime -->|validate + mmap + prefetch| QWN[(User-managed .qwn model)]
+    Runtime -. optional dynamic backend .-> GPU[Supported CUDA VRAM path]
 ```
 
-The browser UI is a safe local chat client: it has no project, filesystem,
-terminal, diff, or agent authority. Only the desktop host starts the packaged
-sidecar and `qwnrun`, and exposes approval-gated project/file/terminal/diff
-tools. Models are never bundled.
+The gateway owns runtime lifecycle and structured telemetry. The desktop host
+owns privileged workspace operations and approval tokens. The browser never
+inherits those privileges.
 
-## Current support matrix
+## Qwanto Code
 
-| Surface | Status | Validation |
-| --- | --- | --- |
-| Native decoder and persistent serve protocol | Beta-supported | C/Python tests and CI |
-| Loopback gateway and OpenAI-compatible API | Beta-supported | `c/tests/` |
-| Shared web dashboard | Beta-supported | `npm run build`, `npm test` |
-| Windows NSIS/MSI, macOS DMG, Linux AppImage/DEB | Package workflow; Beta4 is explicitly unsigned when signing credentials are absent, with conditional future signing | `.github/workflows/release.yml` |
-| GGUF, Safetensors, PyTorch `.pt`/`.pth`/PyTorch `.bin` | Converter-supported source formats; fixture coverage is conditional | [model acquisition design](docs/model-acquisition-design.md) |
-| ONNX, Keras/H5, arbitrary `.bin` | Unsupported; converter fails fast | [model acquisition design](docs/model-acquisition-design.md) |
+Qwanto Code keeps the coding workspace small and focused: **Project, Chats,
+Files, Changes, Settings**. Its top controls expose model selection,
+Plan/Agent mode, start/stop, gateway state, and compact runtime settings.
 
-## Quick start
+The desktop surface provides:
 
-Install Python test dependencies and native tools appropriate to your platform.
+- validated local model library actions, focused conversion/download dialogs,
+  activation only after QWN metadata and hardware-fit checks;
+- Fast, Balanced, and Deep profiles mapped only to supported runtime
+  parameters such as context, maximum output, sampling, CPU threads, GPU
+  offload, KV mode, batching, and speculative decoding;
+- live prompt/completion/total token, TTFT, tokens/s, elapsed, context, tool,
+  and queue metrics, with `Unavailable` for metrics not reported by runtime;
+- workspace-safe attachments with previews, size limits, explicit removal,
+  and model capability checks;
+- editable local project memory, checkpoints, resume support, export, clear,
+  and per-project disable controls;
+- local built-in skills invoked with `@skill-name`, capability-declared
+  plugins disabled by default, approval tokens, containment, redaction, and
+  fail-closed third-party execution;
+- optional GitHub and web-search skills that require explicit approval for
+  external access and repository writes.
+
+## Model lifecycle
+
+1. Import or download a user-managed source model with explicit consent.
+2. Convert it to QWN when the selected architecture and quantization are
+   supported; conversion writes atomically and records evidence.
+3. Validate the container, metadata, tensor bounds, hash, and host fit.
+4. Review the model in Settings and explicitly activate the validated model.
+5. Start the shared loopback gateway and persistent `qwnrun` service on demand.
+6. Run local Web or Code sessions while telemetry and approvals remain visible.
+
+Installers never contain model weights, and GGUF remains an external local
+runtime boundary rather than a native QWN performance claim.
+
+## Installation and quick start
+
+### Native runtime and gateway
+
+Build the native runtime with the supported toolchain:
 
 ```sh
-python -m pip install pytest numpy
 make -C c qwnrun
 ```
 
-Run the gateway and development UI in separate terminals. The UI base URL is
-`http://127.0.0.1:8000/v1`; health is probed at the gateway root
-`http://127.0.0.1:8000/health`.
-
-Terminal 1 — local gateway:
+Inspect a local QWN container before use:
 
 ```sh
-python c/coli web --model path/to/model.qwn --host 127.0.0.1 --port 8000 --no-browser
+python c/coli inspect experiments/results/4B_hyper_vsq2.qwn
 ```
 
-Terminal 2 — web dashboard:
+Run a persistent native service (the gateway normally supervises this for
+you):
 
 ```sh
+c/qwnrun experiments/results/4B_hyper_vsq2.qwn --serve
+```
+
+Start the local gateway and shared Web console with a user-managed model:
+
+```sh
+python c/openai_server.py --model experiments/results/4B_hyper_vsq2.qwn
 cd web
 npm ci
-npm run dev -- --host 127.0.0.1 --port 5173
+npm run dev
 ```
 
-The gateway-served UI is also available after `npm run build`; the web server
-on port 5173 is only a frontend development server, not the API gateway.
+The browser development server is only the frontend. The gateway is the local
+API boundary and is normally reached at loopback.
 
-For the desktop shell, stage the target-native runtime first. Development uses
-the repository’s Python gateway automatically; release packages use the frozen
-gateway sidecar automatically:
+### Qwanto Code development shell
 
 ```sh
+make -C c qwnrun
 mkdir -p desktop/src-tauri/resources
 cp c/qwnrun desktop/src-tauri/resources/qwnrun
-cd desktop
+cd web && npm ci && npm run build
+cd ../desktop
 cargo tauri dev
 ```
 
-Use `qwnrun.exe` as the source on Windows; the staged resource name remains
-`qwnrun`. See [desktop/README.md](desktop/README.md) and
-[docs/packaging.md](docs/packaging.md) for package builds.
+See [`desktop/README.md`](desktop/README.md) for Windows staging and Rust
+validation commands. Release installers are produced by the tag workflow;
+they include runtime resources but no models.
 
-## Model and container rules
+## Security and local-first boundaries
 
-Native inference consumes `.qwn` containers with a 4 KiB header, validated
-descriptors, 64-byte payload alignment, and the project’s VRAM → RAM → NVMe
-memory model. Inspect [docs/qwn-format.md](docs/qwn-format.md) before creating
-or distributing a container. Large model files are local fixtures and are not
-source-controlled release assets.
-
-Model acquisition is explicit and provider-scoped. Hugging Face public HTTPS,
-allowlisted direct HTTPS, and local-file import are supported by the local
-gateway. Downloads use a `.part` file, range resume, checksum/size checks, disk
-preflight, and atomic publication. The packaged Tauri Beta contains qwnrun and
-the supervised gateway sidecar; converter and downloader controls remain behind
-Settings and require explicit user consent. The sidecar binds to loopback on a
-dynamic port and reports its ready URL through a structured handshake.
-
-Model selection never trusts a filename. The dashboard prefers an explicit,
-validated, hardware-fit `.qwn`, then a recommendation backed by local measured
-evidence. A Qwen3.8-27B hyper QWN is eligible only if that actual file exists,
-passes QWN validation, is supported by the available qwnrun, and fits the host;
-otherwise the UI leaves the model unselected. GGUF and source checkpoints are
-conversion inputs or external-runtime artifacts, not native QWN selections.
-
-## Benchmark evidence
-
-Run a real local benchmark; do not copy values from another host:
-
-```sh
-python benchmarks/benchmark_reproducible.py \
-  --model experiments/results/4B_hyper_vsq2.qwn \
-  --executable c/qwnrun \
-  --max-tokens 64 \
-  --output benchmark_evidence.json
-```
-
-| Category | Meaning | UI/reporting rule |
-| --- | --- | --- |
-| `MEASURED` | Successful real qwnrun with positive tokens and monotonic timing | May display measured values |
-| `UNAVAILABLE` | Missing executable/model/sensor or timed out | Display unavailable |
-| `INVALID` | Nonzero exit, malformed output, or zero tokens | Never display throughput |
-| `TEST_FIXTURE` | Explicit parser/UI test data | Never a production claim |
-| `EXPERIMENTAL` | Real but outside the native comparison boundary | Label the boundary |
-| `PROJECTED` | Estimate or planning value | Never call measured |
-
-See [docs/benchmark-methodology.md](docs/benchmark-methodology.md) and
-[docs/model-manifest.json](docs/model-manifest.json). The repository does not
-ship a universal hardware profile or fallback tok/s value.
-
-### Verified local evidence
-
-The following is one measured Windows run stored in
-`benchmark_evidence.json`; it is not a promise for other hosts or models.
-
-| Classification | Model | Runtime | Tokens | Wall time | Throughput | TTFT |
-| --- | --- | --- | ---: | ---: | ---: | --- |
-| `MEASURED` | `experiments/results/4B_hyper_vsq2.qwn` | `c/qwnrun.exe` | 64 | 8.952839 s | 7.148571 tok/s | Unavailable |
-
-The model and runtime SHA-256 values are recorded in the evidence artifact.
-VRAM allocation and NVMe bandwidth were unavailable in this run. External
-GGUF/provider entries and future optimizations remain separately labeled as
-experimental or unavailable until a reproducible local measurement exists.
-
-## Security and local-only behavior
-
-- The gateway binds to loopback by default and preserves security headers.
-- API keys are optional for loopback and are compared in constant time when
-  configured; non-loopback operation should use a strong key and narrow CORS.
-- External runtime downloads and remote backends are explicit opt-ins.
-- Desktop agent paths stay inside the canonical workspace. Mutations,
-  commands, staging, and commits require approval tokens.
-- Browser chat cannot launch a process or read arbitrary local files.
-
-Read [docs/security-model.md](docs/security-model.md) and
-[docs/local-only.md](docs/local-only.md) for the detailed boundary.
-
-## Validation
-
-```sh
-python -m pytest c/tests/ -q
-python c/tools/check_doc_links.py
-make -C c test-c
-cargo check --manifest-path desktop/src-tauri/Cargo.toml
-cargo test --manifest-path desktop/src-tauri/Cargo.toml
-cargo clippy --manifest-path desktop/src-tauri/Cargo.toml -- -D warnings
-cd web && npm run build && npm test
-```
-
-CI preserves the Linux Tauri packages (`libwebkit2gtk-4.1-dev`,
-`libsoup-3.0-dev`, and `pkg-config`) and installs NumPy for conversion tests.
-The release workflow packages only after the native resource and web build are
-available.
-
-Qwanto Code uses `assets/brand/qwanto-icon.png` as the approved brand source;
-platform bundle sizes and the web favicon are checked against that mark. The
-desktop title is `Qwanto Code — Local Coding Agent`.
+- The gateway binds to loopback by default and preserves HTTP defense headers;
+  bearer authentication is opt-in through the documented environment
+  contract.
+- Qwanto Web is unprivileged. File access, command execution, edits, commits,
+  and process supervision remain in Qwanto Code behind approvals.
+- Project memory, attachments, plugin settings, and diagnostics remain local
+  by default. Secrets are kept out of logs and exported bundles are redacted.
+- Internet search, GitHub access, external runtimes, and downloads are
+  opt-in tools, not cloud inference fallbacks. Each external or destructive
+  action requires clear approval.
+- Plugins declare capabilities, remain disabled by default, and are not
+  executed unless a future sandbox/supervisor and trust policy allow them.
+- The unsigned Beta.4 release, when published, is not a signed or
+  production-ready release. Windows SmartScreen and macOS Gatekeeper may
+  warn; verify the attached SHA-256 checksums before installing.
 
 ## Documentation map
 
-- [Documentation index](docs/index.md)
-- [Architecture](docs/architecture.md)
-- [QWN format](docs/qwn-format.md)
-- [Web UI boundary](docs/web-ui.md)
-- [Desktop agent](docs/desktop-agent.md)
-- [Skills and plugins](docs/skills-and-plugins.md)
-- [Security model](docs/security-model.md)
-- [Packaging](docs/packaging.md)
-- [Model acquisition design](docs/model-acquisition-design.md)
-- [API and gateway contract](docs/api.md)
-- [Conversion and acquisition guide](docs/conversion.md)
+- [QWN performance and quantization](docs/performance.md)
+- [Generated performance evidence](docs/performance-report.md)
+- [QWN container format](docs/qwn-format.md)
 - [Benchmark methodology](docs/benchmark-methodology.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Release engineering plan](docs/release-engineering-plan.md)
+- [Architecture](docs/architecture.md)
+- [API and gateway contract](docs/api.md)
+- [Desktop agent boundary](docs/desktop-agent.md)
+- [Skills and plugins](docs/skills-and-plugins.md)
+- [Web UI safety boundary](docs/web-ui.md)
+- [Security model](docs/security-model.md)
+- [Local-only behavior](docs/local-only.md)
+- [Conversion and acquisition](docs/conversion.md)
+- [Packaging and conditional signing](docs/packaging.md)
+- [Release engineering](docs/release-engineering-plan.md)
 - [Release readiness](RELEASE_READINESS.md)
 
-Qwanto preserves attribution to the upstream Colibrì multi-tier memory work.
-The project is licensed under Apache 2.0; see [LICENSE](LICENSE).
+The approved Qwanto Native mark is sourced from
+[`assets/brand/qwanto-icon.png`](assets/brand/qwanto-icon.png). Platform and
+Web mirrors are checked by `c/tools/check_brand_assets.py`; no alternate
+lettermark is part of the supported product identity.

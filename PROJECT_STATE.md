@@ -2,9 +2,10 @@
 
 ## Purpose
 
-Qwanto is a local-first native inference runtime with a `.qwn` container,
-OpenAI-compatible loopback gateway, shared React web UI, and Tauri desktop
-host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
+Qwanto Native is the umbrella local-first inference product with a `.qwn`
+container, OpenAI-compatible loopback gateway, Qwanto Web console, and Qwanto
+Code Tauri desktop agent. The native design tiers model data across VRAM, RAM,
+and NVMe mmap.
 
 ## Stack and architecture
 
@@ -19,15 +20,16 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   supervision, and approval-gated agent capabilities. Release packaging stages
   target-native `qwnrun` and `qwanto-gateway` resources; model files remain
   user-managed.
-- Evidence: `benchmarks/benchmark_reproducible.py` is the release benchmark
-  boundary. It records only real local `qwnrun` executions and explicit
-  classifications for all other outcomes.
+- Evidence: `benchmarks/benchmark_reproducible.py` records only real local
+  `qwnrun` executions; `benchmarks/generate_performance_report.py` combines
+  matching model-manifest evidence without mixing conversion or external GGUF
+  measurements into native inference claims.
 
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `203 passed, 14 skipped` in `c/tests/`; the decoder
-  test passed separately (`2 passed`). Safe model-acquisition tests use only
+- Native/Python validation: `204 passed, 15 skipped` in `c/tests/`; the decoder
+  test passed separately (`1 passed, 1 skipped`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
 - Web validation: production build passed and Vitest passed (`54 tests`). The
@@ -37,7 +39,7 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   1280px, 1440px, and short laptop heights.
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
-- Rust gates are pending on this workstation because `cargo` is not installed;
+- Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The
   current local web/Python gates pass, but this follow-up still needs a hosted
   Rust/package run before release publication.
@@ -46,7 +48,9 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   `31966186386` and package/publish run `31966709143` passed. Beta.4 is not
   tagged or published; its policy is an explicitly unsigned prerelease when
   protected signing credentials are absent, with installers and SHA-256
-  coverage only.
+  coverage only. Fetched `origin/main` currently contains later cleanup commits
+  that delete local project instructions and feature files; normal publication
+  must preserve this local feature tree through a non-destructive merge.
 
 ## Active limitations
 
@@ -77,6 +81,9 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   locally invokable with `@skill-name`; native plugin manifests are checksum-
   and capability-validated, stored in app data disabled by default, and never
   executed without a future supervised sandbox.
+- The generated QWN performance report keeps native `MEASURED`, conversion-only,
+  and external GGUF evidence separate; it omits mismatched conversion artifacts
+  instead of displaying stale sizes.
 
 ## Important decisions
 

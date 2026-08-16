@@ -68,7 +68,8 @@ pub fn create(
     let redacted_description = PermissionPolicy::redact_secrets(description).replace(&workspace.to_string_lossy(), "[REDACTED_WORKSPACE]");
     let redacted_logs = PermissionPolicy::redact_secrets(logs).replace(&workspace.to_string_lossy(), "[REDACTED_WORKSPACE]");
     let metadata = serde_json::json!({
-        "product": "Qwanto Code",
+        "product": "Qwanto Native",
+        "surface": "Qwanto Code",
         "app_version": env!("CARGO_PKG_VERSION"),
         "os": std::env::consts::OS,
         "category": category,

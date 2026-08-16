@@ -1,8 +1,9 @@
 # Qwanto documentation
 
-Qwanto is a local-first native runtime with one shared web UI and a Tauri
-desktop host. Use this index to choose the right boundary before running a
-command or importing a model.
+Qwanto Native is a local-first native runtime with Qwanto Web as its safe
+browser console and Qwanto Code as its Tauri desktop agent surface. Use this
+index to choose the right boundary before running a command or importing a
+model.
 
 ## Start here
 
@@ -31,6 +32,7 @@ execution, diffs, approvals, and agent tools are desktop-only capabilities.
 - [Conversion and acquisition guide](conversion.md)
 - [QWN container format](qwn-format.md)
 - [Benchmark methodology](benchmark-methodology.md)
+- [QWN performance and quantization](performance.md)
 - [Model manifest](model-manifest.json)
 
 Models are user-managed and are never shipped in source archives or installers.

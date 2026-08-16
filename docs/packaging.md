@@ -83,7 +83,7 @@ Linux artifact signature: UNSIGNED
 ```
 
 The unsigned beta note warns about Windows SmartScreen and macOS Gatekeeper
-and directs users to verify the SHA-256 checksum before installing.
+and directs users to verify SHA-256 checksums before installing.
 
 Packages contain the native runtime and gateway sidecar, but no model weights.
 The sidecar is bound to loopback, starts with hidden child-process flags on

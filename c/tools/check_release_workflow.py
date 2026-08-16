@@ -14,7 +14,7 @@ def main() -> int:
         "signtool.Source verify /pa /all /tw",
         "grep -Fq \"$basename\" \"$checksum_file\"",
         "--prerelease",
-        "This is an unsigned beta release. Windows SmartScreen and macOS Gatekeeper may display warnings. Verify the SHA-256 checksum before installing.",
+        "This is an unsigned beta release. Windows SmartScreen and macOS Gatekeeper may display warnings. Verify SHA-256 checksums before installing.",
         "libwebkit2gtk-4.1-dev",
         "libsoup-3.0-dev",
         "pkg-config",
