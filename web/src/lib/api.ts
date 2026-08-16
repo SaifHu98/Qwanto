@@ -4,6 +4,17 @@ export interface ChatMessage {
   id: string
   role: ChatRole
   content: string
+  attachments?: ChatAttachment[]
+}
+
+export interface ChatAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  relative_path: string
+  previewable: boolean
+  preview_url?: string
 }
 
 interface OpenAIError {

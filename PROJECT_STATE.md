@@ -77,9 +77,15 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
 - Keep benchmark classifications `MEASURED`, `UNAVAILABLE`, `INVALID`,
   `TEST_FIXTURE`, `EXPERIMENTAL`, and `PROJECTED`; never substitute values.
 - Release workflow supports manual or temporary-tag package validation and
-  scheduled validation plus existing `v*` tags; tagged runs upload unsigned
-  installers to a GitHub prerelease after the package matrix is green, with
-  checksums and release notes.
+  scheduled validation plus existing `v*` tags; the Beta4 publish job is
+  blocked unless all protected Windows, macOS, and Linux signing credentials
+  are present and the package jobs verify them.
+- Qwanto Code stores chat attachments and redacted feedback bundles only under
+  the selected workspace; unsupported file/image model input is shown as
+  unavailable instead of being sent to the runtime.
+- GitHub connection is intentionally unavailable until a native OS-keychain
+  credential backend is added; the Settings surface provides only safe public
+  repository links and never accepts a token in browser storage.
 - Beta.3 remains unchanged. Beta.4 has not been tagged or published because
   local Cargo and cross-platform signing/package gates are not available here.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.

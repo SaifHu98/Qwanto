@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { BrowserChatView } from "@/components/BrowserChatView"
 import { DesktopAgentView } from "@/components/DesktopAgentView"
 import { DesktopSettingsView } from "@/components/DesktopSettingsView"
-import type { ChatMessage, DiscoveredModel, HealthResponse } from "@/lib/api"
+import type { ChatAttachment, ChatMessage, DiscoveredModel, HealthResponse } from "@/lib/api"
 import { getHealth, listDiscoveredModels, listModels, loadModel, streamChat, unloadModel } from "@/lib/api"
 import { chooseRecommendedModel, classifyGatewayFailure, gatewayStateFromHealth, type GatewayConnectionState } from "@/lib/gateway"
 import { desktopInvoke, type AgentSession, type DesktopGatewayStatus } from "@/lib/desktop"
@@ -10,10 +10,11 @@ import { stored } from "@/lib/storage"
 import { profileConfig, type AgentProfile } from "@/lib/agent"
 import type { SessionUsage } from "@/components/DesktopSettingsView"
 
-const makeMessage = (role: ChatMessage["role"], content: string): ChatMessage => ({
+const makeMessage = (role: ChatMessage["role"], content: string, attachments?: ChatAttachment[]): ChatMessage => ({
   id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   role,
   content,
+  ...(attachments?.length ? { attachments } : {}),
 })
 
 export function isDesktopShell(): boolean {
@@ -62,22 +63,24 @@ export default function App() {
     } catch { /* local persistence is optional */ }
   }, [baseUrl, model])
 
-  const connect = async () => {
+  const connect = async (scanModels = false) => {
     setConnecting(true)
     setError("")
     try {
       const healthResult = await getHealth(baseUrl, apiKey)
       const state = gatewayStateFromHealth(healthResult)
       if (state !== "connected" && state !== "model-required") throw new Error("Incompatible Qwanto gateway version.")
-      const [availableModels, inventory] = await Promise.all([listModels(baseUrl, apiKey), listDiscoveredModels(baseUrl, apiKey)])
       setHealth(healthResult)
-      setModels(availableModels)
-      setDiscoveredModels(inventory.models || [])
+      if (scanModels) {
+        const [availableModels, inventory] = await Promise.all([listModels(baseUrl, apiKey), listDiscoveredModels(baseUrl, apiKey)])
+        setModels(availableModels)
+        setDiscoveredModels(inventory.models || [])
+        const choice = chooseRecommendedModel(inventory.models || [], model)
+        if (choice.model && choice.model.path !== model) setModel(choice.model.path)
+        if (!choice.model && model) setModel("")
+      }
       setConnected(true)
       setGatewayState(state)
-      const choice = chooseRecommendedModel(inventory.models || [], model)
-      if (choice.model && choice.model.path !== model) setModel(choice.model.path)
-      if (!choice.model && model) setModel("")
       setGatewayMessage(state === "model-required" ? "Gateway ready. Choose a validated local QWN model to start inference." : "Local gateway ready.")
     } catch (cause) {
       setConnected(false)
@@ -90,7 +93,7 @@ export default function App() {
           ? "The gateway API version is incompatible."
           : desktopShell
             ? "The local gateway sidecar is not ready yet."
-            : "Start Qwanto Desktop or an existing local gateway, then probe again."
+            : "Start Qwanto Code or an existing local gateway, then probe again."
       setGatewayMessage(message)
       setError(cause instanceof Error ? cause.message : "Could not reach the local gateway.")
       addLog("error", `Connect: ${cause instanceof Error ? cause.message : cause}`)
@@ -116,7 +119,7 @@ export default function App() {
         if (!disposed) {
           setDesktopGateway({ state: "failed", api_url: null, port: null, error: cause instanceof Error ? cause.message : "Desktop bridge unavailable.", sidecar_packaged: false })
           setGatewayState("failed")
-          setGatewayMessage("Open this page inside Qwanto Desktop to start the gateway automatically.")
+          setGatewayMessage("Open this page inside Qwanto Code to start the gateway automatically.")
         }
       }
     }
@@ -128,11 +131,11 @@ export default function App() {
   useEffect(() => {
     if (!desktopShell || !desktopGateway?.api_url || desktopProbeRef.current || !baseUrl.startsWith(desktopGateway.api_url)) return
     desktopProbeRef.current = true
-    void connect()
+    void connect(false)
   }, [desktopShell, desktopGateway?.api_url, baseUrl])
 
   useEffect(() => {
-    if (servedByEngine && !desktopShell) void connect()
+    if (servedByEngine && !desktopShell) void connect(true)
   }, [servedByEngine, desktopShell])
 
   const handleLoadModel = async (path: string) => {
@@ -167,12 +170,12 @@ export default function App() {
     catch (cause) { setError(cause instanceof Error ? cause.message : "Could not change agent mode.") }
   }
 
-  const send = async () => {
+  const send = async (attachments: ChatAttachment[] = []) => {
     const content = draft.trim()
     if (!content || !connected || !model || loading) return
     const profile = profileConfig(agentProfile)
     const contextualContent = searchContext ? `${content}\n\n[Approved web sources]\n${searchContext}` : content
-    const user = makeMessage("user", contextualContent)
+    const user = makeMessage("user", contextualContent, attachments)
     const assistant = makeMessage("assistant", "")
     const history = [...messages, user]
     setMessages([...history, assistant])
@@ -233,7 +236,7 @@ export default function App() {
     gatewayState={gatewayState}
     gatewayMessage={gatewayMessage}
     connected={connected}
-    onProbe={() => void connect()}
+    onProbe={() => void connect(false)}
     model={model}
     models={models}
     discoveredModels={discoveredModels}
@@ -256,10 +259,10 @@ export default function App() {
     loading={loading}
     error={error}
     onRestartGateway={async () => {
-      try { await desktopInvoke("restart_gateway"); await connect() }
+      try { await desktopInvoke("restart_gateway"); await connect(false) }
       catch (cause) { setError(cause instanceof Error ? cause.message : "Gateway restart failed."); addLog("error", `Gateway restart: ${cause instanceof Error ? cause.message : cause}`) }
     }}
-    settingsContent={<DesktopSettingsView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} logs={logs} model={model} models={discoveredModels} onSelectModel={setModel} onActivateModel={(path) => void handleLoadModel(path)} loadingModel={loadingModel} profile={agentProfile} onProfileChange={setAgentProfile} usage={sessionUsage} onIncludeSearchContext={(sources) => setSearchContext(sources.map((source) => `${source.title}\n${source.url}\n${source.snippet}`).join("\n\n"))} />}
+    settingsContent={<DesktopSettingsView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} gatewayReadyElapsedMs={desktopGateway?.ready_elapsed_ms} logs={logs} model={model} models={discoveredModels} onInventoryLoaded={(inventory) => { setDiscoveredModels(inventory); setModels(inventory.map((candidate) => candidate.path)) }} onSelectModel={setModel} onActivateModel={(path) => void handleLoadModel(path)} loadingModel={loadingModel} profile={agentProfile} onProfileChange={setAgentProfile} usage={sessionUsage} onIncludeSearchContext={(sources) => setSearchContext(sources.map((source) => `${source.title}\n${source.url}\n${source.snippet}`).join("\n\n"))} />}
   />
 
   return <BrowserChatView
@@ -278,7 +281,7 @@ export default function App() {
     connected={connected}
     gatewayState={gatewayState}
     gatewayMessage={gatewayMessage}
-    onProbe={() => void connect()}
+    onProbe={() => void connect(true)}
     probing={connecting}
     messages={messages}
     draft={draft}
@@ -292,5 +295,5 @@ export default function App() {
 }
 
 export function QwantoBrand() {
-  return <img className="brand-icon" src="/qwanto-icon.png" alt="Qwanto" />
+  return <img className="brand-icon" src="/qwanto-icon.png" alt="Qwanto Code" />
 }

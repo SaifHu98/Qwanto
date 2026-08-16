@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Qwanto",
+  "productName": "Qwanto Code",
   "version": "0.1.0",
   "identifier": "org.qwanto.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Qwanto Native Runtime Host",
+        "title": "Qwanto Code — Local Coding Agent",
         "width": 1280,
         "height": 820,
         "minWidth": 860,
@@ -30,7 +30,7 @@
         "active": true,
         "targets": "all",
         "category": "DeveloperTool",
-        "shortDescription": "Local-first Qwanto AI runtime host",
+        "shortDescription": "Qwanto Code local-first coding agent",
         "resources": [
             "resources/qwnrun",
             "resources/qwanto-gateway"

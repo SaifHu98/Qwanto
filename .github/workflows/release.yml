@@ -1,4 +1,4 @@
-name: Package Qwanto Beta
+name: Package Qwanto Code Beta
 
 on:
   workflow_dispatch:
@@ -181,9 +181,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           xcrun notarytool submit "$app" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
           xcrun stapler staple "$app"
-          dmg="desktop/src-tauri/target/release/bundle/dmg/Qwanto_${GITHUB_REF_NAME}_macOS.dmg"
+          dmg="$RUNNER_TEMP/Qwanto_Code_${GITHUB_REF_NAME}_macOS.dmg"
           mkdir -p "$(dirname "$dmg")"
-          hdiutil create -volname Qwanto -srcfolder "$app" -ov -format UDZO "$dmg"
+          hdiutil create -volname "Qwanto Code" -srcfolder "$app" -ov -format UDZO "$dmg"
           codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$dmg"
           xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
           xcrun stapler staple "$dmg"
@@ -220,9 +220,11 @@ jobs:
             (Resolve-Path 'desktop/src-tauri/resources/qwnrun'),
             (Resolve-Path 'desktop/src-tauri/resources/qwanto-gateway')
           ) + @(Get-ChildItem 'desktop/src-tauri/target/release/bundle' -Recurse -File -Include *.exe,*.msi | ForEach-Object { $_.FullName })
+          $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if (-not $signtool) { throw 'SignTool is required to verify signed Windows release files.' }
           foreach ($target in $targets) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $target
-            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature for $target: $($signature.Status)" }
+            & $signtool.Source verify /pa /all /tw $target
+            if ($LASTEXITCODE -ne 0) { throw "SignTool verification failed for $target" }
           }
 
       - name: Create Linux detached signatures
@@ -250,10 +252,43 @@ jobs:
           path: desktop/src-tauri/target/release/bundle
           if-no-files-found: error
 
+  production-release-gate:
+    name: Production release signing gate
+    if: github.event_name == 'push' && github.ref_name == 'v0.1.0-beta.4'
+    needs: package
+    runs-on: ubuntu-22.04
+    environment: release-signing
+    steps:
+      - name: Require all protected signing credentials
+        env:
+          WINDOWS_ENABLED: ${{ vars.QWANTO_WINDOWS_SIGNING_ENABLED }}
+          MACOS_ENABLED: ${{ vars.QWANTO_MACOS_NOTARIZATION_ENABLED }}
+          LINUX_ENABLED: ${{ vars.QWANTO_LINUX_SIGNING_ENABLED }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_ENDPOINT: ${{ vars.QWANTO_AZURE_SIGNING_ENDPOINT }}
+          AZURE_ACCOUNT: ${{ vars.QWANTO_AZURE_SIGNING_ACCOUNT }}
+          AZURE_PROFILE: ${{ vars.QWANTO_AZURE_CERTIFICATE_PROFILE }}
+          MAC_CERT: ${{ secrets.MACOS_SIGNING_CERT_P12_B64 }}
+          MAC_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
+          GPG_ID: ${{ vars.GPG_KEY_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$WINDOWS_ENABLED" = true && test -n "$AZURE_CLIENT_ID" && test -n "$AZURE_TENANT_ID" && test -n "$AZURE_SUBSCRIPTION_ID" && test -n "$AZURE_ENDPOINT" && test -n "$AZURE_ACCOUNT" && test -n "$AZURE_PROFILE"
+          test "$MACOS_ENABLED" = true && test -n "$MAC_CERT" && test -n "$MAC_IDENTITY" && test -n "$APPLE_ID" && test -n "$APPLE_TEAM_ID" && test -n "$APPLE_PASSWORD"
+          test "$LINUX_ENABLED" = true && test -n "$GPG_KEY" && test -n "$GPG_ID"
+          echo 'All protected Windows, macOS, and Linux signing credentials are present.'
+
   publish:
     name: Publish GitHub Beta release assets
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: package
+    if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.package.result == 'success' && (github.ref_name != 'v0.1.0-beta.4' || needs.production-release-gate.result == 'success')
+    needs: [package, production-release-gate]
     runs-on: ubuntu-22.04
     environment: release-signing
     permissions:
@@ -297,9 +332,9 @@ jobs:
           done
           notes_file="Qwanto_${TAG}_RELEASE_NOTES.md"
           cat > "$notes_file" <<EOF
-          # Qwanto ${TAG}
+          # Qwanto Code ${TAG}
 
-          Beta release of the local-first Qwanto runtime and shared dashboard.
+          Beta release of Qwanto Code, the local-first runtime and coding agent.
 
           - Windows signing: ${{ vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true' && 'enabled and Authenticode-verified' || 'disabled; packages are unsigned' }}.
           - macOS signing/notarization: ${{ vars.QWANTO_MACOS_NOTARIZATION_ENABLED == 'true' && 'enabled, stapled, and verified' || 'disabled; packages are unsigned and not notarized' }}.
@@ -310,7 +345,7 @@ jobs:
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${assets[@]}" "$checksum_file" --clobber
-            gh release edit "$TAG" --title "Qwanto $TAG" --notes-file "$notes_file" --prerelease
+            gh release edit "$TAG" --title "Qwanto Code $TAG" --notes-file "$notes_file" --prerelease
           else
-            gh release create "$TAG" "${assets[@]}" "$checksum_file" --prerelease --title "Qwanto $TAG" --notes-file "$notes_file"
+            gh release create "$TAG" "${assets[@]}" "$checksum_file" --prerelease --title "Qwanto Code $TAG" --notes-file "$notes_file"
           fi

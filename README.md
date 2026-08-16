@@ -1,4 +1,4 @@
-# Qwanto Native
+# Qwanto Code
 
 [![CI](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml)
 [![Latest beta](https://img.shields.io/github/v/release/SaifHu98/Qwanto?include_prereleases&label=latest%20beta)](https://github.com/SaifHu98/Qwanto/releases)
@@ -8,9 +8,9 @@
 
 > A local-first native runtime, supervised loopback gateway, and OpenCode-style desktop coding agent for validated QWN models.
 
-<p align="center"><img src="assets/brand/qwanto-icon.png" width="96" height="96" alt="Qwanto" /></p>
+<p align="center"><img src="assets/brand/qwanto-icon.png" width="96" height="96" alt="Qwanto Code" /></p>
 
-Qwanto is a Beta local-first AI runtime for running supported dense transformer
+Qwanto Code is a Beta local-first AI runtime for running supported dense transformer
 models through a native C decoder, a supervised loopback OpenAI-compatible
 gateway, a shared React dashboard, and a Tauri desktop coding agent.
 
@@ -28,6 +28,13 @@ Read the status and evidence before relying on a path.
   model validation and user-managed model files.
 - **Approval-gated agent:** the desktop shell can inspect a selected workspace,
   but file writes, commands, and external search require a visible approval.
+- **Desktop coding workspace:** Project, Chats, Files, Changes, and Settings stay
+  focused; local attachments are stored in the workspace with a hard size limit,
+  and unsupported model input types remain explicitly unavailable.
+- **Local feedback:** Diagnostics can create a redacted ZIP for manual GitHub
+  issue or email attachment. Nothing is uploaded or emailed without a user action.
+- **Optional GitHub and internet tools:** external features remain disabled until
+  explicitly enabled and approved; local inference never falls back to cloud AI.
 - **Platform support:** Tauri packaging targets Windows, macOS, and Linux;
   platform packages remain unsigned unless the protected signing gates pass.
 
@@ -86,7 +93,7 @@ tools. Models are never bundled.
 | Native decoder and persistent serve protocol | Beta-supported | C/Python tests and CI |
 | Loopback gateway and OpenAI-compatible API | Beta-supported | `c/tests/` |
 | Shared web dashboard | Beta-supported | `npm run build`, `npm test` |
-| Windows NSIS/MSI, macOS DMG, Linux AppImage/DEB | Package workflow; unsigned unless real signing is configured | `.github/workflows/release.yml` |
+| Windows NSIS/MSI, macOS DMG, Linux AppImage/DEB | Package workflow; Beta4 publish is blocked unless real signing is configured and verified | `.github/workflows/release.yml` |
 | GGUF, Safetensors, PyTorch `.pt`/`.pth`/PyTorch `.bin` | Converter-supported source formats; fixture coverage is conditional | [model acquisition design](docs/model-acquisition-design.md) |
 | ONNX, Keras/H5, arbitrary `.bin` | Unsupported; converter fails fast | [model acquisition design](docs/model-acquisition-design.md) |
 
@@ -226,6 +233,10 @@ CI preserves the Linux Tauri packages (`libwebkit2gtk-4.1-dev`,
 `libsoup-3.0-dev`, and `pkg-config`) and installs NumPy for conversion tests.
 The release workflow packages only after the native resource and web build are
 available.
+
+Qwanto Code uses `assets/brand/qwanto-icon.png` as the approved brand source;
+platform bundle sizes and the web favicon are checked against that mark. The
+desktop title is `Qwanto Code — Local Coding Agent`.
 
 ## Documentation map
 

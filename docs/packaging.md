@@ -6,6 +6,9 @@ builds packages for validation and uploads workflow artifacts. A temporary
 when dispatch is unavailable. A `v*` tag runs
 the same matrix and, only after all package jobs pass, creates or updates a
 GitHub prerelease with the installer assets. The workflow never creates a tag.
+The exact `v0.1.0-beta.4` production publish path additionally requires the
+protected `release-signing` environment and fails closed when any platform
+signing credential is absent.
 
 ## Package contents
 
@@ -44,7 +47,7 @@ the bundle, and runs `git diff --check`. `workflow_dispatch` and
 `package-validation-*` are package validation gates. For a Beta release, wait for that gate to pass, then create a
 version tag such as `v0.1.0-beta.1` and push it; the tag-triggered workflow
 publishes a prerelease only after every Windows, macOS, and Linux package job
-is green.
+is green. Beta4 also requires the production signing gate to pass.
 
 ## Branding
 
@@ -60,7 +63,7 @@ protected variables to opt into real verification:
 
 | Platform | Enable variable | Protected credentials and verification |
 | --- | --- | --- |
-| Windows | `QWANTO_WINDOWS_SIGNING_ENABLED=true` | Azure Artifact Signing OIDC identity, account/profile variables; all staged sidecars and EXE/MSI files receive timestamped Authenticode signatures and `Get-AuthenticodeSignature` must report `Valid`. |
+| Windows | `QWANTO_WINDOWS_SIGNING_ENABLED=true` | Azure Artifact Signing OIDC identity, account/profile variables; all staged sidecars and EXE/MSI files receive timestamped Authenticode signatures and `SignTool verify /pa /all /tw` must pass. |
 | macOS | `QWANTO_MACOS_NOTARIZATION_ENABLED=true` | Developer ID certificate, keychain password, Apple notarization credentials; nested Mach-O files, app, and DMG are signed, submitted, stapled, then checked with `codesign` and `spctl`. |
 | Linux | `QWANTO_LINUX_SIGNING_ENABLED=true` | Protected GPG private key and key ID; AppImage, DEB, and the Linux SHA256SUMS file receive detached ASCII-armored signatures and `gpg --verify` runs in CI. |
 
@@ -68,7 +71,8 @@ The Windows implementation uses the official [Azure Artifact Signing
 Action](https://github.com/Azure/artifact-signing-action). Credentials belong
 only in the protected `release-signing` GitHub Environment. If an enable
 variable is not set to `true`, the package is intentionally unsigned and the
-release notes say so; the workflow never labels it production-ready.
+release notes say so; the Beta4 production publish job fails instead of
+publishing it.
 
 Packages contain the native runtime and gateway sidecar, but no model weights.
 The sidecar is bound to loopback, starts with hidden child-process flags on

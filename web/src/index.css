@@ -549,6 +549,17 @@ code, kbd, samp, pre {
 .desktop-composer { padding: 12px; border: 1px solid #33415b; border-radius: 10px; background: #111827; }
 .desktop-composer textarea { width: 100%; min-height: 86px; border: 0; background: transparent; box-shadow: none; resize: vertical; }
 .desktop-composer-footer { justify-content: space-between; gap: 10px; color: #74829a; font-size: .68rem; }
+.chat-attachment-bar { display: flex; align-items: center; gap: 10px; padding: 8px 0; color: #74829a; font-size: .65rem; }
+.attachment-button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid #33415b; border-radius: 7px; color: #a9f1d9; cursor: pointer; }
+.attachment-button:hover, .attachment-button:focus-within { border-color: #79e6c2; background: #142a27; }
+.attachment-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.chat-attachment-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; padding: 4px 0 10px; }
+.chat-attachment { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px; border: 1px solid #263149; border-radius: 7px; background: #0d141f; }
+.chat-attachment img { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 5px; object-fit: cover; }
+.chat-attachment span { min-width: 0; overflow: hidden; color: #dce7f4; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.chat-attachment small { display: block; color: #74829a; font-size: .6rem; }
+.chat-attachment button { display: inline-grid; place-items: center; margin-left: auto; border: 0; color: #9aa7ba; background: transparent; cursor: pointer; }
+.chat-attachment-note { display: block; margin-top: 6px; color: #f5c777; font-size: .65rem; }
 .desktop-empty-inspector, .desktop-approval-card { display: grid; justify-items: start; gap: 9px; padding: 20px; color: #a9b5c8; font-size: .75rem; }
 .desktop-empty-inspector p, .desktop-approval-card h2 { margin: 0; color: #e8eef8; font-weight: 700; }
 .desktop-empty-inspector span { color: #74819a; line-height: 1.5; }
@@ -577,6 +588,13 @@ code, kbd, samp, pre {
 .settings-card h2 { margin: 0; color: #e9f0fa; font-size: .92rem; }
 .settings-card-header { justify-content: space-between; align-items: flex-start; gap: 12px; }
 .settings-card-note { margin: 12px 0 0; color: #aeb9ca; font-size: .75rem; line-height: 1.5; }
+.settings-success-text { margin: 0; color: #a9f1d9; font-size: .72rem; }
+.feedback-form { display: grid; gap: 12px; }
+.feedback-privacy-preview { padding: 12px; border: 1px solid #33415b; border-radius: 8px; background: #0d141f; }
+.feedback-privacy-preview p { margin: 6px 0 10px; color: #aeb9ca; font-size: .72rem; line-height: 1.5; }
+.github-card { gap: 10px; }
+.button.secondary { display: inline-flex; align-items: center; min-height: 32px; padding: 7px 10px; border: 1px solid #33415b; border-radius: 7px; color: #c9d6e7; background: #172033; font-size: .72rem; text-decoration: none; }
+.button.secondary:hover, .button.secondary:focus-visible { border-color: #79e6c2; color: #a9f1d9; outline: none; }
 .settings-card-meta { gap: 6px; flex-wrap: wrap; margin-top: 12px; color: #8491a7; font-size: .7rem; }
 .settings-card-meta code, .settings-model-location { color: #9fb0c8; font: .68rem ui-monospace, monospace; overflow-wrap: anywhere; }
 .model-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }

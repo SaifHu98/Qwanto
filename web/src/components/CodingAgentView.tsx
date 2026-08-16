@@ -22,7 +22,7 @@ export function CodingAgentView() {
     <div className="p-6 max-w-3xl mx-auto space-y-5">
       <div className="rounded-2xl glass-panel p-5 space-y-2">
         <div className="flex items-center gap-2"><ShieldCheck className="size-5 text-primary" /><h1 className="text-xl font-semibold">Desktop coding agent</h1><Badge>Tauri only</Badge></div>
-        <p className="text-sm text-muted-foreground">The browser dashboard cannot inspect files, run commands, or approve edits. Open Qwanto Desktop to use the native agent boundary.</p>
+        <p className="text-sm text-muted-foreground">The browser dashboard cannot inspect files, run commands, or approve edits. Open Qwanto Code to use the native agent boundary.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-3 text-sm">
         <BoundaryCard icon={<Folder className="size-4" />} title="Workspace" text="Canonical workspace required" />

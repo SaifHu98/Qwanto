@@ -6,6 +6,8 @@ pub mod permission_policy;
 pub mod tool_executor;
 pub mod session_store;
 pub mod project_memory;
+pub mod attachments;
+pub mod diagnostics;
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -20,6 +22,8 @@ use permission_policy::{ExecutionMode, PermissionPolicy};
 use tool_executor::{ToolExecutor, ToolResult};
 use session_store::{AgentSession, SessionStore};
 use project_memory::{ProjectMemory, ProjectMemoryStore};
+use attachments::StoredAttachment;
+use diagnostics::FeedbackBundle;
 
 pub struct AppState {
     pub gateway_manager: Mutex<GatewayManager>,
@@ -238,6 +242,18 @@ fn set_project_memory_enabled(enabled: bool, state: State<AppState>) -> Result<P
     ProjectMemoryStore::save(&root, memory)
 }
 
+#[tauri::command]
+fn store_chat_attachment(name: String, mime: String, bytes: Vec<u8>, state: State<AppState>) -> Result<StoredAttachment, String> {
+    let root = workspace_root(&state)?;
+    attachments::store(&root, &name, &mime, &bytes)
+}
+
+#[tauri::command]
+fn create_feedback_bundle(category: String, description: String, logs: String, screenshot: Option<Vec<u8>>, state: State<AppState>) -> Result<FeedbackBundle, String> {
+    let root = workspace_root(&state)?;
+    diagnostics::create(&root, &category, &description, &logs, screenshot.as_deref())
+}
+
 fn loopback_post_json(api_url: &str, path: &str, payload: serde_json::Value, desktop_search_token: Option<&str>) -> Result<serde_json::Value, String> {
     let authority = api_url
         .strip_prefix("http://")
@@ -378,6 +394,8 @@ pub fn run() {
             clear_project_memory,
             export_project_memory,
             set_project_memory_enabled,
+            store_chat_attachment,
+            create_feedback_bundle,
             web_search
         ])
         .build(tauri::generate_context!())

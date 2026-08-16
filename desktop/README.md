@@ -1,6 +1,6 @@
-# Qwanto desktop shell
+# Qwanto Code desktop shell
 
-Qwanto Desktop is a Tauri v2 application around the shared React UI in
+Qwanto Code is a Tauri v2 application around the shared React UI in
 `../web`. It adds native runtime and approval-gated agent commands through the
 Rust host; it does not create a second frontend.
 

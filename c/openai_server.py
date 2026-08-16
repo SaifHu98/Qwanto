@@ -272,7 +272,7 @@ def _ensure_llama_server(allow_download: bool = False) -> str | None:
     # 4. Detect GPU vendor for optimal backend selection if explicitly allowed
     gpu_vendor = "unknown"
     try:
-        result = subprocess.run(["wmic", "path", "win32_videocontroller", "get", "name"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["wmic", "path", "win32_videocontroller", "get", "name"], capture_output=True, text=True, timeout=5, **_hidden_process_kwargs())
         gpu_name = result.stdout.lower()
         if "nvidia" in gpu_name or "geforce" in gpu_name or "rtx" in gpu_name or "gtx" in gpu_name:
             gpu_vendor = "nvidia"
@@ -386,7 +386,7 @@ def _llama_help(exe) -> str:
         _LLAMA_HELP_CACHE.move_to_end(exe)
         return _LLAMA_HELP_CACHE[exe]
     try:
-        out = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=15)
+        out = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=15, **_hidden_process_kwargs())
         text = (out.stdout or "") + (out.stderr or "")
     except Exception:
         text = ""
@@ -3376,7 +3376,7 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
                     print(f"Warning: Could not start Ollama: {e}", file=sys.stderr)
             print(f"Ensuring Ollama model '{model}' is available...", file=sys.stderr)
             try:
-                subprocess.run(["ollama", "pull", model], check=True)
+                subprocess.run(["ollama", "pull", model], check=True, **_hidden_process_kwargs())
             except Exception as e:
                 print(f"Warning: 'ollama pull' failed: {e}", file=sys.stderr)
             

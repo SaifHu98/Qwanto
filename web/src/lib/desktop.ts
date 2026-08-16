@@ -4,6 +4,23 @@ export interface DesktopGatewayStatus {
   port: number | null
   error: string | null
   sidecar_packaged: boolean
+  ready_elapsed_ms?: number | null
+}
+
+export interface StoredAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  relative_path: string
+  previewable: boolean
+}
+
+export interface FeedbackBundle {
+  relative_path: string
+  category: string
+  includes_logs: boolean
+  includes_screenshot: boolean
 }
 
 export interface DesktopModelInfo {
@@ -86,6 +103,6 @@ export function tauriAvailable(): boolean {
 
 export async function desktopInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const api = internals()
-  if (!api) throw new Error("This action is available in Qwanto Desktop only.")
+  if (!api) throw new Error("This action is available in Qwanto Code only.")
   return api.invoke<T>(command, args)
 }

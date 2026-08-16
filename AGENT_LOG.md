@@ -249,3 +249,11 @@
 - **Change:** Added protected Windows Authenticode, macOS Developer ID/notarization, and Linux detached GPG release gates; added truthful signing status to release notes and README engine/performance evidence sections.
 - **Validation:** Decoder `2 passed`; full Python suite `203 passed, 14 skipped` including the desktop search-boundary test; web build passed; Vitest `50 passed`; documentation links and brand checks passed. `cargo check`, `cargo test`, and `cargo clippy -D warnings` were run in order but are blocked because Cargo is not installed locally.
 - **Decision:** Do not tag or publish Beta.4 until hosted Rust/package checks pass and signing status is configured and verified; Beta.3 remains unchanged.
+
+## 2026-08-17 — Qwanto Code product and local feedback follow-up
+
+- **Change:** Renamed end-user surfaces to Qwanto Code, deferred model inventory until Settings/Models is opened, and exposed measured gateway readiness timing.
+- **Change:** Added workspace-safe chat attachment storage with 10 MiB limits and explicit unsupported-runtime messaging; added redacted local feedback ZIP creation with manual GitHub/email handoff.
+- **Change:** Changed the Beta4 release workflow so the production publish job cannot run without protected signing credentials and SignTool verification.
+- **Validation:** Web build, Vitest, brand verification, documentation links, workflow YAML parsing, and `git diff --check` passed. Rust and hosted CI/package checks remain pending because local Cargo/GitHub CLI and signing credentials are unavailable.
+- **Decision:** Do not tag, push, or publish Beta4 until hosted CI and the protected signing gate succeed; Beta3 remains unchanged.

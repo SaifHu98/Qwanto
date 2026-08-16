@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, mpsc};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -40,6 +40,7 @@ pub struct GatewayStatus {
     pub port: Option<u16>,
     pub error: Option<String>,
     pub sidecar_packaged: bool,
+    pub ready_elapsed_ms: Option<u64>,
 }
 
 pub fn parse_ready_line(line: &str) -> Result<GatewayReady, String> {
@@ -64,6 +65,7 @@ pub struct GatewayManager {
     resource_dir: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     desktop_search_token: Option<String>,
+    started_at: Option<Instant>,
     stderr_lines: Arc<std::sync::Mutex<VecDeque<String>>>,
 }
 
@@ -77,10 +79,12 @@ impl GatewayManager {
                 port: None,
                 error: None,
                 sidecar_packaged: false,
+                ready_elapsed_ms: None,
             },
             resource_dir: None,
             data_dir: None,
             desktop_search_token: None,
+            started_at: None,
             stderr_lines: Arc::new(std::sync::Mutex::new(VecDeque::new())),
         }
     }
@@ -143,7 +147,9 @@ impl GatewayManager {
             port: None,
             error: None,
             sidecar_packaged: false,
+            ready_elapsed_ms: None,
         };
+        self.started_at = Some(Instant::now());
 
         let model_root = data_dir.join("models");
         fs::create_dir_all(&model_root).map_err(|error| self.fail(format!("Cannot create model directory: {error}")))?;
@@ -235,6 +241,7 @@ impl GatewayManager {
             port: Some(ready.port),
             error: None,
             sidecar_packaged: packaged.is_some(),
+            ready_elapsed_ms: self.started_at.map(|started| started.elapsed().as_millis() as u64),
         };
         Ok(self.status.clone())
     }
@@ -278,6 +285,8 @@ impl GatewayManager {
         self.status.state = "stopped".into();
         self.status.api_url = None;
         self.status.port = None;
+        self.status.ready_elapsed_ms = None;
+        self.started_at = None;
     }
 
     pub fn restart(&mut self) -> Result<GatewayStatus, String> {

@@ -58,3 +58,12 @@ conventions, decisions, and task checkpoints. The desktop session store keeps
 redacted local checkpoints so an interrupted conversation can be resumed from
 the Project view. Both stores are local-only and can be edited, exported,
 cleared, or disabled; neither is uploaded as an inference fallback.
+
+Chat attachments are stored at `.qwanto/attachments/` only after a workspace is
+open. The host enforces a 10 MiB per-file limit and sanitizes filenames. The
+current native runtime reports no file or image input capability, so attachments
+remain local and are not sent to inference.
+
+Diagnostics feedback is a local redacted ZIP under `.qwanto/diagnostics/`. The
+user must explicitly open the generated GitHub issue or email draft and attach
+the ZIP manually. Qwanto Code never uploads logs or sends email silently.
