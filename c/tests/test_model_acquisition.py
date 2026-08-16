@@ -28,6 +28,7 @@ PAYLOAD = b"GGUF" + bytes(range(256)) * 64
 class RangeHandler(http.server.BaseHTTPRequestHandler):
     payload = PAYLOAD
     slow = False
+    started = threading.Event()
 
     def do_GET(self):
         start = 0
@@ -45,11 +46,13 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Accept-Ranges", "bytes")
         self.end_headers()
+        if self.slow:
+            self.started.set()
         for offset in range(start, end + 1, 4096):
             self.wfile.write(self.payload[offset:min(offset + 4096, end + 1)])
             self.wfile.flush()
             if self.slow:
-                time.sleep(0.002)
+                time.sleep(0.02)
 
     def log_message(self, *_args):
         return
@@ -136,6 +139,7 @@ class ModelAcquisitionTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             RangeHandler.slow = True
+            RangeHandler.started.clear()
             try:
                 manifest = DirectHttpsProvider.manifest(
                     self.url, allowed_hosts={"127.0.0.1"}, allow_localhost_http=True,
@@ -143,7 +147,7 @@ class ModelAcquisitionTests(unittest.TestCase):
                 )
                 manager = SafeDownloadManager(root, max_bytes=len(PAYLOAD) + 1024)
                 manager.start_download(manifest, allow_localhost_http=True)
-                time.sleep(0.01)
+                self.assertTrue(RangeHandler.started.wait(1))
                 manager.cancel()
                 manager.thread.join(timeout=5)
                 self.assertEqual(manager.get_status()["status"], "error")

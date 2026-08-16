@@ -179,3 +179,8 @@
 
 - **Change:** Removed the inactive unsafe downloader, made explicit overwrite atomic, and removed corrupt checksum-failure partials; retained honest Tauri qwnrun-only capability boundaries.
 - **Validation:** Decoder `2 passed`; Python suite `200 passed, 14 skipped`; web build and `35` Vitest tests passed; Cargo check/test/clippy were attempted but Cargo is unavailable on this workstation.
+
+## 2026-08-16 — CI cancellation-fixture stabilization
+
+- **Change:** Replaced timing-based download-cancellation coverage with an explicit loopback-server start event and deterministic throttling after Actions exposed a fast-runner race.
+- **Validation:** Targeted acquisition tests `6 passed`; full Python suite `200 passed, 14 skipped` locally.
