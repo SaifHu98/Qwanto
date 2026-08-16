@@ -148,6 +148,12 @@
 - **Validation:** decoder `2 passed`; Python suite `194 passed, 14 skipped`; web build passed; Vitest `34 passed`; Rust commands were unavailable because Cargo is not installed. Rebuilt local Windows qwnrun and recorded a real `MEASURED` evidence artifact.
 - **Decision:** Do not create a release tag or GitHub Release; fresh CI and cross-platform package runs remain required before release readiness.
 
+## 2026-08-16 — Tauri CI resource staging follow-up
+
+- **Change:** Run #108 exposed that Tauri validates configured resources during ordinary Rust checks; the Rust CI job now builds and stages the target-native `qwnrun` resource on Linux and Windows before Cargo runs.
+- **Files:** `.github/workflows/ci.yml`.
+- **Validation:** Run #109 (`de15e65`) passed all native C, Python 3.11/3.12, Rust/Tauri Linux/Windows, web, and security jobs.
+
 ## 2026-08-15 — Next-Generation Qwanto Core Engine Delivery (10x Speed / 5x Resource Reduction)
 - **Next-Gen Architecture & Subsystems**:
   - **TWLA 1.58-Bit Weights (`c/qwanto_twla.c/h`)**: Post-training ternary weight packing in 66-byte blocks (2.0625 bpw / 1.58 bpw payload) + vectorized AVX2/AVX-512 in-register ternary dot-product kernels (<1.2 GB RAM target).
