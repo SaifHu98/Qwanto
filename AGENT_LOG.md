@@ -235,3 +235,9 @@
 - **Change:** Corrected the Tauri 2 shutdown callback from `Builder::run(callback)` to `build(generate_context!).run(callback)` in `desktop/src-tauri/src/lib.rs`.
 - **Validation:** Hosted CI run `31966186386` passed native C on Ubuntu/Windows, web, security, and Rust/Tauri check, test, and clippy gates. Local Cargo commands remain unavailable because Cargo is not installed.
 - **Decision:** Proceed to Beta.3 package validation; no model files or warning suppression were added.
+
+## 2026-08-16 — Beta.3 publication
+
+- **Change:** Published the annotated `v0.1.0-beta.3` GitHub prerelease with target-native installers and the generated SHA-256 manifest; the obsolete PNG asset is no longer uploaded.
+- **Validation:** Package/publish workflow run `31966709143` passed on Ubuntu, macOS, and Windows. The public release is non-draft/prerelease and exposes five installers plus `Qwanto_v0.1.0-beta.3_SHA256SUMS.txt`.
+- **Decision:** Keep the release unsigned and without notarization or bundled model weights; macOS signing/notarization remains a separate maintainer credential gate.

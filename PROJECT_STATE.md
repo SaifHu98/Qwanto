@@ -39,10 +39,11 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   hosted CI remains authoritative for Rust and cross-platform packaging. CI
   run `31966186386` passed native, web, security, Rust check/test/clippy, and
   changed-area gates.
-- Release status: `v0.1.0-beta.1` and `v0.1.0-beta.2` are published GitHub
-  prereleases and must remain unchanged. Beta.3 hosted CI is green; package
-  validation remains the release gate. The release publisher emits installer
-  SHA-256 checksums and factual unsigned/no-model release notes.
+- Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, and `v0.1.0-beta.3` are
+  published GitHub prereleases and must remain unchanged. Beta.3 hosted CI run
+  `31966186386` and package/publish run `31966709143` passed. The public
+  release contains five target-native installers, an installer SHA-256
+  manifest, and factual unsigned/no-model release notes.
 
 ## Active limitations
 
