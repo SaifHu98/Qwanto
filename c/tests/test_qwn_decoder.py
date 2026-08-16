@@ -99,9 +99,18 @@ class NativeDecoderTest(unittest.TestCase):
         cmd=[clang,"-std=c11","-O2","-D_CRT_SECURE_NO_WARNINGS","-Wno-unused-function",
              str(main),str(HERE/"qwanto_decode.c"),str(HERE/"qwanto_native.c"),
              str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwanto_thinking.c"),str(HERE/"qwanto_speculative.c"),str(HERE/"qwanto_agentic.c"),str(HERE/"qwanto_autopilot.c"),str(HERE/"qwanto_gpu.c"),str(HERE/"qwanto_bitdecoding.c"),str(HERE/"qwanto_jetspec.c"),str(HERE/"qwanto_talon.c"),str(HERE/"qwanto_sliminfer.c"),str(HERE/"qwanto_pquant.c"),str(HERE/"qwanto_littlebit.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
+        if sys.platform == "linux":
+            cmd.append("-fopenmp")
         if os.name != "nt":
             cmd.extend(["-lm", "-lpthread", "-ldl"])
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise AssertionError(
+                "Native decoder compilation failed.\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"stdout:\n{result.stdout}\n"
+                f"stderr:\n{result.stderr}"
+            )
 
     def run_native(self, command):
         try:

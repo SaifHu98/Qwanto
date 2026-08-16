@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
@@ -360,7 +360,7 @@ impl QwantoRuntimeManager {
                             }
                             ProtocolFrame::Token { request_id, token } => {
                                 let mut track = tracking_clone.lock().unwrap();
-                                if let Some((_start, ref mut first)) = track.get_mut(&request_id) {
+                                if let Some((_start, first)) = track.get_mut(&request_id) {
                                     if first.is_none() {
                                         *first = Some(Instant::now());
                                     }
