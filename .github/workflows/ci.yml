@@ -32,7 +32,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cd c
-          cl /O2 /W4 /D_CRT_SECURE_NO_WARNINGS /Fe:qwnrun.exe qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c /link /out:qwnrun.exe psapi.lib
+          cl /O2 /W3 /D_CRT_SECURE_NO_WARNINGS /Fe:qwnrun.exe qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c psapi.lib
 
   rust-tauri-host:
     name: Rust Tauri Host (${{ matrix.os }})

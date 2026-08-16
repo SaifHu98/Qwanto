@@ -92,13 +92,16 @@ ARCH   ?= native
 CFLAGS  = -O3 -mcpu=$(ARCH) -fopenmp -pthread -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
 LDFLAGS = -lm -fopenmp -pthread
 EXE     =
+else ifneq (,$(AARCH64))
+# --- Linux / *BSD ARM64 ---
+CC      = gcc
+ARCH   ?= native
+CFLAGS  = -O3 -march=$(ARCH) -funroll-loops -flto -fopenmp -pthread -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+LDFLAGS = -lm -flto -fopenmp -pthread
+EXE     =
 else
 # --- Linux / *BSD x86-64 (percorso originale, invariato) ---
 CC      = gcc
-# ARCH=native -> ottimizzato per QUESTA macchina (default, piu' veloce).
-# ARCH=x86-64-v3 -> binario PORTABILE su qualsiasi x86-64 moderno con AVX2 (per distribuire).
-# ARCH=x86-64 -> massima compatibilita' (niente AVX2: usa il path scalare di fallback).
-# -pthread: Linux lo tira dentro via -fopenmp, i *BSD no e le pthread_* non risolvono (#219).
 ARCH   ?= native
 CFLAGS  = -O3 -march=$(ARCH) -mavx2 -mfma -funroll-loops -flto -fopenmp -pthread -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
 LDFLAGS = -lm -flto -fopenmp -pthread
