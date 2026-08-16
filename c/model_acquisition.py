@@ -491,8 +491,8 @@ class SafeDownloadManager:
                 time.sleep(0.2 * (attempt + 1))
 
 
-def validate_qwn(path: Path | str) -> dict:
-    """Validate QWN header, descriptor bounds, alignment, and output hash."""
+def validate_qwn(path: Path | str, *, include_hash: bool = True) -> dict:
+    """Validate QWN header, descriptor bounds, alignment, and optional hash."""
     from tools import qwn_convert
 
     target = Path(path)
@@ -509,7 +509,12 @@ def validate_qwn(path: Path | str) -> dict:
             raise AcquisitionError(f"QWN tensor is not aligned: {tensor['name']}")
         if tensor["byte_offset"] < qwn_convert.HEADER_SIZE or tensor["byte_offset"] + tensor["byte_size"] > file_size:
             raise AcquisitionError(f"QWN tensor is outside the file: {tensor['name']}")
-    return {"format": "qwn", "size_bytes": file_size, "sha256": sha256_file(target), "info": info}
+    return {
+        "format": "qwn",
+        "size_bytes": file_size,
+        "sha256": sha256_file(target) if include_hash else None,
+        "info": info,
+    }
 
 
 def native_smoke_test(path: Path | str, executable: Optional[Path | str]) -> dict:

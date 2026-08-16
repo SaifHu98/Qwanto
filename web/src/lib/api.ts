@@ -43,6 +43,15 @@ export interface HwinfoHealth {
 
 export interface HealthResponse {
   status: string
+  gateway?: string
+  api_version?: string
+  gateway_version?: string
+  endpoints?: {
+    health: string
+    models: string
+    config: string
+    telemetry: string
+  }
   scheduler?: SchedulerHealth
   kv_slots?: number
   tiers?: TiersHealth
@@ -192,7 +201,8 @@ export async function streamChat(options: StreamChatOptions): Promise<StreamChat
 }
 
 export interface QwantoConfig {
-  model_id: string
+  schema_version?: string
+  model_id: string | null
   model_path: string
   backend: string
   proxy_url: string | null
@@ -218,11 +228,29 @@ export interface DiscoveredModel {
   name: string
   path: string
   type: "native" | "gguf" | "qwn" | string
+  compatibility_state?: string
+  qwn_validation?: { status: string; reason?: string }
+  supported_by_qwnrun?: boolean
+  hardware_fit?: { status: string; reason?: string; available_ram_bytes?: number; available_disk_bytes?: number }
+  quantization?: string
+  n_tensors?: number | null
+  arch_dims?: number[] | null
+  recommended?: boolean
+  recommendation_reason?: string
 }
 
 export interface ModelPathsResponse {
+  schema_version?: string
   models: DiscoveredModel[]
   search_paths: string[]
+  recommendation?: {
+    model: DiscoveredModel | null
+    reason: string
+    evidence_source?: string | null
+    measured_throughput_tok_s?: number | null
+    measured_ttft_ms?: number | null
+    selection_basis?: string
+  }
 }
 
 export interface ResourceLimits {

@@ -3,18 +3,26 @@ import { ShieldCheck, Lock, ShieldAlert, KeyRound, CheckCircle2, AlertTriangle, 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getSecurityReport, type SecurityReport } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface SecurityViewProps {
   baseUrl: string
   apiKey: string
+  gatewayReady: boolean
 }
 
-export function SecurityView({ baseUrl, apiKey }: SecurityViewProps) {
+export function SecurityView({ baseUrl, apiKey, gatewayReady }: SecurityViewProps) {
   const [data, setData] = useState<SecurityReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   const loadSecurity = async () => {
+    if (!gatewayReady) {
+      setData(null)
+      setError("Connect to the Qwanto gateway before running the security audit.")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError("")
     try {
@@ -29,7 +37,7 @@ export function SecurityView({ baseUrl, apiKey }: SecurityViewProps) {
 
   useEffect(() => {
     loadSecurity()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, gatewayReady])
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -42,7 +50,7 @@ export function SecurityView({ baseUrl, apiKey }: SecurityViewProps) {
             Proactive security posture verification, path traversal isolation, and API protection controls.
           </p>
         </div>
-        <Button size="sm" variant="secondary" onClick={loadSecurity}>
+        <Button size="sm" variant="secondary" onClick={loadSecurity} disabled={loading || !gatewayReady}>
           <RefreshCw className={`size-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Run Audit
         </Button>
       </div>
@@ -52,6 +60,8 @@ export function SecurityView({ baseUrl, apiKey }: SecurityViewProps) {
           {error}
         </div>
       )}
+
+      {!gatewayReady && <GatewayRequired message="Security checks remain local and are requested only after gateway health succeeds." />}
 
       {loading ? (
         <div className="text-center py-12 text-muted-foreground text-sm">Auditing server security settings...</div>

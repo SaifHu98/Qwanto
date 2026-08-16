@@ -1,5 +1,11 @@
 # Qwanto Native
 
+[![CI](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SaifHu98/Qwanto/actions/workflows/ci.yml)
+[![Latest beta](https://img.shields.io/github/v/release/SaifHu98/Qwanto?include_prereleases&label=latest%20beta)](https://github.com/SaifHu98/Qwanto/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+> A local-first native runtime for validated QWN models, a persistent OpenAI-compatible gateway, and one shared dashboard.
+
 Qwanto is a Beta local-first AI runtime for running supported dense transformer
 models through a native C decoder, a loopback OpenAI-compatible gateway, a
 shared React dashboard, and an optional Tauri desktop host.
@@ -7,6 +13,26 @@ shared React dashboard, and an optional Tauri desktop host.
 The repository is engineering-complete for its tested paths, but it is not a
 promise that every model, GPU backend, sensor, or platform is production-ready.
 Read the status and evidence before relying on a path.
+
+## Why Qwanto
+
+Qwanto keeps model execution on the user’s machine. The native runtime reads a
+validated `.qwn` container through the project’s VRAM → RAM → NVMe tiered
+memory design, while the Python gateway exposes a familiar local API and the
+React dashboard reports the gateway’s actual state. The Tauri desktop shell
+packages the UI and target-native `qwnrun`; it does not bundle model weights or
+silently start a Python service.
+
+### User stories
+
+- As a local developer, I can start a gateway and use `/v1/chat/completions`
+  from the dashboard or another OpenAI-compatible client.
+- As a model owner, I can import a supported local checkpoint, convert it to
+  `.qwn`, validate it, and see why a native model is or is not selectable.
+- As a performance engineer, I can inspect measured benchmark evidence tied to
+  a model and runtime hash without seeing fabricated TTFT or throughput.
+- As a desktop user, I can use the shared web experience with approval-gated
+  native commands while model files remain user-managed.
 
 ## Architecture
 
@@ -41,17 +67,28 @@ Install Python test dependencies and native tools appropriate to your platform.
 ```sh
 python -m pip install pytest numpy
 make -C c qwnrun
-python c/coli web --model path/to/model.qwn
 ```
 
-The gateway defaults to `http://127.0.0.1:8000`. Open the gateway-served UI
-when `web/dist` exists, or run the development UI separately:
+Run the gateway and development UI in separate terminals. The UI base URL is
+`http://127.0.0.1:8000/v1`; health is probed at the gateway root
+`http://127.0.0.1:8000/health`.
+
+Terminal 1 — local gateway:
+
+```sh
+python c/coli web --model path/to/model.qwn --host 127.0.0.1 --port 8000 --no-browser
+```
+
+Terminal 2 — web dashboard:
 
 ```sh
 cd web
 npm ci
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
+
+The gateway-served UI is also available after `npm run build`; the web server
+on port 5173 is only a frontend development server, not the API gateway.
 
 For the desktop shell, stage the target-native runtime first:
 
@@ -81,6 +118,13 @@ preflight, and atomic publication. The packaged Tauri Beta contains qwnrun only;
 its converter and downloader are honestly disabled until a gateway sidecar is
 packaged and supervised.
 
+Model selection never trusts a filename. The dashboard prefers an explicit,
+validated, hardware-fit `.qwn`, then a recommendation backed by local measured
+evidence. A Qwen3.8-27B hyper QWN is eligible only if that actual file exists,
+passes QWN validation, is supported by the available qwnrun, and fits the host;
+otherwise the UI leaves the model unselected. GGUF and source checkpoints are
+conversion inputs or external-runtime artifacts, not native QWN selections.
+
 ## Benchmark evidence
 
 Run a real local benchmark; do not copy values from another host:
@@ -106,6 +150,20 @@ See [docs/benchmark-methodology.md](docs/benchmark-methodology.md) and
 [docs/model-manifest.json](docs/model-manifest.json). The repository does not
 ship a universal hardware profile or fallback tok/s value.
 
+### Verified local evidence
+
+The following is one measured Windows run stored in
+`benchmark_evidence.json`; it is not a promise for other hosts or models.
+
+| Classification | Model | Runtime | Tokens | Wall time | Throughput | TTFT |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| `MEASURED` | `experiments/results/4B_hyper_vsq2.qwn` | `c/qwnrun.exe` | 64 | 8.952839 s | 7.148571 tok/s | Unavailable |
+
+The model and runtime SHA-256 values are recorded in the evidence artifact.
+VRAM allocation and NVMe bandwidth were unavailable in this run. External
+GGUF/provider entries and future optimizations remain separately labeled as
+experimental or unavailable until a reproducible local measurement exists.
+
 ## Security and local-only behavior
 
 - The gateway binds to loopback by default and preserves security headers.
@@ -123,6 +181,7 @@ Read [docs/security-model.md](docs/security-model.md) and
 
 ```sh
 python -m pytest c/tests/ -q
+python c/tools/check_doc_links.py
 make -C c test-c
 cargo check --manifest-path desktop/src-tauri/Cargo.toml
 cargo test --manifest-path desktop/src-tauri/Cargo.toml
@@ -144,7 +203,10 @@ available.
 - [Security model](docs/security-model.md)
 - [Packaging](docs/packaging.md)
 - [Model acquisition design](docs/model-acquisition-design.md)
+- [API and gateway contract](docs/api.md)
+- [Conversion and acquisition guide](docs/conversion.md)
 - [Benchmark methodology](docs/benchmark-methodology.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Release engineering plan](docs/release-engineering-plan.md)
 - [Release readiness](RELEASE_READINESS.md)
 

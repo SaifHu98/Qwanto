@@ -29,6 +29,7 @@ import {
   type DiscoveredModel,
   loadModel
 } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface ConverterViewProps {
   baseUrl: string
@@ -36,6 +37,7 @@ interface ConverterViewProps {
   onModelLoaded?: (modelPath: string) => void
   onNavigateToChat?: () => void
   desktopShell?: boolean
+  gatewayReady: boolean
 }
 
 export function ConverterView({
@@ -43,7 +45,8 @@ export function ConverterView({
   apiKey,
   onModelLoaded,
   onNavigateToChat,
-  desktopShell = false
+  desktopShell = false,
+  gatewayReady
 }: ConverterViewProps) {
   const [sourcePath, setSourcePath] = useState("")
   const [outputPath, setOutputPath] = useState("")
@@ -61,7 +64,7 @@ export function ConverterView({
   const autoActivatedRef = useRef(false)
 
   const refreshDiscoveredModels = async () => {
-    if (desktopShell) return
+    if (desktopShell || !gatewayReady) return
     setLoadingModels(true)
     try {
       const data = await listDiscoveredModels(baseUrl, apiKey)
@@ -74,13 +77,13 @@ export function ConverterView({
   }
 
   useEffect(() => {
-    if (desktopShell) return
+    if (desktopShell || !gatewayReady) return
     refreshDiscoveredModels()
-  }, [baseUrl, apiKey, desktopShell])
+  }, [baseUrl, apiKey, desktopShell, gatewayReady])
 
   // Poll conversion status when active and handle auto-activation
   useEffect(() => {
-    if (desktopShell) return
+    if (desktopShell || !gatewayReady) return
     let timer: any
     const poll = async () => {
       try {
@@ -98,7 +101,7 @@ export function ConverterView({
     }
     poll()
     return () => clearTimeout(timer)
-  }, [baseUrl, apiKey, status.status, autoActivate, outputPath, desktopShell])
+  }, [baseUrl, apiKey, status.status, autoActivate, outputPath, desktopShell, gatewayReady])
 
   const handleSelectModel = (model: DiscoveredModel) => {
     setSourcePath(model.path)
@@ -109,6 +112,10 @@ export function ConverterView({
   }
 
   const handleStartConversion = async () => {
+    if (!gatewayReady) {
+      setError("Connect to the Qwanto gateway before starting a conversion.")
+      return
+    }
     if (!sourcePath.trim()) {
       setError("Please select or enter a source model path.")
       return
@@ -128,6 +135,10 @@ export function ConverterView({
   }
 
   const handleLoadConvertedModel = async (targetPath?: string) => {
+    if (!gatewayReady) {
+      setError("Connect to the Qwanto gateway before loading a converted model.")
+      return
+    }
     const targetModel = targetPath || status.output || outputPath
     if (!targetModel) return
     setLoadingAction(true)
@@ -186,13 +197,10 @@ export function ConverterView({
         </div>
         <div className="flex items-center gap-2">
           <Badge className="bg-primary/20 text-primary border-primary/40 text-xs">
-            <Sparkles className="size-3 mr-1" /> SIMD Vectorized
+            <Sparkles className="size-3 mr-1" /> Native QWN output
           </Badge>
           <Badge className="bg-emerald-950/80 text-emerald-300 border-emerald-800/60 text-xs">
-            4KiB NVMe Paged
-          </Badge>
-          <Badge className="bg-blue-950/80 text-blue-300 border-blue-800/60 text-xs">
-            Zero RAM Bloat
+            4KiB aligned container
           </Badge>
         </div>
       </div>
@@ -367,7 +375,7 @@ export function ConverterView({
                 >
                   <div className="font-semibold text-xs flex items-center justify-between">
                     <span>Q4_0 SIMD</span>
-                    <Badge className="text-[9px] bg-muted text-muted-foreground">~75%</Badge>
+                    <Badge className="text-[9px] bg-muted text-muted-foreground">Native</Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
                     Standard 32-element block with FP16 scale.
@@ -401,59 +409,9 @@ export function ConverterView({
                   <span className="font-medium text-foreground flex items-center gap-1.5">
                     <TrendingDown className="size-3.5 text-primary" /> Memory & Storage Efficiency
                   </span>
-                  <span className="text-emerald-400 font-semibold font-mono text-[11px]">
-                    {quantMode === "hyper_vsq"
-                      ? "~87% - 90% Compression (HyperVSQ Flagship)"
-                      : quantMode === "vsq_ultra"
-                      ? "~82% - 85% Compression (VSQ-Ultra)"
-                      : quantMode === "vsq"
-                      ? "~78% - 82% Compression (QWN-VSQ)"
-                      : "~71% - 75% Compression (Q4_0)"}
-                  </span>
+                  <span className="text-muted-foreground font-mono text-[11px]">Measured after conversion</span>
                 </div>
-                <div className="w-full bg-muted/60 rounded-full h-2 overflow-hidden flex">
-                  <div
-                    className="bg-primary h-full"
-                    style={{
-                      width:
-                        quantMode === "hyper_vsq"
-                          ? "13%"
-                          : quantMode === "vsq_ultra"
-                          ? "18%"
-                          : quantMode === "vsq"
-                          ? "20%"
-                          : "27%"
-                    }}
-                    title="Compressed Size"
-                  />
-                  <div
-                    className="bg-muted-foreground/30 h-full"
-                    style={{
-                      width:
-                        quantMode === "hyper_vsq"
-                          ? "87%"
-                          : quantMode === "vsq_ultra"
-                          ? "82%"
-                          : quantMode === "vsq"
-                          ? "80%"
-                          : "73%"
-                    }}
-                    title="Saved Space"
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
-                  <span>
-                    Target:{" "}
-                    {quantMode === "hyper_vsq"
-                      ? "HyperVSQ Container (~13% size)"
-                      : quantMode === "vsq_ultra"
-                      ? "VSQ-Ultra Container (~18% size)"
-                      : quantMode === "vsq"
-                      ? "QWN-VSQ Container (~20% size)"
-                      : "Q4_0 Container (~27% size)"}
-                  </span>
-                  <span>Uncompressed Baseline (100%)</span>
-                </div>
+                <p className="text-xs text-muted-foreground">The gateway reports the validated output path and status. Size and conversion throughput are not estimated in advance.</p>
               </div>
             )}
 

@@ -3,22 +3,30 @@ import { Activity, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getTelemetry, type TelemetryData } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface TelemetryViewProps {
   baseUrl: string
   apiKey: string
+  gatewayReady: boolean
 }
 
 function value(value: unknown): string {
   return value === null || value === undefined || value === "" ? "Unavailable" : String(value)
 }
 
-export function TelemetryView({ baseUrl, apiKey }: TelemetryViewProps) {
+export function TelemetryView({ baseUrl, apiKey, gatewayReady }: TelemetryViewProps) {
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   const refresh = async () => {
+    if (!gatewayReady) {
+      setTelemetry(null)
+      setError("Connect to the Qwanto gateway before requesting telemetry.")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       setTelemetry(await getTelemetry(baseUrl, apiKey))
@@ -32,7 +40,7 @@ export function TelemetryView({ baseUrl, apiKey }: TelemetryViewProps) {
 
   useEffect(() => {
     void refresh()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, gatewayReady])
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -41,9 +49,10 @@ export function TelemetryView({ baseUrl, apiKey }: TelemetryViewProps) {
           <h1 className="text-2xl font-black flex items-center gap-2"><Activity className="size-6 text-primary" /> Gateway telemetry</h1>
           <p className="text-sm text-muted-foreground mt-1">Only counters and hardware fields returned by the connected gateway are shown.</p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => void refresh()} disabled={loading}><RefreshCw className={`size-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh</Button>
+        <Button size="sm" variant="secondary" onClick={() => void refresh()} disabled={loading || !gatewayReady}><RefreshCw className={`size-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh</Button>
       </div>
       {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">{error}</div>}
+      {!gatewayReady && <GatewayRequired message="Telemetry is requested only after the gateway health check succeeds." />}
       {telemetry && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

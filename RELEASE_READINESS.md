@@ -1,10 +1,10 @@
 # Release readiness
 
-## Status: Not Release Ready
+## Status: Beta 2 gates in progress
 
-This working tree contains the Beta release-engineering changes, but the new
-documentation, benchmark, web, and packaging paths require a fresh CI run.
-The previous CI run predates these changes and is not evidence for this tree.
+`v0.1.0-beta.1` is an existing release and remains unchanged. This working
+tree targets `v0.1.0-beta.2`; a fresh local and hosted validation run is
+required before publishing it.
 
 ## Gates
 
@@ -18,8 +18,9 @@ The previous CI run predates these changes and is not evidence for this tree.
 | Linux AppImage/deb | Pending tag workflow run | uploaded package artifacts |
 | macOS DMG | Pending tag workflow run and target review | uploaded package artifact |
 | No model files in packages | Workflow assertion added | package verification step |
+| Documentation links | Pending fresh CI | `python c/tools/check_doc_links.py` |
 | Native benchmark evidence | Host-dependent | `benchmark_evidence.json` with `MEASURED` classification |
 
-Do not create a tag or publish a release until the fresh CI run is green and
-the target package artifacts have been inspected. Missing model fixtures may
-remain skipped only when absent; a present fixture must run.
+Do not create the beta.2 tag or publish until the fresh CI run is green and the
+target package artifacts have been inspected. Missing model fixtures may remain
+skipped only when absent; a present fixture must run.

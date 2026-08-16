@@ -3,10 +3,12 @@ import { BarChart3, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getBenchmarks, type BenchmarkEvidence, type BenchmarkReport } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface BenchmarksViewProps {
   baseUrl: string
   apiKey: string
+  gatewayReady: boolean
 }
 
 function displayValue(value: unknown): string {
@@ -45,7 +47,7 @@ function EvidenceCard({ evidence }: { evidence: BenchmarkEvidence }) {
           <Metric label="Generated tokens" value={displayValue(measured.generated_tokens)} />
           <Metric label="Wall seconds" value={displayValue(measured.wall_seconds)} />
           <Metric label="Throughput" value={`${displayValue(measured.tok_per_sec)} tok/s`} />
-          <Metric label="TTFT" value={measured.ttft_ms == null ? "Unavailable" : `${measured.ttft_ms} ms`} />
+          <Metric label="TTFT" value={measured.ttft_ms == null || measured.ttft_ms <= 0 ? "Unavailable" : `${measured.ttft_ms} ms`} />
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">No measured throughput is available for this run.</p>
@@ -83,12 +85,18 @@ function FactGroup({ title, values }: { title: string; values: Record<string, un
   )
 }
 
-export function BenchmarksView({ baseUrl, apiKey }: BenchmarksViewProps) {
+export function BenchmarksView({ baseUrl, apiKey, gatewayReady }: BenchmarksViewProps) {
   const [data, setData] = useState<BenchmarkReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   const loadData = async () => {
+    if (!gatewayReady) {
+      setData(null)
+      setError("Connect to the Qwanto gateway before requesting benchmark evidence.")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError("")
     try {
@@ -102,7 +110,7 @@ export function BenchmarksView({ baseUrl, apiKey }: BenchmarksViewProps) {
 
   useEffect(() => {
     void loadData()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, gatewayReady])
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -115,12 +123,13 @@ export function BenchmarksView({ baseUrl, apiKey }: BenchmarksViewProps) {
             Values appear only when the connected gateway exposes a real local qwnrun evidence artifact.
           </p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => void loadData()} disabled={loading}>
+        <Button size="sm" variant="secondary" onClick={() => void loadData()} disabled={loading || !gatewayReady}>
           <RefreshCw className={`size-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </div>
 
       {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">{error}</div>}
+      {!gatewayReady && <GatewayRequired message="Benchmark evidence is read from the connected local gateway; no projected values are shown." />}
       {!loading && data?.evidence && <EvidenceCard evidence={data.evidence} />}
       {!loading && !data?.evidence && (
         <div className="rounded-2xl glass-panel p-8 text-center space-y-2">

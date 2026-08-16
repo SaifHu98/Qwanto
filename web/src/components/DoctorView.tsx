@@ -3,18 +3,26 @@ import { ShieldCheck, CheckCircle2, AlertTriangle, XCircle, MinusCircle, Refresh
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getDoctorReport, type DoctorReport, type DoctorCheck } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface DoctorViewProps {
   baseUrl: string
   apiKey: string
+  gatewayReady: boolean
 }
 
-export function DoctorView({ baseUrl, apiKey }: DoctorViewProps) {
+export function DoctorView({ baseUrl, apiKey, gatewayReady }: DoctorViewProps) {
   const [report, setReport] = useState<DoctorReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   const runDiagnostics = async () => {
+    if (!gatewayReady) {
+      setReport(null)
+      setError("Connect to the Qwanto gateway before running diagnostics.")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError("")
     try {
@@ -29,7 +37,7 @@ export function DoctorView({ baseUrl, apiKey }: DoctorViewProps) {
 
   useEffect(() => {
     runDiagnostics()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, gatewayReady])
 
   const renderStatusBadge = (status: DoctorCheck["status"]) => {
     switch (status) {
@@ -71,7 +79,7 @@ export function DoctorView({ baseUrl, apiKey }: DoctorViewProps) {
             Verifies engine installation integrity, CUDA linkage, storage permissions, and model configs.
           </p>
         </div>
-        <Button size="sm" onClick={runDiagnostics} disabled={loading}>
+        <Button size="sm" onClick={runDiagnostics} disabled={loading || !gatewayReady}>
           <RefreshCw className={`size-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
           Re-run Doctor
         </Button>
@@ -82,6 +90,8 @@ export function DoctorView({ baseUrl, apiKey }: DoctorViewProps) {
           {error}
         </div>
       )}
+
+      {!gatewayReady && <GatewayRequired message="Diagnostics are paused until the configured gateway answers its health check." />}
 
       {loading ? (
         <div className="text-center py-12 text-muted-foreground text-sm">Running diagnostic verification...</div>

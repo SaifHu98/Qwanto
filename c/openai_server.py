@@ -37,11 +37,166 @@ from model_acquisition import (
     SafeDownloadManager,
     convert_to_qwn,
     provider_catalog,
+    sha256_file,
+    validate_qwn,
 )
 
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.resolve()
+GATEWAY_API_VERSION = "1"
+GATEWAY_VERSION = "0.1.0"
+_QWN_DISCOVERY_CACHE = {}
+_EVIDENCE_HASH_CACHE = {}
+
+
+def _qwnrun_path():
+    candidates = (
+        HERE / "qwnrun.exe",
+        HERE / "qwnrun",
+        PROJECT_ROOT / "c" / "qwnrun.exe",
+        PROJECT_ROOT / "c" / "qwnrun",
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _qwn_quantization(info):
+    dtype = (info.get("tensors") or [{}])[0].get("dtype")
+    return {
+        0: "FP32",
+        1: "FP16",
+        2: "Q4_0",
+        3: "HyperVSQ-2",
+        4: "TWLA 1.58-bit",
+        5: "TurboQuant",
+    }.get(dtype, "Unknown")
+
+
+def _measured_evidence():
+    for path in (PROJECT_ROOT / "benchmark_evidence.json", HERE / "benchmark_evidence.json"):
+        if not path.is_file():
+            continue
+        try:
+            evidence = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if evidence.get("evidence_classification") == "MEASURED":
+            return evidence, path
+    return None, None
+
+
+def _qwn_hardware_fit(size_bytes):
+    try:
+        from resource_plan import memory_available
+        import shutil
+        available_ram = int(memory_available())
+        available_disk = int(shutil.disk_usage(PROJECT_ROOT).free)
+    except Exception as exc:
+        return {"status": "unavailable", "reason": f"Hardware inspection unavailable: {exc}"}
+    if size_bytes > available_disk:
+        return {"status": "failed", "reason": "The model is larger than the free local disk space."}
+    return {
+        "status": "fit",
+        "reason": "The model fits the currently reported local disk budget; QWN uses mapped storage with available RAM as a cache tier.",
+        "available_ram_bytes": available_ram,
+        "available_disk_bytes": available_disk,
+    }
+
+
+def _describe_qwn(path):
+    stat = path.stat()
+    cache_key = (str(path), stat.st_size, stat.st_mtime_ns)
+    cached = _QWN_DISCOVERY_CACHE.get(cache_key)
+    if cached:
+        return dict(cached)
+    try:
+        validation = validate_qwn(path, include_hash=False)
+        info = validation["info"]
+        descriptor = {
+            "qwn_validation": {"status": "passed", "reason": "QWN header, tail index, descriptor bounds, and alignment validated."},
+            "compatibility_state": "compatible",
+            "quantization": _qwn_quantization(info),
+            "n_tensors": info.get("n_tensors"),
+            "arch_dims": info.get("arch_dims"),
+            "supported_by_qwnrun": bool(_qwnrun_path()),
+            "hardware_fit": _qwn_hardware_fit(stat.st_size),
+        }
+    except Exception as exc:
+        descriptor = {
+            "qwn_validation": {"status": "failed", "reason": str(exc)},
+            "compatibility_state": "invalid",
+            "quantization": "Unknown",
+            "n_tensors": None,
+            "arch_dims": None,
+            "supported_by_qwnrun": False,
+            "hardware_fit": {"status": "not_evaluated", "reason": "QWN validation failed."},
+        }
+    _QWN_DISCOVERY_CACHE[cache_key] = descriptor
+    return dict(descriptor)
+
+
+def _model_recommendation(models):
+    evidence, evidence_path = _measured_evidence()
+    model_meta = (evidence or {}).get("model_metadata") or {}
+    evidence_path_value = model_meta.get("path")
+    evidence_sha = model_meta.get("sha256")
+    measured = (evidence or {}).get("measured_evidence") or {}
+    candidates = []
+    native_qwn = []
+    for model in models:
+        if model.get("type") != "qwn" or model.get("compatibility_state") != "compatible":
+            continue
+        if not model.get("supported_by_qwnrun") or model.get("hardware_fit", {}).get("status") != "fit":
+            continue
+        native_qwn.append(model)
+        model_path = Path(model["path"]).resolve()
+        if evidence_path_value and Path(evidence_path_value).resolve() == model_path:
+            key = (str(model_path), model_path.stat().st_size, model_path.stat().st_mtime_ns)
+            actual_sha = _EVIDENCE_HASH_CACHE.get(key)
+            if actual_sha is None:
+                actual_sha = sha256_file(model_path)
+                _EVIDENCE_HASH_CACHE[key] = actual_sha
+            if evidence_sha and actual_sha == evidence_sha:
+                candidates.append((float(measured.get("tok_per_sec") or 0), model, "measured evidence"))
+
+    qwen_targets = [
+        model for model in native_qwn
+        if "qwen3.8-27b" in model.get("name", "").lower() and "hyper" in model.get("name", "").lower()
+    ]
+    if qwen_targets:
+        selected = qwen_targets[0]
+        reason = "Exact Qwen3.8-27B hyper QWN is present, structurally validated, qwnrun-supported, and hardware-fit; no unmeasured speed is claimed."
+        selected["recommended"] = True
+        selected["recommendation_reason"] = reason
+        return {
+            "model": selected,
+            "reason": reason,
+            "evidence_source": None,
+            "measured_throughput_tok_s": None,
+            "measured_ttft_ms": None,
+            "selection_basis": "validated Qwen target",
+        }
+
+    if candidates:
+        _, selected, source = max(candidates, key=lambda item: item[0])
+        selected["recommended"] = True
+        selected["recommendation_reason"] = "Available, validated, qwnrun-supported, hardware-fit local QWN with matching measured native evidence."
+        return {
+            "model": selected,
+            "reason": "Available, validated, qwnrun-supported, hardware-fit local QWN with matching measured native evidence.",
+            "evidence_source": str(evidence_path),
+            "measured_throughput_tok_s": measured.get("tok_per_sec"),
+            "measured_ttft_ms": measured.get("ttft_ms") if measured.get("ttft_ms") not in (0, 0.0) else None,
+            "selection_basis": source,
+        }
+    return {
+        "model": None,
+        "reason": "No local QWN model has matching measured native evidence, qwnrun support, and a passing hardware-fit check.",
+        "evidence_source": str(evidence_path) if evidence_path else None,
+        "measured_throughput_tok_s": None,
+        "measured_ttft_ms": None,
+        "selection_basis": "none",
+    }
 
 
 def _is_safe_path(target_path: Union[str, Path], allowed_dirs: List[Path] = None) -> bool:
@@ -1480,6 +1635,8 @@ class APIServer(ThreadingHTTPServer):
     @staticmethod
     def _load_settings():
         import json
+        if os.environ.get("QWANTO_DISABLE_SETTINGS") == "1":
+            return {}
         if not APIServer.SETTINGS_FILE.exists():
             print(f"[settings] No settings file found at {APIServer.SETTINGS_FILE}", file=sys.stderr)
             return {}
@@ -1859,6 +2016,7 @@ class APIHandler(BaseHTTPRequestHandler):
             if path == "/v1/qwanto/config":
                 resources = getattr(self.server, "resources", {"cpu": 100, "ram": 100, "vram": 100, "disk": 100})
                 payload = {
+                    "schema_version": GATEWAY_API_VERSION,
                     "model_id": self.server.model_id,
                     "model_path": getattr(self.server, "model_path", ""),
                     "backend": self.server.backend,
@@ -1935,13 +2093,27 @@ class APIHandler(BaseHTTPRequestHandler):
                             if entry.is_file():
                                 lower = entry.name.lower()
                                 if lower.endswith(".qwn"):
-                                    models.append({"name": entry.name, "path": str(entry), "type": "qwn"})
+                                    model = {"name": entry.name, "path": str(entry), "type": "qwn"}
+                                    model.update(_describe_qwn(entry))
+                                    models.append(model)
                                 elif lower.endswith(".gguf"):
-                                    models.append({"name": entry.name, "path": str(entry), "type": "gguf"})
+                                    models.append({
+                                        "name": entry.name, "path": str(entry), "type": "gguf",
+                                        "compatibility_state": "external_runtime_only",
+                                        "qwn_validation": {"status": "not_applicable", "reason": "GGUF is outside the native qwnrun boundary."},
+                                    })
                                 elif lower.endswith(".safetensors"):
-                                    models.append({"name": entry.name, "path": str(entry), "type": "safetensors"})
+                                    models.append({
+                                        "name": entry.name, "path": str(entry), "type": "safetensors",
+                                        "compatibility_state": "conversion_source",
+                                        "qwn_validation": {"status": "not_applicable", "reason": "Convert to QWN before native activation."},
+                                    })
                                 elif lower.endswith(".pt") or lower.endswith(".pth") or lower.endswith(".bin"):
-                                    models.append({"name": entry.name, "path": str(entry), "type": "pytorch"})
+                                    models.append({
+                                        "name": entry.name, "path": str(entry), "type": "pytorch",
+                                        "compatibility_state": "conversion_source",
+                                        "qwn_validation": {"status": "not_applicable", "reason": "Convert to QWN before native activation."},
+                                    })
                             elif entry.is_dir():
                                 if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") or f.name.endswith(".safetensors") for f in entry.iterdir()):
                                     models.append({
@@ -1951,7 +2123,12 @@ class APIHandler(BaseHTTPRequestHandler):
                                     })
                     except Exception:
                         pass
-                self.send_json(200, {"models": models, "search_paths": [str(p) for p in parent_paths]}, request_id)
+                self.send_json(200, {
+                    "schema_version": GATEWAY_API_VERSION,
+                    "models": models,
+                    "search_paths": [str(p) for p in parent_paths],
+                    "recommendation": _model_recommendation(models),
+                }, request_id)
                 return
             if path == "/v1/qwanto/providers":
                 self.send_json(200, {"providers": provider_catalog()}, request_id)
@@ -1979,6 +2156,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 avail_mem = memory_available()
                 disk_free = shutil.disk_usage(PROJECT_ROOT).free
                 telemetry = {
+                    "schema_version": GATEWAY_API_VERSION,
                     "request_count": getattr(self.server, "request_count", 0),
                     "total_tokens_generated": getattr(self.server, "total_tokens_generated", 0),
                     "uptime_seconds": round(uptime, 1),
@@ -2118,6 +2296,15 @@ class APIHandler(BaseHTTPRequestHandler):
                     avail_mem = memory_available()
                     payload = {
                         "status": "ok",
+                        "gateway": "qwanto",
+                        "api_version": GATEWAY_API_VERSION,
+                        "gateway_version": GATEWAY_VERSION,
+                        "endpoints": {
+                            "health": "/health",
+                            "models": "/v1/models",
+                            "config": "/v1/qwanto/config",
+                            "telemetry": "/v1/qwanto/telemetry",
+                        },
                         "scheduler": {
                             "active": 0, "queued": 0, "max_queue": self.server.max_queue,
                             "queue_timeout_seconds": self.server.queue_timeout
@@ -2140,8 +2327,20 @@ class APIHandler(BaseHTTPRequestHandler):
                     }
                     self.send_json(200, payload, request_id)
                     return
-                payload = {"status": "ok", "scheduler": self.server.scheduler.snapshot(),
-                           "kv_slots": self.server.kv_slots}
+                payload = {
+                    "status": "ok",
+                    "gateway": "qwanto",
+                    "api_version": GATEWAY_API_VERSION,
+                    "gateway_version": GATEWAY_VERSION,
+                    "endpoints": {
+                        "health": "/health",
+                        "models": "/v1/models",
+                        "config": "/v1/qwanto/config",
+                        "telemetry": "/v1/qwanto/telemetry",
+                    },
+                    "scheduler": self.server.scheduler.snapshot(),
+                    "kv_slots": self.server.kv_slots,
+                }
                 tiers = getattr(self.server.engine, "tiers", None) if self.server.engine else None
                 if tiers: payload["tiers"] = tiers
                 hwinfo = getattr(self.server.engine, "hwinfo", None) if self.server.engine else None
@@ -2166,10 +2365,10 @@ class APIHandler(BaseHTTPRequestHandler):
             if path == "/v1/models":
                 try:
                     if self.server.active_backend is None:
-                        self.send_json(200, {"object": "list", "data": []}, request_id)
+                        self.send_json(200, {"object": "list", "data": [], "schema_version": GATEWAY_API_VERSION}, request_id)
                     else:
                         models = self.server.active_backend.models()
-                        self.send_json(200, {"object": "list", "data": models}, request_id)
+                        self.send_json(200, {"object": "list", "data": models, "schema_version": GATEWAY_API_VERSION}, request_id)
                 except backends.BackendError as e:
                     raise APIError(e.status, e.message, code=e.code, error_type=e.error_type)
             elif path.startswith("/v1/models/") and unquote(path[11:]) == self.server.model_id:
@@ -2978,7 +3177,7 @@ class APIHandler(BaseHTTPRequestHandler):
         self.generation(body, prompt, request_id, False)
 
 
-def serve(model, host="127.0.0.1", port=8000, model_id="glm-5.2-qwanto", api_key=None,
+def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
           cap=8, max_tokens=1024, engine=HERE / "glm", env=None, cors_origins=None,
           max_queue=8, queue_timeout=300, kv_slots=1, backend="auto", backend_url=None):
     if not 1 <= max_tokens:
@@ -3144,7 +3343,7 @@ def main():
     parser.add_argument("--engine", default=str(HERE / "glm"))
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--model-id", default=os.environ.get("QWANTO_MODEL_ID", "glm-5.2-qwanto"))
+    parser.add_argument("--model-id", default=os.environ.get("QWANTO_MODEL_ID"))
     parser.add_argument("--api-key", default=os.environ.get("QWANTO_API_KEY"))
     parser.add_argument("--cors-origin", action="append", default=None,
                         help="allowed browser origin; repeat as needed (use '*' for any origin)")

@@ -1,5 +1,22 @@
 # AGENT_LOG.md
 
+## 2026-08-16 — Gateway contract, dashboard gating, and beta.2 release hardening
+
+- **Change:** Added a real local subprocess integration test for `/health`,
+  `/v1/models`, `/v1/qwanto/config`, and `/v1/qwanto/telemetry`; versioned the
+  gateway schemas; and removed the invalid model default from gateway/CLI/UI
+  paths.
+- **Change:** Added validated QWN discovery/recommendation metadata, explicit
+  download consent/checksum/size fields, gateway readiness states, responsive
+  shell CSS, and actionable empty/error UI states.
+- **Change:** Added documentation index/API/conversion/troubleshooting pages,
+  a local-link checker, measured-evidence README reporting, and checksum/factual
+  release-note generation for future beta tags. Existing `v0.1.0-beta.1` is
+  unchanged.
+- **Validation:** Native decoder `2 passed`; Python suite `201 passed, 14
+  skipped`; web build and Vitest `42 passed`; documentation links passed. Cargo
+  gates could not run because Rust/Cargo is not installed on this workstation.
+
 ## 2026-08-15 — HyperVSQ-2 SIMD Engine Acceleration & Repair (SaifHu98)
 - **Problem diagnosed**: HyperVSQ-2 (2.3125 bpw) was running at ~0.2 tok/s (154s for 32 tokens) because `qwn_matmul_f32` dispatched `QWN_DT_HYPER_VSQ2` to scalar `qwn_matmul_packed_f32` calling `qwn_packed_value` per element (>8 billion software FP16 conversions per token on 4B model). Furthermore, `build_layer_cache` clamped `lt->q_out` to `o_proj->shape[0]` (4096), causing layer 3 `q_proj` matmul (`shape[1]=8192`) to fail shape validation.
 - **Format layout verified**: 74-byte packed superblock for 256 weights ($W = (q - 1) \cdot S_{\text{base}} \cdot \frac{u}{8} + C$). Row stride $= \lceil K / 256 \rceil \times 74$ bytes. 8 sub-scales in 4 bytes (8 nibbles in $[1..8]$), 64 bytes of packed 2-bit quaternary codes in $[0..3]$.

@@ -5,19 +5,21 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { HealthResponse, QwantoConfig, TelemetryData } from "@/lib/api"
 import { getHealth, getQwantoConfig, getTelemetry } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface DashboardViewProps {
   baseUrl: string
   apiKey: string
   onNavigate: (view: any) => void
   activeModelName?: string
+  gatewayReady: boolean
 }
 
 function valueOrUnavailable(value: unknown): string {
   return value === null || value === undefined || value === "" ? "Unavailable" : String(value)
 }
 
-export function DashboardView({ baseUrl, apiKey, onNavigate, activeModelName = "No model selected" }: DashboardViewProps) {
+export function DashboardView({ baseUrl, apiKey, onNavigate, activeModelName = "No model selected", gatewayReady }: DashboardViewProps) {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null)
   const [config, setConfig] = useState<QwantoConfig | null>(null)
@@ -25,6 +27,14 @@ export function DashboardView({ baseUrl, apiKey, onNavigate, activeModelName = "
   const [error, setError] = useState("")
 
   const refreshData = async () => {
+    if (!gatewayReady) {
+      setHealth(null)
+      setTelemetry(null)
+      setConfig(null)
+      setError("Connect to the Qwanto gateway before requesting dashboard data.")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError("")
     const [healthResult, telemetryResult, configResult] = await Promise.allSettled([
@@ -43,7 +53,7 @@ export function DashboardView({ baseUrl, apiKey, onNavigate, activeModelName = "
 
   useEffect(() => {
     void refreshData()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, gatewayReady])
 
   const scheduler = health?.scheduler
   const healthHardware = health?.hwinfo
@@ -62,12 +72,14 @@ export function DashboardView({ baseUrl, apiKey, onNavigate, activeModelName = "
           </div>
           <p className="text-sm text-muted-foreground mt-1">Live values are read from the selected local gateway. Unreported sensors remain unavailable.</p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => void refreshData()} disabled={loading}>
+        <Button size="sm" variant="secondary" onClick={() => void refreshData()} disabled={loading || !gatewayReady}>
           <RefreshCw className={`size-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </div>
 
       {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">{error}</div>}
+
+      {!gatewayReady && <GatewayRequired message="Probe the configured gateway first. Dashboard requests stay paused until health succeeds." />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <FactCard icon={<Activity className="size-4" />} label="Requests" value={valueOrUnavailable(telemetry?.request_count)} detail="gateway counter" />

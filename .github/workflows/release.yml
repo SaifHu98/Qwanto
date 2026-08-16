@@ -141,8 +141,24 @@ jobs:
             echo "No installer assets were downloaded" >&2
             exit 1
           fi
+          checksum_file="Qwanto_${TAG}_SHA256SUMS.txt"
+          : > "$checksum_file"
+          for asset in "${assets[@]}"; do
+            (cd "$(dirname "$asset")" && sha256sum "$(basename "$asset")") >> "$checksum_file"
+          done
+          notes_file="Qwanto_${TAG}_RELEASE_NOTES.md"
+          cat > "$notes_file" <<EOF
+          # Qwanto ${TAG}
+
+          Beta release of the local-first Qwanto runtime and shared dashboard.
+
+          - Installer packages are unsigned and not notarized unless a separate signing configuration is supplied.
+          - No model weights are bundled. Models remain user-managed and are imported or downloaded explicitly through the local gateway.
+          - Verify installer integrity with the attached SHA-256 checksum file.
+          EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" --clobber
+            gh release upload "$TAG" "${assets[@]}" "$checksum_file" --clobber
+            gh release edit "$TAG" --title "Qwanto $TAG" --notes-file "$notes_file" --prerelease
           else
-            gh release create "$TAG" "${assets[@]}" --prerelease --generate-notes --title "Qwanto $TAG"
+            gh release create "$TAG" "${assets[@]}" "$checksum_file" --prerelease --title "Qwanto $TAG" --notes-file "$notes_file"
           fi

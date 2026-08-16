@@ -79,10 +79,13 @@ import {
   setResourceLimits,
   type QwantoConfig,
   type DiscoveredModel,
+  type ModelPathsResponse,
   type DownloadStatus,
   isLocalEndpoint,
 } from "@/lib/api"
 import { activeRequests, supportsCacheSlots } from "@/lib/runtime"
+import { chooseRecommendedModel, classifyGatewayFailure, gatewayStateFromHealth, type GatewayConnectionState } from "@/lib/gateway"
+import { GatewayStatusBanner } from "@/components/GatewayStatusBanner"
 import { Brain } from "./Brain"
 import { persistPublicSettings, stored } from "@/lib/storage"
 import { cn } from "@/lib/utils"
@@ -114,7 +117,7 @@ export default function App() {
   })
   const [apiKey, setApiKey] = useState("")
   const [models, setModels] = useState<string[]>([])
-  const [model, setModel] = useState(() => stored(localStorage, "qwanto.model", "glm-5.2-qwanto"))
+  const [model, setModel] = useState(() => stored(localStorage, "qwanto.model", ""))
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(512)
   const [ctxSize, setCtxSize] = useState(() => { try { return Number(localStorage.getItem("qwanto.ctxSize")) || 16384 } catch { return 16384 } })
@@ -148,6 +151,8 @@ export default function App() {
   const [logs, setLogs] = useState<Array<{time: string, type: "error" | "warn" | "info", message: string}>>([])
   const logRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
+  const [gatewayState, setGatewayState] = useState<GatewayConnectionState>("not-running")
+  const [gatewayMessage, setGatewayMessage] = useState("Probe the Qwanto gateway at the configured endpoint.")
   const [systemInstruction, setSystemInstruction] = useState("")
   const [view, setView] = useState<"dashboard" | "chat" | "brain" | "agent" | "models" | "converter" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
     const saved = stored(localStorage, "qwanto.view", "dashboard")
@@ -170,6 +175,7 @@ export default function App() {
   // Model Manager states
   const [qwantoConfig, setQwantoConfig] = useState<QwantoConfig | null>(null)
   const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([])
+  const [modelRecommendation, setModelRecommendation] = useState<ModelPathsResponse["recommendation"]>(undefined)
   const [searchPaths, setSearchPaths] = useState<string[]>([])
   const [customModelPaths, setCustomModelPaths] = useState<string[]>([])
   const [newModelPath, setNewModelPath] = useState("")
@@ -178,6 +184,9 @@ export default function App() {
   const [downloadUrl, setDownloadUrl] = useState("")
   const [downloadPath, setDownloadPath] = useState(() => stored(localStorage, "qwanto.downloadPath", ""))
   const [downloadFilename, setDownloadFilename] = useState("")
+  const [downloadSha256, setDownloadSha256] = useState("")
+  const [downloadExpectedSize, setDownloadExpectedSize] = useState("")
+  const [downloadConsent, setDownloadConsent] = useState(false)
   const [switchingModel, setSwitchingModel] = useState(false)
   const [modelError, setModelError] = useState("")
   const [dlError, setDlError] = useState("")
@@ -248,6 +257,8 @@ export default function App() {
   // EFFECT #2
   useEffect(() => {
     setConnected(false)
+    setGatewayState("not-running")
+    setGatewayMessage("Probe the Qwanto gateway at the configured endpoint.")
     setHealth(null)
     setHealthError("")
   }, [baseUrl, apiKey])
@@ -331,6 +342,7 @@ export default function App() {
         if (!disposed) {
           setDiscoveredModels(result.models || [])
           setSearchPaths(result.search_paths || [])
+          setModelRecommendation(result.recommendation)
         }
       } catch (err) { /* ignore */ }
     }
@@ -382,40 +394,59 @@ export default function App() {
     setConnecting(true)
     setError("")
     try {
-      const found = await listModels(baseUrl, apiKey, controller.signal)
-      setModels(found)
-      if (found.length && !found.includes(model)) setModel(found[0])
+      const healthResult = await getHealth(baseUrl, apiKey, controller.signal)
+      const healthState = gatewayStateFromHealth(healthResult)
+      if (healthState !== "connected") throw new Error("Incompatible Qwanto gateway version.")
+      setHealth(healthResult)
+      setHealthError("")
+      setGatewayState("connected")
+      setGatewayMessage("Qwanto gateway connected. Health passed; loading model inventory.")
       setConnected(true)
-      try {
-        setHealth(await getHealth(baseUrl, apiKey, controller.signal))
-        setHealthError("")
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setHealth(null)
-          setHealthError(cause instanceof Error ? cause.message : "Runtime metrics unavailable")
-        }
+
+      const [found, discovered] = await Promise.all([
+        listModels(baseUrl, apiKey, controller.signal),
+        listDiscoveredModels(baseUrl, apiKey),
+      ])
+      setModels(found)
+      setDiscoveredModels(discovered.models || [])
+      setSearchPaths(discovered.search_paths || [])
+      setModelRecommendation(discovered.recommendation)
+      const choice = chooseRecommendedModel(discovered.models || [], model)
+      if (choice.model) {
+        setModel(choice.model.path)
+        setGatewayMessage(`Connected. ${choice.reason}`)
+      } else if (found.length && found.includes(model)) {
+        setModel(model)
+      } else {
+        setModel("")
+        setGatewayMessage("Connected, but no compatible local QWN model is selected. Open Models to import or choose one.")
       }
     } catch (cause) {
       if (controller.signal.aborted) return
-      // If the server is reachable (loadModel succeeded) but listModels fails
-      // (e.g. llama-cpp backend not ready), stay connected with a warning
-      try {
-        const health = await getHealth(baseUrl, apiKey, controller.signal)
-        setConnected(true)
-        setHealth(health)
-        setError("")
-        setHealthError("Model list unavailable — backend may still be starting")
-      } catch {
-        setConnected(false)
-        setError(cause instanceof Error ? cause.message : "Could not reach the server.")
-        addLog("error", `Connect: ${cause instanceof Error ? cause.message : cause}`)
-      }
+      setConnected(false)
+      setHealth(null)
+      const state = cause instanceof Error && cause.message.includes("Incompatible")
+        ? "incompatible-version"
+        : classifyGatewayFailure(cause)
+      setGatewayState(state)
+      const message = state === "wrong-server"
+        ? "Wrong server selected. This endpoint looks like a static web server, not the Qwanto gateway. Use http://127.0.0.1:8000/v1."
+        : state === "incompatible-version"
+        ? "Incompatible gateway version. Start the Qwanto Python gateway from this repository."
+        : "Gateway not running. Start the Qwanto gateway, then probe again."
+      setGatewayMessage(message)
+      setError(cause instanceof Error ? cause.message : "Could not reach the server.")
+      addLog("error", `Connect: ${cause instanceof Error ? cause.message : cause}`)
     } finally {
       if (probeRef.current === controller) { probeRef.current = null; setConnecting(false) }
     }
   }
 
   const handleLoadModel = async (modelPath: string, backend = "auto", backendUrl?: string) => {
+    if (!connected) {
+      setModelError("Connect to the Qwanto gateway before loading a model.")
+      return
+    }
     setSwitchingModel(true)
     setModelError("")
     try {
@@ -446,10 +477,26 @@ export default function App() {
   }
 
   const handleStartDownload = async (url: string, filename?: string, destPath?: string) => {
+    if (!connected) {
+      setDlError("Connect to the Qwanto gateway before starting a download.")
+      return
+    }
+    if (!downloadConsent) {
+      setDlError("Confirm the source, license, and local-disk responsibility before downloading.")
+      return
+    }
     setDlError("")
     try {
       const approvedHost = new URL(url).hostname
-      await downloadModel(baseUrl, url, filename, destPath, apiKey, { approvedHost })
+      const expectedSize = downloadExpectedSize.trim() ? Number(downloadExpectedSize) : undefined
+      if (expectedSize !== undefined && (!Number.isSafeInteger(expectedSize) || expectedSize < 1)) {
+        throw new Error("Expected size must be a positive whole number of bytes.")
+      }
+      await downloadModel(baseUrl, url, filename, destPath, apiKey, {
+        approvedHost,
+        sha256: downloadSha256.trim() || undefined,
+        expectedSize,
+      })
       const status = await getDownloadStatus(baseUrl, apiKey)
       setDownloadStatus(status)
     } catch (err) {
@@ -459,6 +506,7 @@ export default function App() {
   }
 
   const handleCancelDownload = async () => {
+    if (!connected) return
     try {
       await cancelDownloadModel(baseUrl, apiKey)
       const status = await getDownloadStatus(baseUrl, apiKey)
@@ -469,6 +517,7 @@ export default function App() {
   }
 
   const handlePauseDownload = async () => {
+    if (!connected) return
     try {
       await pauseDownloadModel(baseUrl, apiKey)
       const status = await getDownloadStatus(baseUrl, apiKey)
@@ -479,6 +528,7 @@ export default function App() {
   }
 
   const handleResumeDownload = async () => {
+    if (!connected) return
     try {
       await resumeDownloadModel(baseUrl, apiKey)
       const status = await getDownloadStatus(baseUrl, apiKey)
@@ -489,6 +539,10 @@ export default function App() {
   }
 
   const handleDeleteModel = async (path: string, name: string) => {
+    if (!connected) {
+      setModelError("Connect to the Qwanto gateway before changing models.")
+      return
+    }
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return
     setDeletingModel(path)
     try {
@@ -504,12 +558,17 @@ export default function App() {
   }
 
   const handleConfigDownload = async (connections?: number, speedLimit?: number) => {
+    if (!connected) return
     try {
       await configDownload(baseUrl, connections, speedLimit, apiKey)
     } catch { /* ignore */ }
   }
 
   const handleAddModelPath = async () => {
+    if (!connected) {
+      setModelError("Connect to the Qwanto gateway before changing model paths.")
+      return
+    }
     if (!newModelPath.trim()) return
     try {
       await addModelPath(baseUrl, newModelPath.trim(), apiKey)
@@ -525,6 +584,10 @@ export default function App() {
   }
 
   const handleRemoveModelPath = async (path: string) => {
+    if (!connected) {
+      setModelError("Connect to the Qwanto gateway before changing model paths.")
+      return
+    }
     try {
       await removeModelPath(baseUrl, path, apiKey)
       const paths = await getModelPaths(baseUrl, apiKey)
@@ -636,7 +699,11 @@ export default function App() {
             {connecting ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             Probe server
           </Button>
-          <div className={cn("connection-state", connected && "connected")} aria-live="polite"><span />{connected ? "Engine reachable" : "Not connected"}</div>
+          <div className={cn("connection-state", connected && "connected", gatewayState === "wrong-server" && "warning", gatewayState === "incompatible-version" && "error")} aria-live="polite">
+            <span />
+            {connected ? "Gateway connected" : gatewayState === "wrong-server" ? "Wrong server selected" : gatewayState === "incompatible-version" ? "Incompatible gateway" : "Gateway not running"}
+          </div>
+          <p className="connection-message">{gatewayMessage}</p>
         </section>
 
         <section className="side-section runtime-section" aria-live="polite">
@@ -679,7 +746,11 @@ export default function App() {
 
         <section className="side-section">
           <div className="section-title"><SlidersHorizontal className="size-3.5" /> Inference</div>
-          <label>Model<select value={model} onChange={(event) => setModel(event.target.value)}>{models.length ? models.map((id) => <option key={id}>{id}</option>) : <option>{model}</option>}</select></label>
+          <label>Model<select value={model} onChange={(event) => setModel(event.target.value)} disabled={!connected}>
+            <option value="">No model selected</option>
+            {discoveredModels.filter((candidate) => candidate.type === "qwn" && candidate.compatibility_state === "compatible").map((candidate) => <option key={candidate.path} value={candidate.path}>{candidate.name}</option>)}
+            {models.filter((id) => id && !discoveredModels.some((candidate) => candidate.path === id)).map((id) => <option key={id} value={id}>{id} (active)</option>)}
+          </select><span className="field-help">Only validated native QWN models can be activated by qwnrun.</span></label>
           {health?.kv_slots && health.kv_slots > 1 ? <label>KV session<select value={cacheSlot} onChange={(event) => setCacheSlot(Number(event.target.value))} disabled={loading}>
             {Array.from({ length: kvSlots }, (_, slot) => <option key={slot} value={slot}>Session {slot + 1}</option>)}
           </select><span className="field-help">Isolated context · conversation follows the selected slot</span></label> : null}
@@ -702,7 +773,7 @@ export default function App() {
           <button type="button" className={cn("toggle-row", specDecoding && "active")} aria-pressed={specDecoding} onClick={() => setSpecDecoding((value) => !value)}>
             <span><Waypoints className="size-4" /> Speculative decoding</span><i><b /></i>
           </button>
-          {specDecoding && <label>Draft model (GGUF)<Input type="text" placeholder="path\to\small-draft.gguf" value={draftModelPath} onChange={(event) => setDraftModelPath(event.target.value)} /><span className="field-help">Small same-family model · 2–3× faster generation</span></label>}
+          {specDecoding && <label>Draft model (GGUF)<Input type="text" placeholder="path\to\small-draft.gguf" value={draftModelPath} onChange={(event) => setDraftModelPath(event.target.value)} /><span className="field-help">Optional same-family draft model; measured performance depends on the host and model.</span></label>}
           <span className="field-help">Applied on model load / reload</span>
         </section>
 
@@ -737,7 +808,7 @@ export default function App() {
           <div className="top-actions">
               {model.toLowerCase().endsWith(".qwn") && (
                 <Badge className="border border-emerald-800/50 bg-emerald-950/30 text-emerald-300 font-mono text-[10px]">
-                  4KiB NVMe Paged · AVX2
+                  Native QWN runtime
                 </Badge>
               )}
               {loading && tokenCount === 0 ? <Badge className="badge-loading"><LoaderCircle className="size-3 animate-spin" /> Generating...</Badge> : null}
@@ -757,11 +828,13 @@ export default function App() {
           {desktopShell ? "This Beta shell starts qwnrun through Tauri commands; the Python gateway, converter, and downloader are not bundled." : "This UI makes HTTP requests only; it cannot read arbitrary local files, run terminal commands, or use Tauri agent tools."}
           {!desktopShell && (localEndpoint ? " The configured endpoint is loopback." : " The configured endpoint is not loopback; use an authenticated, intentionally trusted endpoint.")}
         </div>
+        <GatewayStatusBanner state={gatewayState} message={gatewayMessage} onProbe={() => void connect()} probing={connecting} />
 
         {view === "dashboard" ? (
           <DashboardView
             baseUrl={baseUrl}
             apiKey={apiKey}
+            gatewayReady={connected}
             onNavigate={setView}
             activeModelName={model}
           />
@@ -781,6 +854,19 @@ export default function App() {
                 >{label}</button>
               ))}
             </div>
+            {modelRecommendation?.model && (
+              <div className="recommendation-card" role="status">
+                <div><span className="eyebrow">RECOMMENDED LOCAL MODEL</span><strong>{modelRecommendation.model.name}</strong></div>
+                <p>{modelRecommendation.reason}</p>
+                <div className="recommendation-facts">
+                  <span>Validation: {modelRecommendation.model.qwn_validation?.status || "Unavailable"}</span>
+                  <span>Hardware fit: {modelRecommendation.model.hardware_fit?.status || "Unavailable"}</span>
+                  <span>Quantization: {modelRecommendation.model.quantization || "Unavailable"}</span>
+                  <span>Measured throughput: {modelRecommendation.measured_throughput_tok_s == null ? "Unavailable" : `${modelRecommendation.measured_throughput_tok_s} tok/s`}</span>
+                  <span>Evidence: {modelRecommendation.evidence_source || "Unavailable"}</span>
+                </div>
+              </div>
+            )}
             {modelLibraryTab === "providers" && (
               <div className="models-card mb-4" role="tabpanel">
                 <h3 className="card-title">Acquisition providers</h3>
@@ -847,7 +933,7 @@ export default function App() {
                     <span className="flex items-center gap-1"><Cpu className="size-3" /> CPU Threads</span>
                     <span className="font-mono text-primary">{resourceCpu}%</span>
                   </div>
-                  <input type="range" min="10" max="100" step="5" value={resourceCpu} onChange={e => { const v = Number(e.target.value); setResourceCpu(v); setResourceLimits(baseUrl, { cpu: v, ram: resourceRam, vram: resourceVram, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
+                  <input type="range" min="10" max="100" step="5" value={resourceCpu} disabled={!connected} onChange={e => { const v = Number(e.target.value); setResourceCpu(v); setResourceLimits(baseUrl, { cpu: v, ram: resourceRam, vram: resourceVram, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
                   <div className="text-[9px] text-muted-foreground mt-0.5">{health?.hwinfo?.cores ? `${Math.ceil(health.hwinfo.cores * resourceCpu / 100)} of ${health.hwinfo.cores} cores` : "Host core count unavailable"}</div>
                 </div>
 
@@ -856,7 +942,7 @@ export default function App() {
                     <span className="flex items-center gap-1"><MemoryStick className="size-3" /> RAM Cache</span>
                     <span className="font-mono text-primary">{resourceRam}%</span>
                   </div>
-                  <input type="range" min="5" max="100" step="5" value={resourceRam} onChange={e => { const v = Number(e.target.value); setResourceRam(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: v, vram: resourceVram, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
+                  <input type="range" min="5" max="100" step="5" value={resourceRam} disabled={!connected} onChange={e => { const v = Number(e.target.value); setResourceRam(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: v, vram: resourceVram, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
                   <div className="text-[9px] text-muted-foreground mt-0.5">{health?.hwinfo?.ram_total_gb ? `${(health.hwinfo.ram_total_gb * resourceRam / 100).toFixed(1)} GB of ${health.hwinfo.ram_total_gb.toFixed(1)} GB reported host RAM` : "Host RAM total unavailable"}</div>
                 </div>
 
@@ -865,7 +951,7 @@ export default function App() {
                     <span className="flex items-center gap-1"><Waypoints className="size-3" /> GPU (VRAM)</span>
                     <span className={cn("font-mono", resourceVram === 0 ? "text-yellow-400" : "text-primary")}>{resourceVram}%</span>
                   </div>
-                  <input type="range" min="0" max="100" step="5" value={resourceVram} onChange={e => { const v = Number(e.target.value); setResourceVram(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: resourceRam, vram: v, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
+                  <input type="range" min="0" max="100" step="5" value={resourceVram} disabled={!connected} onChange={e => { const v = Number(e.target.value); setResourceVram(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: resourceRam, vram: v, disk: resourceDisk }, apiKey).catch(() => {}) }} className="w-full" />
                   <div className="text-[9px] text-muted-foreground mt-0.5">{resourceVram === 0 ? "GPU disabled" : health?.hwinfo?.vram_total_gb ? `${(health.hwinfo.vram_total_gb * resourceVram / 100).toFixed(1)} GB of ${health.hwinfo.vram_total_gb.toFixed(1)} GB reported VRAM` : "GPU VRAM total unavailable"}</div>
                 </div>
 
@@ -874,7 +960,7 @@ export default function App() {
                     <span className="flex items-center gap-1"><HardDrive className="size-3" /> Disk I/O</span>
                     <span className="font-mono text-primary">{resourceDisk}%</span>
                   </div>
-                  <input type="range" min="10" max="100" step="5" value={resourceDisk} onChange={e => { const v = Number(e.target.value); setResourceDisk(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: resourceRam, vram: resourceVram, disk: v }, apiKey).catch(() => {}) }} className="w-full" />
+                  <input type="range" min="10" max="100" step="5" value={resourceDisk} disabled={!connected} onChange={e => { const v = Number(e.target.value); setResourceDisk(v); setResourceLimits(baseUrl, { cpu: resourceCpu, ram: resourceRam, vram: resourceVram, disk: v }, apiKey).catch(() => {}) }} className="w-full" />
                 </div>
 
                 <div className="text-[10px] text-muted-foreground mt-2 p-2 bg-[#0a0f12] rounded border border-border">
@@ -1051,7 +1137,7 @@ export default function App() {
                           }
                         }} 
                       />
-                      <Button onClick={() => handleStartDownload(downloadUrl, downloadFilename, downloadPath || undefined)} disabled={!downloadUrl}>
+                      <Button onClick={() => handleStartDownload(downloadUrl, downloadFilename, downloadPath || undefined)} disabled={!downloadUrl || !downloadConsent || !connected}>
                         Download
                       </Button>
                     </div>
@@ -1077,6 +1163,26 @@ export default function App() {
                         <FolderSync className="size-4" />
                       </Button>
                     </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <Input
+                        placeholder="Expected SHA-256 (recommended)"
+                        value={downloadSha256}
+                        onChange={e => setDownloadSha256(e.target.value)}
+                        className="font-mono text-xs"
+                      />
+                      <Input
+                        placeholder="Expected size in bytes (optional)"
+                        inputMode="numeric"
+                        value={downloadExpectedSize}
+                        onChange={e => setDownloadExpectedSize(e.target.value)}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <label className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <input type="checkbox" checked={downloadConsent} onChange={e => setDownloadConsent(e.target.checked)} className="mt-0.5" />
+                      <span>I confirm this source and any applicable license, and understand the gateway will write the artifact to the selected local disk. Resume and integrity checks remain gateway-controlled.</span>
+                    </label>
+                    <p className="text-[10px] text-muted-foreground">Source: {downloadUrl ? (() => { try { return new URL(downloadUrl).hostname } catch { return "invalid URL" } })() : "not selected"}. A checksum is required by the provider when supplied and is shown as unverified until the gateway completes it.</p>
                     {downloadStatus && downloadStatus.status === "completed" && (
                       <div className="success-banner">Download Completed: {downloadStatus.filename} was successfully downloaded!</div>
                     )}
@@ -1136,6 +1242,7 @@ export default function App() {
           <PresetsView
             baseUrl={baseUrl}
             apiKey={apiKey}
+            gatewayReady={connected}
             onApplyPreset={(preset: SystemPreset) => {
               if (preset.system_prompt) setSystemInstruction(preset.system_prompt)
               setTemperature(preset.temperature)
@@ -1143,11 +1250,11 @@ export default function App() {
             }}
           />
         ) : view === "telemetry" ? (
-          <TelemetryView baseUrl={baseUrl} apiKey={apiKey} />
+          <TelemetryView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} />
         ) : view === "benchmarks" ? (
-          <BenchmarksView baseUrl={baseUrl} apiKey={apiKey} />
+          <BenchmarksView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} />
         ) : view === "security" ? (
-          <SecurityView baseUrl={baseUrl} apiKey={apiKey} />
+          <SecurityView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} />
         ) : view === "workbench" ? (
           <WorkbenchView
             baseUrl={baseUrl}
@@ -1162,6 +1269,7 @@ export default function App() {
           <ConverterView
             baseUrl={baseUrl}
             apiKey={apiKey}
+            gatewayReady={connected}
             desktopShell={desktopShell}
             onModelLoaded={(loadedPath) => {
               setModel(loadedPath)
@@ -1170,7 +1278,7 @@ export default function App() {
             onNavigateToChat={() => setView("chat")}
           />
         ) : view === "doctor" ? (
-          <DoctorView baseUrl={baseUrl} apiKey={apiKey} />
+          <DoctorView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} />
         ) : view === "brain" ? (
           <Brain baseUrl={baseUrl} apiKey={apiKey} connected={connected} />
         ) : view === "logs" ? (

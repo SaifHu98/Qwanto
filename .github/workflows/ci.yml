@@ -97,6 +97,8 @@ jobs:
       - name: Run Pytest Suite (Security, Gateway, Local-Only, Agent, Protocol)
         run: |
           python -m pytest c/tests/ -q
+      - name: Check repository documentation links
+        run: python c/tools/check_doc_links.py
 
   web-dashboard:
     name: Web Dashboard & Vitest Suite

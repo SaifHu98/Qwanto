@@ -24,19 +24,22 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `200 passed, 14 skipped` in `c/tests/`; the decoder
+- Native/Python validation: `201 passed, 14 skipped` in `c/tests/`; the decoder
   test passed separately (`2 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
-- Web validation: production build passed and Vitest passed (`35 tests`).
+- Web validation: production build passed and Vitest passed (`42 tests`). The
+  dashboard gates model/config/telemetry requests on a successful `/health`
+  probe and distinguishes a stopped, wrong, or incompatible gateway.
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
 - Rust gates are pending on this workstation because `cargo` is not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. CI
   run `31955118304` and package run `31958474842` passed their required gates.
-- Release status: `v0.1.0-beta.1` is published as a GitHub prerelease after
-  green Windows, macOS, and Linux package jobs. The release contains unsigned
-  platform installers only; model files are not bundled.
+- Release status: `v0.1.0-beta.1` is published as a GitHub prerelease and must
+  remain unchanged. Beta.2 is pending fresh CI/package validation; the release
+  publisher now emits installer SHA-256 checksums and factual unsigned/no-model
+  release notes.
 
 ## Active limitations
 
@@ -52,6 +55,8 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   supervised.
 - TTFT and sensor metrics remain unavailable unless the runtime protocol or
   local sensor query supplies them.
+- The gateway control-plane contract is versioned at schema `1`; `/health` is
+  outside `/v1`, while models/config/telemetry remain under `/v1`.
 - macOS signing/notarization and installed-package smoke tests require the
   corresponding maintainer-owned platform credentials/runners.
 
@@ -63,5 +68,6 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   `TEST_FIXTURE`, `EXPERIMENTAL`, and `PROJECTED`; never substitute values.
 - Release workflow supports manual or temporary-tag package validation and
   existing `v*` tags; tagged runs upload unsigned installers to a GitHub
-  prerelease after the package matrix is green.
+  prerelease after the package matrix is green, with checksums and release
+  notes.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.

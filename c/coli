@@ -949,7 +949,7 @@ def main():
     sub.add_parser("chat", parents=[common])
     ps=sub.add_parser("serve", parents=[common])
     ps.add_argument("--host",default="127.0.0.1"); ps.add_argument("--port",type=int,default=8000)
-    ps.add_argument("--model-id",default=os.environ.get("QWANTO_MODEL_ID","glm-5.2-qwanto"))
+    ps.add_argument("--model-id",default=os.environ.get("QWANTO_MODEL_ID"))
     ps.add_argument("--api-key",default=os.environ.get("QWANTO_API_KEY"))
     ps.add_argument("--cors-origin",action="append",default=None)
     ps.add_argument("--max-queue",type=int,default=int(os.environ.get("QWANTO_MAX_QUEUE","8")))
@@ -957,7 +957,7 @@ def main():
     ps.add_argument("--kv-slots",type=int,default=int(os.environ.get("QWANTO_KV_SLOTS","1")))
     pw=sub.add_parser("web", parents=[common], help="serve + open the dashboard in a browser")
     for arg,kw in (("--host",dict(default="127.0.0.1")),("--port",dict(type=int,default=8000)),
-                   ("--model-id",dict(default=os.environ.get("QWANTO_MODEL_ID","glm-5.2-qwanto"))),
+                   ("--model-id",dict(default=os.environ.get("QWANTO_MODEL_ID"))),
                    ("--api-key",dict(default=os.environ.get("QWANTO_API_KEY"))),
                    ("--cors-origin",dict(action="append",default=None)),
                    ("--max-queue",dict(type=int,default=int(os.environ.get("QWANTO_MAX_QUEUE","8")))),

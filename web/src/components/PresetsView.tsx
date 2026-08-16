@@ -5,14 +5,16 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { getPresets, savePreset, deletePreset, type SystemPreset } from "@/lib/api"
+import { GatewayRequired } from "@/components/GatewayRequired"
 
 interface PresetsViewProps {
   baseUrl: string
   apiKey: string
   onApplyPreset: (preset: SystemPreset) => void
+  gatewayReady: boolean
 }
 
-export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps) {
+export function PresetsView({ baseUrl, apiKey, onApplyPreset, gatewayReady }: PresetsViewProps) {
   const [presets, setPresets] = useState<SystemPreset[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -28,6 +30,12 @@ export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps
   const [saving, setSaving] = useState(false)
 
   const fetchPresets = async () => {
+    if (!gatewayReady) {
+      setPresets([])
+      setError("Connect to the Qwanto gateway before loading presets.")
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError("")
     try {
@@ -42,7 +50,7 @@ export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps
 
   useEffect(() => {
     fetchPresets()
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, gatewayReady])
 
   const handleApply = (preset: SystemPreset) => {
     onApplyPreset(preset)
@@ -52,6 +60,7 @@ export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!gatewayReady) return
     if (!name.trim()) return
     setSaving(true)
     try {
@@ -79,6 +88,7 @@ export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps
   }
 
   const handleDelete = async (id: string) => {
+    if (!gatewayReady) return
     try {
       const updated = await deletePreset(baseUrl, id, apiKey)
       setPresets(updated)
@@ -108,7 +118,7 @@ export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps
             Pre-configured generation parameters and specialized system instructions for your models.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(!showCreate)} size="sm">
+        <Button onClick={() => setShowCreate(!showCreate)} size="sm" disabled={!gatewayReady}>
           <Plus className="size-4 mr-1.5" /> New Custom Preset
         </Button>
       </div>
@@ -118,6 +128,8 @@ export function PresetsView({ baseUrl, apiKey, onApplyPreset }: PresetsViewProps
           {error}
         </div>
       )}
+
+      {!gatewayReady && <GatewayRequired message="Preset data is loaded from the gateway after a successful health probe." />}
 
       {showCreate && (
         <form onSubmit={handleSave} className="p-5 border border-border bg-card rounded-xl space-y-4 shadow-xl">
