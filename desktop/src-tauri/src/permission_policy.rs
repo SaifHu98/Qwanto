@@ -125,6 +125,12 @@ impl ApprovalTokenRegistry {
     }
 }
 
+impl Default for ApprovalTokenRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct PermissionPolicy {
     pub workspace_root: Option<PathBuf>,
     pub mode: ExecutionMode,

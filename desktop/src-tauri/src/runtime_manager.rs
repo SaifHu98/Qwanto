@@ -7,6 +7,8 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+type RequestTracking = Arc<Mutex<HashMap<String, (Instant, Option<Instant>)>>>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartOptions {
     pub max_tokens: Option<u32>,
@@ -90,7 +92,7 @@ pub fn parse_next_protocol_frame<R: BufRead>(reader: &mut R) -> std::io::Result<
         return Ok(None);
     }
 
-    let trimmed = line.trim_end_matches(|c| c == '\r' || c == '\n');
+    let trimmed = line.trim_end_matches(['\r', '\n']);
     if trimmed == "\x01\x01READY\x01\x01" || trimmed == "READY" {
         return Ok(Some(ProtocolFrame::Ready));
     }
@@ -175,7 +177,7 @@ pub struct QwantoRuntimeManager {
     child: Arc<Mutex<Option<Child>>>,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
     status: Arc<Mutex<RuntimeStatus>>,
-    request_tracking: Arc<Mutex<HashMap<String, (Instant, Option<Instant>)>>>,
+    request_tracking: RequestTracking,
     executable_path: PathBuf,
 }
 
@@ -432,7 +434,7 @@ impl QwantoRuntimeManager {
             let status_clone = Arc::clone(&self.status);
             std::thread::spawn(move || {
                 let reader = BufReader::new(err);
-                for line in reader.lines().flatten() {
+                for line in reader.lines().map_while(Result::ok) {
                     if line.contains("backend=") {
                         let mut st = status_clone.lock().unwrap();
                         if line.contains("backend=CUDA") {
@@ -505,6 +507,12 @@ impl QwantoRuntimeManager {
             let _ = stdin.flush();
         }
         Ok(())
+    }
+}
+
+impl Default for QwantoRuntimeManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
