@@ -74,9 +74,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:CC = "sccache ${{ matrix.cc }}"
-          make -C c glm qwnrun
-          make -C c test-c
+          Set-Location c
+          sccache clang -O3 -mavx2 -mf16c -mfma qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          make test-c
       - name: Upload native runtime
         uses: actions/upload-artifact@v4
         with:
