@@ -38,6 +38,7 @@ MODELS_DIR = ROOT / "models"
 MODELS = {
     "1.5B": MODELS_DIR / "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
     "4B":   MODELS_DIR / "DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf",
+    "27B":  MODELS_DIR / "Qwen3.8-27B-UD-IQ2_M.gguf",
 }
 
 
@@ -284,6 +285,28 @@ class DeepSeek4BTests(unittest.TestCase):
             self.assertLess(rep.format_payload_bpw, 3.0)
             # On-disk size must be < 1.5 GB (source is 8.07 GB BF16).
             self.assertLess(out.stat().st_size, int(1.5 * 1024 ** 3))
+
+
+@unittest.skipUnless(MODELS["27B"].exists(),
+                     "Qwen3.8-27B-UD-IQ2_M.gguf not present")
+class Qwen27BTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.path = MODELS["27B"]
+        cls.meta = _gguf_metadata(cls.path)
+
+    def test_gguf_metadata_reads_qwen27b(self):
+        self.assertEqual(self.meta.get("general.architecture"), "qwen35")
+        self.assertEqual(self.meta.get("qwen35.block_count"), 65)
+        self.assertEqual(self.meta.get("qwen35.embedding_length"), 5120)
+        self.assertEqual(self.meta.get("qwen35.attention.head_count"), 24)
+        self.assertEqual(self.meta.get("qwen35.attention.head_count_kv"), 4)
+
+    def test_arch_detection_selects_dense_adapter(self):
+        registry = ArchRegistry()
+        adapter, conf = registry.select(self.meta, [])
+        self.assertIn(adapter.name, ("known_dense_transformer", "generic_dense_transformer"))
+        self.assertGreaterEqual(conf.score, 0.60)
 
 
 class NegativeAndEdgeCaseTests(unittest.TestCase):

@@ -7,7 +7,7 @@ on:
     branches: [main, dev]
 
 jobs:
-  native-engine:
+  native-c-engine:
     name: Native C Engine (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -23,11 +23,44 @@ jobs:
           make glm
           make test-c
 
-      - name: Build and Run C Tests (Windows)
+      - name: Setup MSVC Developer Environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build and Verify Native Engine (Windows MSVC)
         if: runner.os == 'Windows'
         run: |
           cd c
-          cl /O2 /W4 /D_CRT_SECURE_NO_WARNINGS /Fe:qwnrun.exe qwnrun.c qwanto_decode.c qwanto_gpu.c qwanto_autopilot.c /link /out:qwnrun.exe || echo "MSVC build verification"
+          cl /O2 /W4 /D_CRT_SECURE_NO_WARNINGS /Fe:qwnrun.exe qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c /link /out:qwnrun.exe psapi.lib
+
+  rust-tauri-host:
+    name: Rust Tauri Host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux System Dependencies for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cargo Check
+        run: cargo check --manifest-path desktop/src-tauri/Cargo.toml
+
+      - name: Cargo Unit Tests
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+
+      - name: Cargo Clippy
+        run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml -- -D warnings
 
   python-security-and-runtime:
     name: Python Runtime & Security Tests (${{ matrix.python-version }})
@@ -44,11 +77,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest
-      - name: Run Pytest Suite (Security, Gateway, Local-Only, Agent)
+      - name: Run Pytest Suite (Security, Gateway, Local-Only, Agent, Protocol)
         run: |
           python -m pytest c/tests/ -q
 
-  web-and-desktop:
+  web-dashboard:
     name: Web Dashboard & Vitest Suite
     runs-on: ubuntu-latest
     defaults:
@@ -62,7 +95,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - name: Lint and Typecheck
+      - name: TypeScript & Vite Build
         run: npm run build
       - name: Run Vitest Unit & E2E Tests
         run: npm test
@@ -83,14 +116,18 @@ jobs:
           pattern = re.compile(r'(sk-[a-zA-Z0-9_-]{24,}|ghp_[a-zA-Z0-9]{20,})')
           bad = False
           for root, _, files in os.walk('.'):
-              if '.git' in root or 'node_modules' in root or 'dist' in root: continue
+              if any(skip in root for skip in ['.git', 'node_modules', 'dist', 'target', 'openagent-master']):
+                  continue
               for f in files:
                   if f.endswith(('.py', '.ts', '.tsx', '.rs', '.c', '.h', '.md')):
+                      # Skip adversarial tests that specifically test regex redaction
+                      if 'test_adversarial_security.py' in f:
+                          continue
                       p = os.path.join(root, f)
                       with open(p, 'r', encoding='utf-8', errors='ignore') as fp:
-                          for line in fp:
+                          for line_no, line in enumerate(fp, 1):
                               if pattern.search(line) and '[REDACTED' not in line and 'dummy' not in line and 'pattern' not in line:
-                                  print(f'Potential secret in {p}: {line.strip()[:40]}')
+                                  print(f'Potential secret in {p}:{line_no}: {line.strip()[:40]}')
                                   bad = True
           if bad: sys.exit(1)
           print('Secret scan clean.')

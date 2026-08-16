@@ -18,7 +18,7 @@ export interface StepItem {
 }
 
 export function CodingAgentView() {
-  const [workspaceRoot, setWorkspaceRoot] = useState<string>("D:/EcoUni/qwanto")
+  const [workspaceRoot, setWorkspaceRoot] = useState<string>("./")
   const [mode, setMode] = useState<"plan" | "agent">("plan")
   const [activeModel, setActiveModel] = useState<string>("DeepSeek-V4-Pro-4B-twla.qwn")
   const [prompt, setPrompt] = useState<string>("")

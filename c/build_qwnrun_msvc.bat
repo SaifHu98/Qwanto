@@ -8,8 +8,9 @@ set "SDK_INC_UM=C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um"
 set "SDK_LIB=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22621.0\um\x64"
 set "REDIST=C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.OpenMP"
 
-set "SRC=D:\EcoUni\qwanto\c"
-set "OUT=D:\EcoUni\qwanto\c\qwnrun_msvc.exe"
+set "SRC=%~dp0"
+if "%SRC:~-1%"=="\" set "SRC=%SRC:~0,-1%"
+set "OUT=%SRC%\qwnrun_msvc.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -fopenmp ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" ^

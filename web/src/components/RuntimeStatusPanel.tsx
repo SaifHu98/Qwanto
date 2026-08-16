@@ -1,18 +1,22 @@
-import React, { useState, useEffect } from "react"
-import { Activity, Zap, Cpu, HardDrive, Play, Square, RefreshCw, Layers } from "lucide-react"
+import React, { useState } from "react"
+import { Zap } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 
 export interface RuntimeStatusPanelProps {
   activeModel?: string
   isTauriHost?: boolean
+  initialRunning?: boolean
 }
 
-export function RuntimeStatusPanel({ activeModel = "DeepSeek-V4-Pro-4B-twla.qwn", isTauriHost = false }: RuntimeStatusPanelProps) {
-  const [isRunning, setIsRunning] = useState(true)
-  const [tps, setTps] = useState<number | null>(452.8)
-  const [ttft, setTtft] = useState<number | null>(2.1)
-  const [memoryMb, setMemoryMb] = useState<number | null>(540)
+export function RuntimeStatusPanel({
+  activeModel = "No model loaded",
+  isTauriHost = false,
+  initialRunning = false
+}: RuntimeStatusPanelProps) {
+  const [isRunning, setIsRunning] = useState(initialRunning)
+  const [tps, setTps] = useState<number | null>(null)
+  const [ttft, setTtft] = useState<number | null>(null)
+  const [memoryMb, setMemoryMb] = useState<number | null>(null)
   const [lastError, setLastError] = useState<string | null>(null)
 
   return (
@@ -25,7 +29,7 @@ export function RuntimeStatusPanel({ activeModel = "DeepSeek-V4-Pro-4B-twla.qwn"
           </span>
         </div>
         <Badge className={`text-[10px] ${isRunning ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}>
-          {isRunning ? "● PROCESS ACTIVE" : "○ STOPPED"}
+          {isRunning ? "● PROCESS ACTIVE" : "○ STANDBY"}
         </Badge>
       </div>
 

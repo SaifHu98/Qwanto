@@ -48,11 +48,12 @@ fn send_prompt(
     request_id: String,
     prompt: String,
     max_tokens: Option<u32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
     state: State<AppState>,
-    app: AppHandle,
 ) -> Result<(), String> {
     let manager = state.runtime_manager.lock().map_err(|e| e.to_string())?;
-    manager.send_prompt(&request_id, &prompt, max_tokens, app)
+    manager.send_prompt(&request_id, &prompt, max_tokens, temperature, top_p)
 }
 
 #[tauri::command]
@@ -73,14 +74,11 @@ fn get_telemetry_snapshot() -> Result<TelemetrySnapshot, String> {
 }
 
 #[tauri::command]
-fn set_workspace_root(root_path: String, state: State<AppState>) -> Result<(), String> {
+fn set_workspace_root(root_path: String, state: State<AppState>) -> Result<String, String> {
     let path = PathBuf::from(&root_path);
-    if !path.exists() || !path.is_dir() {
-        return Err(format!("Workspace root does not exist: {}", root_path));
-    }
     let mut policy = state.permission_policy.lock().map_err(|e| e.to_string())?;
-    policy.workspace_root = Some(path);
-    Ok(())
+    let canonical = policy.set_workspace_root(&path)?;
+    Ok(canonical.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -95,9 +93,10 @@ fn set_execution_mode(mode: String, state: State<AppState>) -> Result<(), String
 
 #[tauri::command]
 fn execute_agent_tool(
+    session_id: String,
     tool_name: String,
     args: serde_json::Value,
-    approved: bool,
+    approval_token: Option<String>,
     state: State<AppState>,
 ) -> Result<ToolResult, String> {
     let policy = state.permission_policy.lock().map_err(|e| e.to_string())?;
@@ -105,27 +104,31 @@ fn execute_agent_tool(
     match tool_name.as_str() {
         "read_file" => {
             let path = args.get("path").and_then(|v| v.as_str()).ok_or("Missing 'path' argument")?;
-            Ok(ToolExecutor::read_file(path, &policy))
+            Ok(ToolExecutor::read_file(&session_id, path, &policy))
         }
         "write_file" => {
             let path = args.get("path").and_then(|v| v.as_str()).ok_or("Missing 'path' argument")?;
             let content = args.get("content").and_then(|v| v.as_str()).ok_or("Missing 'content' argument")?;
-            Ok(ToolExecutor::write_file(path, content, &policy, approved))
+            Ok(ToolExecutor::write_file(&session_id, path, content, approval_token.as_deref(), &policy))
         }
         "edit_file" => {
             let path = args.get("path").and_then(|v| v.as_str()).ok_or("Missing 'path' argument")?;
             let old_str = args.get("old_str").and_then(|v| v.as_str()).ok_or("Missing 'old_str' argument")?;
             let new_str = args.get("new_str").and_then(|v| v.as_str()).ok_or("Missing 'new_str' argument")?;
-            Ok(ToolExecutor::edit_file(path, old_str, new_str, &policy, approved))
+            Ok(ToolExecutor::edit_file(&session_id, path, old_str, new_str, approval_token.as_deref(), &policy))
         }
         "list_directory" => {
             let path = args.get("path").and_then(|v| v.as_str());
-            Ok(ToolExecutor::list_directory(path, &policy))
+            Ok(ToolExecutor::list_directory(&session_id, path, &policy))
         }
         "execute_command" => {
-            let cmd = args.get("command").and_then(|v| v.as_str()).ok_or("Missing 'command' argument")?;
+            let program = args.get("program").and_then(|v| v.as_str()).unwrap_or("powershell");
+            let cmd_args: Vec<String> = args.get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .unwrap_or_default();
             let cwd = args.get("cwd").and_then(|v| v.as_str());
-            Ok(ToolExecutor::execute_command(cmd, cwd, &policy, approved))
+            Ok(ToolExecutor::execute_command(&session_id, program, cmd_args, cwd, approval_token.as_deref(), &policy))
         }
         _ => Err(format!("Unsupported agent tool: {}", tool_name)),
     }
