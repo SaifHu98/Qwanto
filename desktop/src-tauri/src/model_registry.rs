@@ -246,6 +246,10 @@ mod tests {
         let mut header = vec![0u8; 4096];
         header[0..4].copy_from_slice(b"BAD!");
 
+        let mut f = File::create(&file_path).unwrap();
+        f.write_all(&header).unwrap();
+        f.flush().unwrap();
+
         let info = ModelRegistry::inspect_qwn_file(&file_path);
         assert_eq!(info.compatibility_state, "invalid");
         assert!(info.metadata_status.contains("magic"));

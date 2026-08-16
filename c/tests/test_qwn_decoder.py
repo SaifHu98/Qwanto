@@ -101,6 +101,7 @@ class NativeDecoderTest(unittest.TestCase):
              str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwanto_thinking.c"),str(HERE/"qwanto_speculative.c"),str(HERE/"qwanto_agentic.c"),str(HERE/"qwanto_autopilot.c"),str(HERE/"qwanto_gpu.c"),str(HERE/"qwanto_bitdecoding.c"),str(HERE/"qwanto_jetspec.c"),str(HERE/"qwanto_talon.c"),str(HERE/"qwanto_sliminfer.c"),str(HERE/"qwanto_pquant.c"),str(HERE/"qwanto_littlebit.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
         if sys.platform == "linux":
             cmd.append("-fopenmp")
+            cmd.append("-D_GNU_SOURCE")
         if os.name != "nt":
             cmd.extend(["-lm", "-lpthread", "-ldl"])
         result = subprocess.run(cmd, check=False, capture_output=True, text=True)
