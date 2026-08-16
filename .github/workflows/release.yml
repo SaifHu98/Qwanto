@@ -10,6 +10,7 @@ on:
   push:
     tags:
       - "v*"
+      - "package-validation-*"
 
 permissions:
   contents: read

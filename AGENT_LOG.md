@@ -184,3 +184,8 @@
 
 - **Change:** Replaced timing-based download-cancellation coverage with an explicit loopback-server start event and deterministic throttling after Actions exposed a fast-runner race.
 - **Validation:** Targeted acquisition tests `6 passed`; full Python suite `200 passed, 14 skipped` locally.
+
+## 2026-08-16 — Package validation trigger fallback
+
+- **Change:** Added a non-publishing `package-validation-*` tag trigger for environments where the GitHub connector cannot invoke `workflow_dispatch`; `v*` remains the publishing-only trigger.
+- **Decision:** Do not create `v0.1.0-beta.1` until every Windows, macOS, and Linux package job is green.

@@ -1,7 +1,9 @@
 # Qwanto packaging
 
 The release workflow is `.github/workflows/release.yml`. `workflow_dispatch`
-builds packages for validation and uploads workflow artifacts. A `v*` tag runs
+builds packages for validation and uploads workflow artifacts. A temporary
+`package-validation-*` tag provides the same non-publishing validation path
+when dispatch is unavailable. A `v*` tag runs
 the same matrix and, only after all package jobs pass, creates or updates a
 GitHub prerelease with the installer assets. The workflow never creates a tag.
 
@@ -37,7 +39,8 @@ cannot start its declared runtime is not release-ready.
 
 The workflow runs web tests/build, Rust check/test/Clippy, compiles the native
 engine, builds Tauri, checks that the resource exists, rejects model files in
-the bundle, and runs `git diff --check`. `workflow_dispatch` is the package
+the bundle, and runs `git diff --check`. `workflow_dispatch` and
+`package-validation-*` are package validation gates. For a Beta release, wait for that gate to pass, then create a
 validation gate. For a Beta release, wait for that gate to pass, then create a
 version tag such as `v0.1.0-beta.1` and push it; the tag-triggered workflow
 publishes a prerelease only after every Windows, macOS, and Linux package job

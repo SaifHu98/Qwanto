@@ -61,7 +61,7 @@ host. The native design tiers model data across VRAM, RAM, and NVMe mmap.
   and process operations stay in the desktop host or gateway.
 - Keep benchmark classifications `MEASURED`, `UNAVAILABLE`, `INVALID`,
   `TEST_FIXTURE`, `EXPERIMENTAL`, and `PROJECTED`; never substitute values.
-- Release workflow supports manual package validation and existing `v*` tags;
+- Release workflow supports manual or temporary-tag package validation and existing `v*` tags;
   tagged runs upload unsigned installers to a GitHub prerelease after the
   package matrix is green, without creating tags.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
