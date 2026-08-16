@@ -181,11 +181,15 @@ Traditional container formats (like GGUF or Safetensors) are designed primarily 
 - **Asynchronous Execution Paradigm**: Completely decouples draft generation from verification, eliminating the mutual waiting barrier between the draft engine and target models.
 - **Adaptive Hybrid Drafting**: Dynamically routes between model-based neural drafting for code/math reasoning and sub-vector trie retrieval for knowledge-intensive domains, delivering **4.04x–6.52x acceleration** across diverse benchmarks (HumanEval, GSM8K, MT-Bench).
 
-### 7. ⚡ BitDecoding: Tensor Core KV-Cache Acceleration *(HPCA 2026)*
+### 7. ✂️ SlimInfer: Dynamic Token Pruning for Long-Context Acceleration *(AAAI 2026)*
+- **Information Diffusion Exploitation**: Identifies distributed semantic states across intermediate transformer layers to prune redundant prompt tokens dynamically while preserving critical attention sink tokens.
+- **2.53x TTFT Acceleration**: Cuts Time-To-First-Token in half and reduces memory footprint by $>50\%$ across 16K, 32K, and 64K context windows with $<1.3\%$ accuracy divergence on LongBench.
+
+### 8. ⚡ BitDecoding: Tensor Core KV-Cache Acceleration *(HPCA 2026)*
 - **Warp-Level Dequantization Parallelism**: Reorganizes low-bit KV caches into swizzled $16 \times 16$ and $16 \times 32$ tiles aligned directly with hardware Tensor Cores (`mma.sync`, Hopper `wgmma`, and Blackwell `NVFP4`).
 - **Mixed-Precision Tensor Execution**: Unlocks **7.5x faster decoding throughput** over standard FP16 attention and **2x over standard CUDA core kernels** with less than 0.2% perplexity divergence.
 
-### 8. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
+### 9. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
 Qwanto requires **zero manual configuration or proprietary SDK installs**:
 - **NVIDIA CUDA**: Automatically detects system driver (`nvcuda.dll` / `libcuda.so.1`) and CUDA runtimes (`cudart64_*.dll`).
 - **Apple Silicon Metal**: Direct dispatch to Metal and MetalPerformanceShaders (MPS).

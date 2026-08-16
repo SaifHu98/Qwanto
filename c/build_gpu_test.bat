@@ -13,6 +13,7 @@ set "OUT2=D:\EcoUni\qwanto\c\test_gpu_kernels.exe"
 set "OUT3=D:\EcoUni\qwanto\c\test_bitdecoding.exe"
 set "OUT4=D:\EcoUni\qwanto\c\test_jetspec.exe"
 set "OUT5=D:\EcoUni\qwanto\c\test_talon.exe"
+set "OUT6=D:\EcoUni\qwanto\c\test_sliminfer.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
@@ -54,9 +55,18 @@ clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
 
 if %ERRORLEVEL% NEQ 0 (echo BUILD TALON FAILED & exit /b 1)
 
+clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
+    -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
+    "%SRC%\tests\test_sliminfer.c" "%SRC%\qwanto_sliminfer.c" ^
+    -o "%OUT6%" ^
+    -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
+
+if %ERRORLEVEL% NEQ 0 (echo BUILD SLIMINFER FAILED & exit /b 1)
+
 echo Built: %OUT1%
 echo Built: %OUT2%
 echo Built: %OUT3%
 echo Built: %OUT4%
 echo Built: %OUT5%
+echo Built: %OUT6%
 endlocal
