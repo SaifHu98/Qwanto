@@ -77,23 +77,25 @@ The `.qwn` format is Qwanto's native container format engineered for high-bandwi
 
 ## 📊 Verified Performance Evidence
 
-All performance metrics below are strictly categorized per the [Qwanto Benchmark Methodology](docs/benchmark-methodology.md) using the actual model checkpoints in `models/`:
+All performance metrics below are strictly categorized per the [Qwanto Benchmark Methodology](docs/benchmark-methodology.md) and cross-referenced against the [Model Provenance Manifest](docs/model-manifest.json):
 
-| Model Identifier & Architecture | Footprint | Measured Throughput | Measured TTFT / Wall Time | Hardware & Environment | Evidence Classification | Raw Evidence Link |
+| Model Identifier & Architecture | Footprint | Measured Throughput | Measured TTFT / Wall Time | Execution Runtime | Evidence Classification | Raw Evidence Link |
 |---|:---:|:---:|:---:|---|:---:|:---:|
-| **DeepSeek-R1-Distill-Qwen-1.5B**<br>`Q4_K_M / Qwen2 28L 1536D` | **1.04 GB** | **201.43 tok/s** (204.6 max) | **99.38 ms TTFT** | AMD Ryzen 9 9955HX (32T)<br>NVIDIA RTX 5070 Ti 12GB · Win 11 | 🟢 **Measured (Empirical)** | [`experiments/results/llama_15B.json`](experiments/results/llama_15B.json) |
-| **DeepSeek-V4-Pro-Qwen3.5-4B**<br>`HyperVSQ-2 / QWN 33L 2560D` | **1.26 GB**<br>*(8.07 GB BF16)* | **19.41 tok/s** (QWN live)<br>**48.16 tok/s** (GGUF baseline) | **3.29 s (64 tokens)**<br>**357.53 ms TTFT** | AMD Ryzen 9 9955HX (32T)<br>NVIDIA RTX 5070 Ti 12GB · Win 11 | 🟢 **Measured (Empirical)** | [`benchmark_evidence.json`](benchmark_evidence.json)<br>[`llama_4B.json`](experiments/results/llama_4B.json) |
-| **Qwen3.8-27B-UD**<br>`IQ2_M / Qwen3.5 65L 5120D` | **9.61 GB** | Ultra-Dense Sub-2-Bit<br>27B Parameters | 65 Blocks · 866 Tensors<br>256K Context Window | AMD Ryzen 9 9955HX (32T)<br>NVIDIA RTX 5070 Ti 12GB | 🟡 **Experimental (Attached Fixture)** | [`models/Qwen3.8-27B-UD-IQ2_M.gguf`](models/Qwen3.8-27B-UD-IQ2_M.gguf) |
-| **Multi-GPU Scaling Cluster**<br>`4x NVIDIA RTX 5090 (96GB)` | N/A | **870.0 tok/s** | **1.10 ms TTFT** | Projected Datacenter Tensor-Parallel<br>Theoretical Hardware Extrapolation | 🔵 **Projected** | [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md) |
+| **DeepSeek-V4-Pro-Qwen3.5-4B**<br>`HyperVSQ-2 / QWN 33L 2560D` | **1.26 GB**<br>*(8.07 GB BF16)* | **19.41 tok/s** | **3.29 s (64 tokens)** | **Native `qwnrun`**<br>(Live Persistent Process) | 🟢 **Measured Live (Native Qwanto)** | [`benchmark_evidence.json`](benchmark_evidence.json)<br>[`model-manifest.json`](docs/model-manifest.json) |
+| **DeepSeek-R1-Distill-Qwen-1.5B**<br>`Q4_K_M / Qwen2 28L 1536D` | **1.04 GB** | **201.43 tok/s** (204.6 max) | **99.38 ms TTFT** | **llama-server**<br>(External GGUF Baseline) | 🟢 **External GGUF Baseline (not native qwnrun)** | [`experiments/results/llama_15B.json`](experiments/results/llama_15B.json) |
+| **Qwen3.8-27B-UD**<br>`IQ2_M / Qwen3.5 65L 5120D` | **9.61 GB** | *Not yet benchmarked* | 65 Blocks · 866 Tensors<br>256K Context Window | GGUF Header Prober | 🟡 **Experimental — GGUF metadata verified; native Qwanto inference not yet benchmarked** | [`docs/model-manifest.json`](docs/model-manifest.json) |
 
 ### Reproduce Benchmarks
 ```bash
-# Benchmark real 4B QWN model:
+# Benchmark real 4B QWN model with native qwnrun:
 python benchmarks/benchmark_reproducible.py --model experiments/results/4B_hyper_vsq2.qwn --max-tokens 64
 
-# Test all 3 real attached models in models/:
+# Test metadata and conversion integrity of all 3 real attached models:
 python -m pytest c/tests/test_real_models.py -q
 ```
+
+### 🔮 Theoretical Projection Methodology
+Datacenter multi-GPU tensor-parallel scaling estimates (e.g. 4× NVIDIA RTX 5090 at projected ~870 tok/s and ~1.10 ms TTFT) represent architectural hardware throughput forecasts derived from memory bandwidth modeling, rather than physically measured benchmarks on hosted CI runners. See [`docs/benchmark-methodology.md`](docs/benchmark-methodology.md) for extrapolation equations and assumptions.
 
 ---
 

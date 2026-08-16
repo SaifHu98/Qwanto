@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "manifest_version": "1.0.0",
+  "generated_at": "2026-08-16T12:20:00Z",
+  "models": [
+    {
+      "model_id": "DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2",
+      "architecture": "qwen35",
+      "format": "qwn",
+      "target_file": "experiments/results/4B_hyper_vsq2.qwn",
+      "target_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "target_size_bytes": 1266202104,
+      "source_file": "models/DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf",
+      "source_sha256": "4e96a8e6902617d67ac7476795173975b366e9ece3fcb96204600f129158162c",
+      "source_size_bytes": 8665621152,
+      "quantization": "HyperVSQ-2 (2.3125 bpw)",
+      "conversion_command": "python c/coli pack models/DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf experiments/results/4B_hyper_vsq2.qwn --quant hyper_vsq2",
+      "verified_runtime": "c/qwnrun.c (qwnrun_msvc.exe)",
+      "inference_status": "benchmarked_live",
+      "measured_throughput_tps": 19.41,
+      "measured_wall_seconds": 3.2977
+    },
+    {
+      "model_id": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M",
+      "architecture": "qwen2",
+      "format": "gguf",
+      "source_file": "models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+      "source_sha256": "1741e5b2d062b07acf048bf0d2c514dadf2a48f94e2b4aa0cfe069af3838ee2f",
+      "source_size_bytes": 1117320800,
+      "quantization": "Q4_K_M",
+      "verified_runtime": "llama-server (external GGUF baseline)",
+      "inference_status": "external_baseline_benchmarked",
+      "measured_throughput_tps": 201.43,
+      "measured_ttft_ms": 99.38,
+      "raw_evidence_file": "experiments/results/llama_15B.json"
+    },
+    {
+      "model_id": "Qwen3.8-27B-UD-IQ2_M",
+      "architecture": "qwen35",
+      "format": "gguf",
+      "source_file": "models/Qwen3.8-27B-UD-IQ2_M.gguf",
+      "source_sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740",
+      "source_size_bytes": 10319907904,
+      "quantization": "IQ2_M (sub-2-bit extreme)",
+      "block_count": 65,
+      "tensor_count": 866,
+      "embedding_length": 5120,
+      "inference_status": "metadata_verified_not_yet_benchmarked"
+    }
+  ]
+}
