@@ -222,6 +222,8 @@ pub fn run() {
             save_agent_session,
             get_agent_session
         ])
+        .build(tauri::generate_context!())
+        .expect("failed to build the Qwanto desktop application")
         .run(|app: &AppHandle, event| {
             if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 if let Ok(state) = app.state::<AppState>().gateway_manager.lock() {
@@ -230,5 +232,4 @@ pub fn run() {
                 }
             }
         })
-        .expect("failed to run the Qwanto desktop application");
 }
