@@ -2,6 +2,8 @@
 #define QWANTO_NEXTGEN_H
 
 #include "qwanto_twla.h"
+#include "qwanto_pquant.h"
+#include "qwanto_littlebit.h"
 #include "qwanto_turboquant.h"
 #include "qwanto_spectral.h"
 #include "qwanto_pagedeviction.h"

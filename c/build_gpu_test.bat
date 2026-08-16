@@ -14,6 +14,8 @@ set "OUT3=D:\EcoUni\qwanto\c\test_bitdecoding.exe"
 set "OUT4=D:\EcoUni\qwanto\c\test_jetspec.exe"
 set "OUT5=D:\EcoUni\qwanto\c\test_talon.exe"
 set "OUT6=D:\EcoUni\qwanto\c\test_sliminfer.exe"
+set "OUT7=D:\EcoUni\qwanto\c\test_pquant.exe"
+set "OUT8=D:\EcoUni\qwanto\c\test_littlebit.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
@@ -63,10 +65,28 @@ clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
 
 if %ERRORLEVEL% NEQ 0 (echo BUILD SLIMINFER FAILED & exit /b 1)
 
+clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
+    -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
+    "%SRC%\tests\test_pquant.c" "%SRC%\qwanto_pquant.c" ^
+    -o "%OUT7%" ^
+    -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
+
+if %ERRORLEVEL% NEQ 0 (echo BUILD PQUANT FAILED & exit /b 1)
+
+clang -O3 -march=x86-64-v3 -mavxvnni -Wno-deprecated-declarations ^
+    -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
+    "%SRC%\tests\test_littlebit.c" "%SRC%\qwanto_littlebit.c" ^
+    -o "%OUT8%" ^
+    -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
+
+if %ERRORLEVEL% NEQ 0 (echo BUILD LITTLEBIT FAILED & exit /b 1)
+
 echo Built: %OUT1%
 echo Built: %OUT2%
 echo Built: %OUT3%
 echo Built: %OUT4%
 echo Built: %OUT5%
 echo Built: %OUT6%
+echo Built: %OUT7%
+echo Built: %OUT8%
 endlocal

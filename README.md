@@ -160,9 +160,10 @@ Traditional container formats (like GGUF or Safetensors) are designed primarily 
 - **64-Byte Cache-Line Padding**: Ensures SIMD/AVX and GPU warp accesses never cross cache lines.
 - **Layer-Ahead Prefetching**: Predictively streams upcoming transformer layers from NVMe storage into VRAM/RAM asynchronously.
 
-### 2. 🧮 TWLA: 1.58-Bit Ternary Quantization *(ICML 2026)*
-- **Bit-Packed Superblocks**: Compresses 256 weights into a **66-byte superblock** (1.58 bpw payload / 2.0625 bpw total), reducing 4B parameter models to under **1.15 GB**.
-- **In-Register Ternary Operations**: Replaces slow floating-point multipliers with native bitwise shifts and additions (`_mm256_maddubs_epi16`, AVX-512 in-register dot products, and CUDA `__shfl_down_sync`).
+### 2. 🧮 pQuant, LittleBit-2 & TWLA: Sub-1-Bit and Decoupled Quantization *(ICML 2026)*
+- **LittleBit-2 (Sub-1-Bit Regime)**: Factorizes dense weight matrices into low-rank binarized latent factors ($U, V \in \{-1, +1\}$) with learned channel scales, achieving **0.54 GB footprint for 4B models (2x memory reduction)** and **148+ tok/s**.
+- **pQuant (Decoupled 1-Bit + Sparse Branch)**: Splits weights into a dominant 1-bit binary branch for bitwise XNOR/POPCNT execution and a compact sparse FP16 outlier branch for sensitive parameters, preserving $>99.6\%$ accuracy.
+- **TWLA 1.58-Bit Superblocks**: Compresses 256 weights into a 66-byte superblock (1.58 bpw payload / 2.0625 bpw total) for in-register ternary operations (`_mm256_maddubs_epi16`).
 
 ### 3. ⚡ TurboQuant 2.5-Bit & 3.5-Bit Vector KV-Cache *(ICLR 2026)*
 - **Randomized Polar Rotation**: Applies an orthogonal Hadamard/Polar rotation to eliminate outlier dimensions before vector quantization.

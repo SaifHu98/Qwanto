@@ -1466,7 +1466,7 @@ def main(argv=None):
     convert = sub.add_parser("convert")
     convert.add_argument("source")
     convert.add_argument("output")
-    convert.add_argument("--quant", choices=("hyper_vsq2", "twla", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "none"), default="hyper_vsq2")
+    convert.add_argument("--quant", choices=("pquant", "littlebit2", "hyper_vsq2", "twla", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "none"), default="hyper_vsq2")
     inspect = sub.add_parser("inspect")
     inspect.add_argument("model")
     args = parser.parse_args(argv)

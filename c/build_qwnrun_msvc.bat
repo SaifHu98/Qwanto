@@ -13,7 +13,7 @@ set "OUT=D:\EcoUni\qwanto\c\qwnrun_msvc.exe"
 
 clang -O3 -march=x86-64-v3 -mavxvnni -fopenmp ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" ^
-    "%SRC%\qwnrun.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_native.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwanto_thinking.c" "%SRC%\qwanto_speculative.c" "%SRC%\qwanto_agentic.c" "%SRC%\qwanto_autopilot.c" "%SRC%\qwanto_gpu.c" "%SRC%\qwanto_bitdecoding.c" "%SRC%\qwanto_jetspec.c" "%SRC%\qwanto_talon.c" "%SRC%\qwanto_sliminfer.c" "%SRC%\qwn_paged_kv.c" ^
+    "%SRC%\qwnrun.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_native.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwanto_thinking.c" "%SRC%\qwanto_speculative.c" "%SRC%\qwanto_agentic.c" "%SRC%\qwanto_autopilot.c" "%SRC%\qwanto_gpu.c" "%SRC%\qwanto_bitdecoding.c" "%SRC%\qwanto_jetspec.c" "%SRC%\qwanto_talon.c" "%SRC%\qwanto_sliminfer.c" "%SRC%\qwanto_pquant.c" "%SRC%\qwanto_littlebit.c" "%SRC%\qwn_paged_kv.c" ^
     "%MSVC_LIB%\libomp.lib" "%SDK_LIB%\psapi.lib" ^
     -o "%OUT%" ^
     -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"
