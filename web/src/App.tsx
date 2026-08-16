@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { DashboardView } from "./components/DashboardView"
 import { PresetsView } from "./components/PresetsView"
 import { TelemetryView } from "./components/TelemetryView"
 import { DoctorView } from "./components/DoctorView"
@@ -142,9 +143,9 @@ export default function App() {
   const logRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
   const [systemInstruction, setSystemInstruction] = useState("")
-  const [view, setView] = useState<"chat" | "brain" | "models" | "converter" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
-    const saved = stored(localStorage, "qwanto.view", "chat")
-    return (["chat", "brain", "models", "converter", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "chat") as any
+  const [view, setView] = useState<"dashboard" | "chat" | "brain" | "models" | "converter" | "logs" | "presets" | "telemetry" | "doctor" | "workbench" | "benchmarks" | "security">(() => {
+    const saved = stored(localStorage, "qwanto.view", "dashboard")
+    return (["dashboard", "chat", "brain", "models", "converter", "logs", "presets", "telemetry", "doctor", "workbench", "benchmarks", "security"].includes(saved) ? saved : "dashboard") as any
   })
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
@@ -712,6 +713,7 @@ export default function App() {
             )}
           </div>
           <div className="view-tabs">
+            <button className={view === "dashboard" ? "active text-cyan-300" : ""} onClick={() => setView("dashboard")}><Gauge className="size-3.5" /> Dashboard</button>
             <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}><MessageSquareText className="size-3.5" /> Chat</button>
             <button className={view === "converter" ? "active" : ""} onClick={() => setView("converter")}><Zap className="size-3.5" /> Converter</button>
             <button className={view === "presets" ? "active" : ""} onClick={() => setView("presets")}><Sparkles className="size-3.5" /> Studio</button>
@@ -742,7 +744,14 @@ export default function App() {
             {loading && <div className="loading-progress-bar"><div className="loading-progress-fill" /></div>}
         </header>
 
-        {view === "models" ? (
+        {view === "dashboard" ? (
+          <DashboardView
+            baseUrl={baseUrl}
+            apiKey={apiKey}
+            onNavigate={setView}
+            activeModelName={model}
+          />
+        ) : view === "models" ? (
           <div className="models-page">
             <div className="models-grid">
               {/* Active Model Configuration Card */}
