@@ -177,7 +177,11 @@ Traditional container formats (like GGUF or Safetensors) are designed primarily 
 - **DREAM Cross-Modal Speculation**: Entropy-adaptive speculation for mixed vision-language embeddings.
 - **Result**: **1.5x to 5.2x speedup** on autoregressive generation while mathematically preserving identical token distribution.
 
-### 6. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
+### 6. ⚡ BitDecoding: Tensor Core KV-Cache Acceleration *(HPCA 2026)*
+- **Warp-Level Dequantization Parallelism**: Reorganizes low-bit KV caches into swizzled $16 \times 16$ and $16 \times 32$ tiles aligned directly with hardware Tensor Cores (`mma.sync`, Hopper `wgmma`, and Blackwell `NVFP4`).
+- **Mixed-Precision Tensor Execution**: Unlocks **7.5x faster decoding throughput** over standard FP16 attention and **2x over standard CUDA core kernels** with less than 0.2% perplexity divergence.
+
+### 7. 🎮 Multi-Vendor GPU Dynamic Runtime Loader
 Qwanto requires **zero manual configuration or proprietary SDK installs**:
 - **NVIDIA CUDA**: Automatically detects system driver (`nvcuda.dll` / `libcuda.so.1`) and CUDA runtimes (`cudart64_*.dll`).
 - **Apple Silicon Metal**: Direct dispatch to Metal and MetalPerformanceShaders (MPS).

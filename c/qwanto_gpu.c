@@ -31,19 +31,13 @@ QwnGPUBackendType qwn_gpu_parse_backend_name(const char *name) {
 }
 
 /* -------------------------------------------------------------------------
- * 1. NVIDIA CUDA Dynamic Probing
+ * 1. NVIDIA CUDA Dynamic Probing & Tensor Core Detection
  * ------------------------------------------------------------------------- */
 typedef int (*cuInit_fn)(unsigned int);
 typedef int (*cuDeviceGetCount_fn)(int *);
 typedef int (*cuDeviceGetName_fn)(char *, int, int);
 typedef int (*cuDeviceTotalMem_fn)(size_t *, int);
-typedef int (*cuMemAlloc_fn)(void **, size_t);
-typedef int (*cuMemFree_fn)(void *);
-typedef int (*cuMemAllocHost_fn)(void **, size_t);
-typedef int (*cuMemFreeHost_fn)(void *);
-typedef int (*cuMemcpyHtoD_fn)(void *, const void *, size_t);
-typedef int (*cuMemcpyDtoH_fn)(void *, const void *, size_t);
-typedef int (*cuCtxSynchronize_fn)(void);
+typedef int (*cuDeviceComputeCapability_fn)(int *, int *, int);
 
 static bool qwn_probe_cuda(QwnGPUContext *ctx) {
 #ifdef _WIN32
@@ -102,6 +96,7 @@ static bool qwn_probe_cuda(QwnGPUContext *ctx) {
     cuDeviceGetName_fn cuDeviceGetName = (cuDeviceGetName_fn)qwn_dlsym(handle, "cuDeviceGetName");
     cuDeviceTotalMem_fn cuDeviceTotalMem = (cuDeviceTotalMem_fn)qwn_dlsym(handle, "cuDeviceTotalMem_v2");
     if (!cuDeviceTotalMem) cuDeviceTotalMem = (cuDeviceTotalMem_fn)qwn_dlsym(handle, "cuDeviceTotalMem");
+    cuDeviceComputeCapability_fn cuDeviceComputeCapability = (cuDeviceComputeCapability_fn)qwn_dlsym(handle, "cuDeviceComputeCapability");
 
     if (!cuInit || !cuDeviceGetCount || cuInit(0) != 0) {
         snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg), "CUDA driver initialization failed or no CUDA hardware found.");
@@ -135,10 +130,33 @@ static bool qwn_probe_cuda(QwnGPUContext *ctx) {
         ctx->free_vram_bytes = (uint64_t)(total_mem * 0.85); /* 85% usable budget */
     }
 
+    /* Detect Tensor Core Compute Capability */
+    int cc_major = 8, cc_minor = 9;
+    if (cuDeviceComputeCapability) {
+        cuDeviceComputeCapability(&cc_major, &cc_minor, 0);
+    }
+    if (strstr(ctx->device_name, "50") || strstr(ctx->device_name, "Blackwell") || cc_major >= 10) {
+        ctx->tc_arch = QWN_TC_ARCH_BLACKWELL;
+        ctx->has_tensor_cores = true;
+    } else if (strstr(ctx->device_name, "40") || strstr(ctx->device_name, "Ada") || (cc_major == 8 && cc_minor >= 9)) {
+        ctx->tc_arch = QWN_TC_ARCH_ADA;
+        ctx->has_tensor_cores = true;
+    } else if (strstr(ctx->device_name, "H100") || strstr(ctx->device_name, "Hopper") || cc_major == 9) {
+        ctx->tc_arch = QWN_TC_ARCH_HOPPER;
+        ctx->has_tensor_cores = true;
+    } else if (cc_major >= 7) {
+        ctx->tc_arch = QWN_TC_ARCH_AMPERE;
+        ctx->has_tensor_cores = true;
+    } else {
+        ctx->tc_arch = QWN_TC_ARCH_GENERIC;
+        ctx->has_tensor_cores = false;
+    }
+
     ctx->is_initialized = true;
     ctx->is_hardware_accelerated = true;
-    snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg), "Successfully initialized %s [%s] with %llu MB VRAM.",
-             ctx->backend_name, ctx->device_name, (unsigned long long)(ctx->total_vram_bytes / (1024 * 1024)));
+    snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg), "Successfully initialized %s [%s] with %llu MB VRAM (Tensor Cores: %s).",
+             ctx->backend_name, ctx->device_name, (unsigned long long)(ctx->total_vram_bytes / (1024 * 1024)),
+             ctx->has_tensor_cores ? "Active (BitDecoding HPCA 2026)" : "Standard CUDA");
 
     return true;
 }
@@ -171,6 +189,7 @@ static bool qwn_probe_rocm(QwnGPUContext *ctx) {
     ctx->device_count = 1;
     ctx->is_initialized = true;
     ctx->is_hardware_accelerated = true;
+    ctx->has_tensor_cores = true; /* CDNA / RDNA Matrix Cores */
     snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg), "Successfully initialized AMD ROCm runtime.");
     return true;
 }
@@ -203,6 +222,7 @@ static bool qwn_probe_vulkan(QwnGPUContext *ctx) {
     ctx->device_count = 1;
     ctx->is_initialized = true;
     ctx->is_hardware_accelerated = true;
+    ctx->has_tensor_cores = false;
     snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg), "Successfully initialized Vulkan compute runtime.");
     return true;
 }
@@ -226,6 +246,7 @@ bool qwn_gpu_init(QwnGPUContext *ctx, QwnGPUBackendType preferred_backend) {
         ctx->active_backend = QWN_GPU_BACKEND_NONE;
         ctx->is_initialized = true;
         ctx->is_hardware_accelerated = false;
+        ctx->has_tensor_cores = false;
         snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg), "GPU acceleration disabled. Using CPU SIMD + OpenMP backend.");
         return true;
     }
@@ -252,6 +273,7 @@ bool qwn_gpu_init(QwnGPUContext *ctx, QwnGPUBackendType preferred_backend) {
     ctx->active_backend = QWN_GPU_BACKEND_NONE;
     ctx->is_initialized = true;
     ctx->is_hardware_accelerated = false;
+    ctx->has_tensor_cores = false;
     snprintf(ctx->diagnostic_msg, sizeof(ctx->diagnostic_msg),
              "No dedicated GPU runtime active (%s). Seamlessly operating on Multi-Core CPU OpenMP fabric.",
              ctx->diagnostic_msg[0] ? ctx->diagnostic_msg : "Driver unavailable");
@@ -280,6 +302,7 @@ void qwn_gpu_print_diagnostics(const QwnGPUContext *ctx) {
         printf("   Total VRAM Budget   : %.2f GB\n", (double)ctx->total_vram_bytes / (1024.0 * 1024.0 * 1024.0));
         printf("   Usable Free VRAM    : %.2f GB\n", (double)ctx->free_vram_bytes / (1024.0 * 1024.0 * 1024.0));
     }
+    printf("   Tensor Core Status  : %s\n", ctx->has_tensor_cores ? "ACTIVE (BitDecoding HPCA 2026)" : "Standard / Inactive");
     printf("   Acceleration Status : %s\n", ctx->is_hardware_accelerated ? "ENABLED (Hardware Saturated)" : "FALLBACK (Multi-Core CPU)");
     printf("   System Status       : %s\n", ctx->diagnostic_msg);
     printf("=================================================================\n");
@@ -333,6 +356,9 @@ void qwn_gpu_synchronize(QwnGPUContext *ctx) {
 
 void qwn_gpu_shutdown(QwnGPUContext *ctx) {
     if (!ctx) return;
+    if (ctx->bitdec_engine.is_initialized) {
+        qwn_bitdecoding_free(&ctx->bitdec_engine);
+    }
     if (ctx->driver_handle) {
         qwn_dlclose(ctx->driver_handle);
         ctx->driver_handle = NULL;
@@ -350,7 +376,45 @@ void qwn_gpu_shutdown(QwnGPUContext *ctx) {
 }
 
 /* -------------------------------------------------------------------------
- * Unified GPU Accelerated Inference Operations
+ * BitDecoding Tensor Core Attention Forward
+ * ------------------------------------------------------------------------- */
+bool qwn_gpu_bitdecoding_attention_forward(
+    QwnGPUContext *ctx,
+    const float *q_tensor,
+    const uint8_t *k_packed_cache,
+    const uint8_t *v_packed_cache,
+    float *out_context_tensor,
+    int n_heads,
+    int head_dim,
+    int seq_len,
+    float sm_scale
+) {
+    if (!ctx || !q_tensor || !k_packed_cache || !v_packed_cache || !out_context_tensor ||
+        n_heads <= 0 || head_dim <= 0 || seq_len <= 0) return false;
+
+    if (!ctx->bitdec_engine.is_initialized ||
+        ctx->bitdec_engine.n_heads != n_heads ||
+        ctx->bitdec_engine.head_dim != head_dim ||
+        ctx->bitdec_engine.max_seq_len < seq_len) {
+        if (ctx->bitdec_engine.is_initialized) {
+            qwn_bitdecoding_free(&ctx->bitdec_engine);
+        }
+        int alloc_seq = seq_len < 4096 ? 4096 : seq_len;
+        uint32_t sm = (ctx->tc_arch == QWN_TC_ARCH_BLACKWELL) ? 100 : 89;
+        if (!qwn_bitdecoding_init(&ctx->bitdec_engine, n_heads, head_dim, alloc_seq, sm)) {
+            return false;
+        }
+    }
+
+    /* Swizzle linear TurboQuant cache to Tensor Core layout */
+    qwn_bitdecoding_pack_kv(&ctx->bitdec_engine, k_packed_cache, v_packed_cache, seq_len);
+
+    /* Execute BitDecoding Tensor Core attention forward step */
+    return qwn_bitdecoding_attention_step(&ctx->bitdec_engine, q_tensor, out_context_tensor, seq_len, sm_scale);
+}
+
+/* -------------------------------------------------------------------------
+ * Master GPU Accelerated Inference Operations
  * ------------------------------------------------------------------------- */
 bool qwn_gpu_attention_forward(
     QwnGPUContext *ctx,
@@ -366,7 +430,15 @@ bool qwn_gpu_attention_forward(
     if (!ctx || !q_tensor || !k_packed_cache || !v_packed_cache || !out_context_tensor ||
         n_heads <= 0 || head_dim <= 0 || seq_len <= 0) return false;
 
-    /* Execute multi-head in-register attention */
+    /* If Tensor Cores are active, prioritize BitDecoding (HPCA 2026) */
+    if (ctx->has_tensor_cores) {
+        return qwn_gpu_bitdecoding_attention_forward(
+            ctx, q_tensor, k_packed_cache, v_packed_cache, out_context_tensor,
+            n_heads, head_dim, seq_len, sm_scale
+        );
+    }
+
+    /* Fallback to Standard Multi-Head In-Register Attention */
     for (int h = 0; h < n_heads; h++) {
         const float *qh = q_tensor + h * head_dim;
         float *outh = out_context_tensor + h * head_dim;

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "qwanto_bitdecoding.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +36,8 @@ typedef struct {
     int compute_units;
     bool is_initialized;
     bool is_hardware_accelerated;
+    bool has_tensor_cores;
+    QwnTensorCoreArch tc_arch;
     
     /* Dynamic library handles */
     void *driver_handle;
@@ -46,6 +49,9 @@ typedef struct {
     void *transfer_stream;
     void *pinned_scratch_buf;
     size_t pinned_scratch_size;
+    
+    /* BitDecoding Engine */
+    QwnBitDecodingEngine bitdec_engine;
     
     /* Diagnostic string */
     char diagnostic_msg[512];
@@ -95,13 +101,26 @@ void qwn_gpu_shutdown(QwnGPUContext *ctx);
  * Unified GPU Accelerated Inference Operations
  * ------------------------------------------------------------------------- */
 
-/* Fused In-Register TurboQuant Attention Forward Pass */
+/* Fused In-Register TurboQuant / BitDecoding Attention Forward Pass */
 bool qwn_gpu_attention_forward(
     QwnGPUContext *ctx,
     const float *q_tensor,             /* [n_heads * head_dim] */
     const uint8_t *k_packed_cache,     /* [seq_len * n_heads * (head_dim/2)] */
     const uint8_t *v_packed_cache,     /* [seq_len * n_heads * (head_dim/2)] */
     float *out_context_tensor,         /* [n_heads * head_dim] */
+    int n_heads,
+    int head_dim,
+    int seq_len,
+    float sm_scale
+);
+
+/* BitDecoding Tensor Core Dedicated Attention Forward */
+bool qwn_gpu_bitdecoding_attention_forward(
+    QwnGPUContext *ctx,
+    const float *q_tensor,
+    const uint8_t *k_packed_cache,
+    const uint8_t *v_packed_cache,
+    float *out_context_tensor,
     int n_heads,
     int head_dim,
     int seq_len,
