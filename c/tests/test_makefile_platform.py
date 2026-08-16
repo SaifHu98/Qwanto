@@ -32,10 +32,9 @@ class MakefilePlatformTests(unittest.TestCase):
     def test_windows_nt_without_uname_selects_mingw_build(self):
         env = os.environ.copy()
         env["OS"] = "Windows_NT"
-        env["PATH"] = ""
 
         result = subprocess.run(
-            [MAKE, "--no-print-directory", "-B", "-n", "glm"],
+            [MAKE, "--no-print-directory", "-B", "-n", "glm", "TRIPLET="],
             cwd=C_DIR,
             env=env,
             text=True,

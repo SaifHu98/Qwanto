@@ -24,15 +24,11 @@ jobs:
           make qwnrun
           make test-c
 
-      - name: Setup MSVC Developer Environment (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build and Verify Native Engine (Windows MSVC)
+      - name: Build and Verify Native Engine (Windows)
         if: runner.os == 'Windows'
         run: |
           cd c
-          cl /O2 /W3 /D_CRT_SECURE_NO_WARNINGS /Fe:qwnrun.exe qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c psapi.lib
+          clang -O3 -mavx2 -mf16c -mfma qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi
 
   rust-tauri-host:
     name: Rust Tauri Host (${{ matrix.os }})
