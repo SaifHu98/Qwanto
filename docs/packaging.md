@@ -41,7 +41,6 @@ The workflow runs web tests/build, Rust check/test/Clippy, compiles the native
 engine, builds Tauri, checks that the resource exists, rejects model files in
 the bundle, and runs `git diff --check`. `workflow_dispatch` and
 `package-validation-*` are package validation gates. For a Beta release, wait for that gate to pass, then create a
-validation gate. For a Beta release, wait for that gate to pass, then create a
 version tag such as `v0.1.0-beta.1` and push it; the tag-triggered workflow
 publishes a prerelease only after every Windows, macOS, and Linux package job
 is green.
