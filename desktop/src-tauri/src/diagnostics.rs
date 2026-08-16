@@ -65,8 +65,8 @@ pub fn create(
     let directory = directory.canonicalize().map_err(|error| format!("Diagnostics storage is unavailable: {error}"))?;
     if !directory.starts_with(&workspace) { return Err("Diagnostics storage escaped the workspace boundary.".into()); }
 
-    let redacted_description = PermissionPolicy::redact_secrets(description).replace(&workspace.to_string_lossy(), "[REDACTED_WORKSPACE]");
-    let redacted_logs = PermissionPolicy::redact_secrets(logs).replace(&workspace.to_string_lossy(), "[REDACTED_WORKSPACE]");
+    let redacted_description = PermissionPolicy::redact_secrets(description).replace(workspace.to_string_lossy().as_ref(), "[REDACTED_WORKSPACE]");
+    let redacted_logs = PermissionPolicy::redact_secrets(logs).replace(workspace.to_string_lossy().as_ref(), "[REDACTED_WORKSPACE]");
     let metadata = serde_json::json!({
         "product": "Qwanto Native",
         "surface": "Qwanto Code",

@@ -278,3 +278,10 @@
 - **Change:** Updated the unsigned Beta.4 release note to the exact SHA-256 checksum warning and added benchmark path-filter coverage.
 - **Validation:** Decoder `1 passed, 1 skipped`; full Python suite `204 passed, 15 skipped`; Web build and Vitest `54 passed`; documentation links, brand, skills, secret scan, workflow YAML, release contract, report tests, and `git diff --check` passed. Cargo and make are unavailable locally.
 - **Decision:** Do not tag or publish Beta.4 until hosted Rust/native/package/release checks pass. Preserve Beta.3 and preserve the local feature tree when integrating the divergent remote main branch.
+
+## 2026-08-17 — Hosted Rust compile correction
+
+- **Change:** Removed the duplicate `std::fs` import and changed diagnostics workspace redaction to pass a `&str` pattern accepted by Rust Edition 2024.
+- **Files:** `desktop/src-tauri/src/attachments.rs`, `desktop/src-tauri/src/diagnostics.rs`, `PROJECT_STATE.md`.
+- **Validation:** `git diff --check` passed; hosted CI had identified the exact compiler errors. Local Cargo remains unavailable.
+- **Decision:** Push this correction and wait for the full hosted CI gate before creating `v0.1.0-beta.4`.

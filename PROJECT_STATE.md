@@ -102,6 +102,8 @@ and NVMe mmap.
   credential backend is added; the Settings surface provides only safe public
   repository links, an approval-gated reporter skill, and never accepts a
   token in browser storage.
-- Beta.3 remains unchanged. Beta.4 has not been tagged or published because
-  local Cargo and cross-platform signing/package gates are not available here.
+- Beta.3 remains unchanged. Beta.4 has not been tagged or published; hosted
+  CI exposed and the local tree corrected a duplicate Rust import and two
+  Edition 2024 `Cow<str>` replacement-pattern errors. Local Cargo and
+  cross-platform signing/package gates are not available here.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
