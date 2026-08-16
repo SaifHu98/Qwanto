@@ -229,3 +229,9 @@
 - **Change:** Updated Beta.3 README/docs/release readiness and added sidecar/integrity/responsive UI tests.
 - **Validation:** Decoder `2 passed`; full Python suite `202 passed, 14 skipped`; gateway sidecar integration `2 passed`; web build and `47` Vitest tests passed; docs links and secret audit passed; PyInstaller frozen Windows sidecar started and reported loopback readiness plus `model_required`. Cargo check/test/clippy were attempted but Cargo is unavailable on this workstation.
 - **Decision:** Preserve `v0.1.0-beta.2`; target `v0.1.0-beta.3` only after hosted Rust and package gates are green. No model weights are bundled.
+
+## 2026-08-16 — Hosted CI closure before Beta.3 tag
+
+- **Change:** Corrected the Tauri 2 shutdown callback from `Builder::run(callback)` to `build(generate_context!).run(callback)` in `desktop/src-tauri/src/lib.rs`.
+- **Validation:** Hosted CI run `31966186386` passed native C on Ubuntu/Windows, web, security, and Rust/Tauri check, test, and clippy gates. Local Cargo commands remain unavailable because Cargo is not installed.
+- **Decision:** Proceed to Beta.3 package validation; no model files or warning suppression were added.
