@@ -2,6 +2,7 @@
 #define QWN_RUNTIME_CONFIG_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,7 @@ typedef enum {
 typedef struct {
     QwnRuntimeBackend backend;
     int gpu_device;
+    uint64_t gpu_memory_budget_bytes;
     int cpu_threads;
     int context_size;
     int max_tokens;

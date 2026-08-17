@@ -29,6 +29,7 @@ pub struct StartOptions {
     pub ctx_size: Option<u32>,
     pub backend: Option<String>,
     pub gpu_device: Option<i32>,
+    pub gpu_memory_budget_mb: Option<u64>,
     pub force_cpu: Option<bool>,
     pub num_threads: Option<u32>,
     pub kv_cache_mode: Option<String>,
@@ -377,6 +378,12 @@ impl QwantoRuntimeManager {
                     return Err("GPU device must be non-negative".into());
                 }
                 cmd.arg("--gpu-device").arg(gpu_dev.to_string());
+            }
+            if let Some(memory_budget_mb) = opts.gpu_memory_budget_mb {
+                if memory_budget_mb == 0 {
+                    return Err("GPU memory budget must be positive".into());
+                }
+                cmd.arg("--gpu-memory-budget-mb").arg(memory_budget_mb.to_string());
             }
             if let Some(kv_cache_mode) = &opts.kv_cache_mode {
                 cmd.arg("--kv-cache").arg(kv_cache_mode);

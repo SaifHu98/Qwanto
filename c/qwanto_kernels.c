@@ -432,6 +432,18 @@ static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
     if (s->activation_sum_enabled) s->activation_sum_precompute_calls += (uint64_t)M;
 }
 
+int qwn_prepare_cuda_activation(const float *x, int K, QwnScratch *scratch,
+                                const int8_t **q8, float *x_scale) {
+    if (!x || !scratch || !q8 || !x_scale || K < 1 || K > scratch->padded_k ||
+        scratch->max_tokens < 1) {
+        return -1;
+    }
+    quantize_tokens(x, 1, K, scratch);
+    *q8 = scratch->q8;
+    *x_scale = scratch->token_scales[0];
+    return 0;
+}
+
 #if defined(__AVX2__)
 static inline int32_t hsum_epi32_avx2(__m256i v) {
     __m128i lo = _mm256_castsi256_si128(v);

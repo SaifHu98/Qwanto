@@ -15,6 +15,7 @@ void qwn_runtime_config_default(QwnRuntimeConfig *config) {
     memset(config, 0, sizeof(*config));
     config->backend = QWN_RUNTIME_BACKEND_AUTO;
     config->gpu_device = -1;
+    config->gpu_memory_budget_bytes = 0;
     config->cpu_threads = 0;
     config->context_size = 4096;
     config->max_tokens = 256;
@@ -64,6 +65,25 @@ static int parse_nonnegative(const char *value, int *out, const char *name,
         return -1;
     }
     *out = (int)parsed;
+    return 0;
+}
+
+static int parse_memory_budget_mb(const char *value, uint64_t *out,
+                                  char *error, size_t error_size) {
+    char *end = NULL;
+    unsigned long long parsed;
+    if (!value || !*value) {
+        snprintf(error, error_size, "--gpu-memory-budget-mb requires a value");
+        return -1;
+    }
+    parsed = strtoull(value, &end, 10);
+    if (end == value || *end || parsed == 0 ||
+        parsed > UINT64_MAX / (1024ULL * 1024ULL)) {
+        snprintf(error, error_size,
+                 "--gpu-memory-budget-mb must be a positive integer");
+        return -1;
+    }
+    *out = (uint64_t)parsed * 1024ULL * 1024ULL;
     return 0;
 }
 
@@ -149,6 +169,10 @@ int qwn_runtime_config_parse(QwnRuntimeConfig *config, int argc, char **argv,
             config->backend = QWN_RUNTIME_BACKEND_CUDA;
         } else if (strcmp(arg, "--gpu-device") == 0) {
             if (++i >= argc || parse_nonnegative(argv[i], &config->gpu_device, "--gpu-device", error, error_size) != 0) return -1;
+        } else if (strcmp(arg, "--gpu-memory-budget-mb") == 0) {
+            if (++i >= argc || parse_memory_budget_mb(argv[i],
+                                                       &config->gpu_memory_budget_bytes,
+                                                       error, error_size) != 0) return -1;
         } else if (strcmp(arg, "--threads") == 0) {
             if (++i >= argc || parse_nonnegative(argv[i], &config->cpu_threads, "--threads", error, error_size) != 0) return -1;
         } else if (strcmp(arg, "--ctx-size") == 0) {

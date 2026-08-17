@@ -7,6 +7,7 @@
 #include "tok.h"
 #include "qwanto_thinking.h"
 #include "qwn_runtime_config.h"
+#include "cuda/qwn_cuda_abi.h"
 #ifdef COLI_CUDA
 #include "backend_cuda.h"
 #endif
@@ -45,28 +46,29 @@ typedef struct {
     int is_ssm;           /* 1 if this layer is SSM (skip attention entirely) */
 } QwnLayerTensors;
 
-typedef int (*QwnCudaInitFn)(int gpu_id);
-typedef int (*QwnCudaGemvFn)(int rows, int cols, const void *weights,
-                            const float *x, float *out);
-typedef void (*QwnCudaShutdownFn)(void);
-typedef struct {
-    uint64_t matmul_count;
-    uint64_t upload_bytes;
-    size_t resident_bytes;
-    int device_id;
-    char kernel[32];
-} QwnCudaMetricsSnapshot;
-typedef int (*QwnCudaGetMetricsFn)(QwnCudaMetricsSnapshot *metrics);
-
 #include "qwanto_turboquant.h"
 
 typedef struct {
     void *handle;
-    QwnCudaInitFn init;
+    QwnCudaAbiQueryFn query;
+    QwnCudaCapabilityQueryFn get_capabilities;
+    QwnCudaEnumerateDevicesFn enumerate_devices;
+    QwnCudaContextCreateFn context_create;
+    QwnCudaContextDestroyFn context_destroy;
+    QwnCudaTensorUploadFn upload_tensor;
+    QwnCudaTensorReleaseFn release_tensor;
     QwnCudaGemvFn gemv_hypervsq2;
-    QwnCudaGemvFn gemv_q4_0;
-    QwnCudaGetMetricsFn get_metrics;
-    QwnCudaShutdownFn shutdown;
+    QwnCudaGemmFn gemm_hypervsq2;
+    QwnCudaSynchronizeFn synchronize;
+    QwnCudaTelemetryFn get_telemetry;
+    QwnCudaLastErrorFn last_error;
+    QwnCudaAbiInfo capabilities;
+    QwnCudaContextHandle context;
+    struct {
+        const QwnTensorDesc *desc;
+        QwnCudaTensorHandle tensor;
+    } weights[QWN_CUDA_MAX_RESIDENT_TENSORS];
+    uint32_t weight_count;
     int available;
 } QwnCudaRuntime;
 
@@ -76,6 +78,15 @@ typedef struct {
     uint64_t cuda_upload_bytes;
     size_t cuda_resident_bytes;
     int cuda_device;
+    uint64_t gpu_kernel_launch_count;
+    uint64_t gpu_projection_count;
+    uint64_t gpu_upload_count;
+    uint64_t unsupported_projection_count;
+    double gpu_kernel_ms;
+    double gpu_transfer_ms;
+    double gpu_sync_ms;
+    char cuda_kernel_type[32];
+    char cuda_backend_reason[128];
     int requested_cpu_threads;
     int active_cpu_threads;
     int openmp_runtime_loaded;

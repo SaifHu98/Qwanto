@@ -373,6 +373,7 @@ export interface AccelOptions {
 export interface RuntimeConfig {
   backend?: "cpu" | "cuda" | "auto"
   gpu_device?: number
+  gpu_memory_budget_mb?: number
   threads?: number
   context_size?: number
   max_tokens?: number
@@ -521,6 +522,43 @@ export interface TelemetryData {
     disk_free_bytes?: number
   }
   recent_requests: Array<Record<string, any>>
+  runtime?: RuntimeTelemetry
+}
+
+export interface RuntimeTelemetry {
+  request_id?: string
+  pid?: number
+  backend_actual?: string
+  config_backend?: string
+  actual_device?: number
+  kernel?: string
+  kernel_requested?: string
+  model_dtype?: string
+  active_threads?: number
+  context_size?: number
+  max_tokens?: number
+  seed?: number
+  kv_cache_mode?: string
+  quantization?: string
+  temperature?: number
+  top_p?: number
+  thinking_mode?: string
+  decode_function?: string
+  gpu_matmul_count?: number
+  cpu_fallback_count?: number
+  gpu_kernel_launch_count?: number
+  gpu_projection_count?: number
+  gpu_upload_count?: number
+  gpu_upload_bytes?: number
+  gpu_resident_bytes?: number
+  unsupported_projection_count?: number
+  gpu_kernel_ms?: number
+  gpu_transfer_ms?: number
+  gpu_sync_ms?: number
+  cuda_kernel_type?: string
+  cuda_backend_reason?: string
+  cuda_dll_sha256?: string
+  dispatch_reason?: string
 }
 
 export interface DoctorCheck {

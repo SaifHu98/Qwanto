@@ -257,11 +257,11 @@ cuda-dll: backend_cuda.cu backend_cuda.h
 		-L"$(CUDA_HOME)/lib/x64" -lcudart \
 		backend_cuda.cu -o coli_cuda.dll
 
-qwn-cuda-dll: cuda/qwn_hypervsq_cuda.cu cuda/qwn_hypervsq_cuda.h
+qwn-cuda-dll: cuda/qwn_hypervsq2_cuda_abi.cu cuda/qwn_cuda_abi.h
 	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
-	$(NVCC) $(NVCCFLAGS) -shared -DQWN_CUDA_BUILDING_DLL \
+	$(NVCC) $(NVCCFLAGS) -shared -DQWN_CUDA_BUILDING_DLL -DQWN_CUDA_ABI_BUILDING_DLL \
 		-L"$(CUDA_LIBDIR)" -lcudart \
-		cuda/qwn_hypervsq_cuda.cu -o qwn_cuda.dll
+		cuda/qwn_hypervsq2_cuda_abi.cu -o qwn_cuda.dll
 
 backend_cuda.o: backend_cuda.cu backend_cuda.h
 	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
@@ -284,10 +284,10 @@ cuda-bench: backend_cuda.cu backend_cuda.h tests/bench_tensor_core.cu
 	$(NVCC) $(NVCCFLAGS) backend_cuda.cu tests/bench_tensor_core.cu -o backend_cuda_bench$(EXE)
 	./backend_cuda_bench$(EXE)
 
-cuda-hypervsq2-test: cuda/qwn_hypervsq_cuda.cu cuda/qwn_hypervsq_cuda.h tests/test_qwn_hypervsq2_cuda.cu
+cuda-hypervsq2-test: cuda/qwn_hypervsq2_cuda_abi.cu cuda/qwn_cuda_abi.h tests/test_qwn_hypervsq2_cuda_abi.cu
 	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
-	$(NVCC) $(NVCCFLAGS) -DQWN_CUDA_ENABLED -I. \
-		cuda/qwn_hypervsq_cuda.cu tests/test_qwn_hypervsq2_cuda.cu \
+	$(NVCC) $(NVCCFLAGS) -DQWN_CUDA_ABI_BUILDING_DLL -I. \
+		cuda/qwn_hypervsq2_cuda_abi.cu tests/test_qwn_hypervsq2_cuda_abi.cu \
 		-L"$(CUDA_LIBDIR)" -lcudart -o tests/test_qwn_hypervsq2_cuda$(EXE)
 	./tests/test_qwn_hypervsq2_cuda$(EXE)
 

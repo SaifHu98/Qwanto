@@ -233,7 +233,16 @@ static void init_residency(QwnDecoder *d) {
 
 static void qwn_cuda_unload(QwnDecoder *d) {
     if (!d || !d->qwn_cuda.handle) return;
-    if (d->qwn_cuda.shutdown) d->qwn_cuda.shutdown();
+    if (d->qwn_cuda.context.opaque) {
+        for (uint32_t i = 0; i < d->qwn_cuda.weight_count; i++) {
+            if (d->qwn_cuda.weights[i].tensor.opaque && d->qwn_cuda.release_tensor) {
+                d->qwn_cuda.release_tensor(&d->qwn_cuda.context,
+                                            &d->qwn_cuda.weights[i].tensor);
+            }
+        }
+        if (d->qwn_cuda.context_destroy)
+            d->qwn_cuda.context_destroy(&d->qwn_cuda.context);
+    }
 #ifdef _WIN32
     FreeLibrary((HMODULE)d->qwn_cuda.handle);
 #else
@@ -251,9 +260,8 @@ static void *qwn_cuda_symbol(void *handle, const char *name) {
 }
 
 static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
-    const char *requested = getenv("QWANTO_CUDA_DLL");
     char module_candidate[1024] = {0};
-    const char *candidates[3] = { requested, NULL, NULL };
+    const char *candidates[2] = { NULL, NULL };
 #ifdef _WIN32
     DWORD module_len = GetModuleFileNameA(NULL, module_candidate, sizeof(module_candidate));
     if (module_len > 0 && module_len < sizeof(module_candidate)) {
@@ -261,7 +269,13 @@ static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
         if (slash) {
             slash[1] = '\0';
             strncat(module_candidate, "qwn_cuda.dll", sizeof(module_candidate) - strlen(module_candidate) - 1);
-            candidates[1] = module_candidate;
+            char canonical_path[sizeof(module_candidate)];
+            DWORD canonical_len = GetFullPathNameA(module_candidate,
+                                                    (DWORD)sizeof(canonical_path),
+                                                    canonical_path, NULL);
+            if (canonical_len > 0 && canonical_len < sizeof(canonical_path))
+                snprintf(module_candidate, sizeof(module_candidate), "%s", canonical_path);
+            candidates[0] = module_candidate;
         }
     }
 #else
@@ -274,16 +288,21 @@ static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
             slash[1] = '\0';
             strncat(module_candidate, "qwn_cuda.so",
                     sizeof(module_candidate) - strlen(module_candidate) - 1);
-            candidates[1] = module_candidate;
+            char canonical_path[PATH_MAX];
+            if (realpath(module_candidate, canonical_path))
+                snprintf(module_candidate, sizeof(module_candidate), "%s", canonical_path);
+            candidates[0] = module_candidate;
         }
     }
 #endif
     void *handle = NULL;
     const char *loaded_path = NULL;
-    for (size_t i = 0; i < 2; i++) {
+    for (size_t i = 0; i < 1; i++) {
         if (!candidates[i] || !*candidates[i]) continue;
 #ifdef _WIN32
-        handle = (void *)LoadLibraryA(candidates[i]);
+        handle = (void *)LoadLibraryExA(candidates[i], NULL,
+                                        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                                        LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 #else
         handle = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
 #endif
@@ -299,29 +318,109 @@ static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
     if (!handle) {
         fprintf(stderr, required ? "[ERROR] CUDA backend requested but qwn_cuda.dll was not found.\n" :
                                   "[INFO] CUDA DLL not found; auto backend remains on CPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "qwn_cuda_dll_absent_from_runtime_directory");
         return -1;
     }
     d->qwn_cuda.handle = handle;
-    d->qwn_cuda.init = (QwnCudaInitFn)qwn_cuda_symbol(handle, "qwn_cuda_init");
-    d->qwn_cuda.gemv_hypervsq2 = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_gemv_hypervsq2");
-    d->qwn_cuda.gemv_q4_0 = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_gemv_q4_0");
-    d->qwn_cuda.get_metrics = (QwnCudaGetMetricsFn)qwn_cuda_symbol(handle, "qwn_cuda_get_metrics");
-    d->qwn_cuda.shutdown = (QwnCudaShutdownFn)qwn_cuda_symbol(handle, "qwn_cuda_shutdown");
-    if (!d->qwn_cuda.init || (!d->qwn_cuda.gemv_hypervsq2 && !d->qwn_cuda.gemv_q4_0) ||
-        !d->qwn_cuda.get_metrics || !d->qwn_cuda.shutdown) {
-        fprintf(stderr, required ? "[ERROR] CUDA DLL is missing the qwnrun HyperVSQ-2 ABI.\n" :
-                                  "[WARN] CUDA DLL is missing the qwnrun ABI; auto backend remains on CPU.\n");
+    d->qwn_cuda.query = (QwnCudaAbiQueryFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_query");
+    d->qwn_cuda.get_capabilities = (QwnCudaCapabilityQueryFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_get_capabilities");
+    d->qwn_cuda.enumerate_devices = (QwnCudaEnumerateDevicesFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_enumerate_devices");
+    d->qwn_cuda.context_create = (QwnCudaContextCreateFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_context_create");
+    d->qwn_cuda.context_destroy = (QwnCudaContextDestroyFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_context_destroy");
+    d->qwn_cuda.upload_tensor = (QwnCudaTensorUploadFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_upload_tensor");
+    d->qwn_cuda.release_tensor = (QwnCudaTensorReleaseFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_release_tensor");
+    d->qwn_cuda.gemv_hypervsq2 = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_hypervsq2_gemv");
+    d->qwn_cuda.gemm_hypervsq2 = (QwnCudaGemmFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_hypervsq2_gemm");
+    d->qwn_cuda.synchronize = (QwnCudaSynchronizeFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_synchronize");
+    d->qwn_cuda.get_telemetry = (QwnCudaTelemetryFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_get_telemetry");
+    d->qwn_cuda.last_error = (QwnCudaLastErrorFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_last_error");
+    if (!d->qwn_cuda.query || !d->qwn_cuda.get_capabilities ||
+        !d->qwn_cuda.enumerate_devices || !d->qwn_cuda.context_create ||
+        !d->qwn_cuda.context_destroy || !d->qwn_cuda.upload_tensor ||
+        !d->qwn_cuda.release_tensor || !d->qwn_cuda.gemv_hypervsq2 ||
+        !d->qwn_cuda.gemm_hypervsq2 || !d->qwn_cuda.synchronize ||
+        !d->qwn_cuda.get_telemetry || !d->qwn_cuda.last_error) {
+        fprintf(stderr, required ? "[ERROR] CUDA DLL lacks the versioned qwnrun ABI; legacy CUDA DLLs are rejected.\n" :
+                                  "[WARN] CUDA DLL lacks the versioned qwnrun ABI; auto backend remains on CPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "qwn_cuda_dll_missing_versioned_abi_%u", QWN_CUDA_ABI_VERSION);
         qwn_cuda_unload(d);
         return -1;
     }
-    if (d->qwn_cuda.init(gpu_id) != 0) {
-        fprintf(stderr, required ? "[ERROR] CUDA device initialization failed.\n" :
-                                  "[WARN] CUDA device initialization failed; auto backend remains on CPU.\n");
+    qwn_cuda_abi_header_init(&d->qwn_cuda.capabilities.header,
+                             (uint32_t)sizeof(d->qwn_cuda.capabilities));
+    if (d->qwn_cuda.query(&d->qwn_cuda.capabilities) != QWN_CUDA_STATUS_OK ||
+        d->qwn_cuda.capabilities.header.abi_version != QWN_CUDA_ABI_VERSION ||
+        d->qwn_cuda.capabilities.header.struct_size < sizeof(QwnCudaAbiInfo) ||
+        !(d->qwn_cuda.capabilities.capability_bits & QWN_CUDA_CAP_HYPERVSQ2_GEMV) ||
+        d->qwn_cuda.capabilities.hypervsq2_block_bytes != QWN_CUDA_HYPERVSQ2_BLOCK_BYTES ||
+        d->qwn_cuda.capabilities.hypervsq2_block_elements != QWN_CUDA_HYPERVSQ2_BLOCK_ELEMENTS) {
+        fprintf(stderr, required ? "[ERROR] CUDA DLL ABI or HyperVSQ-2 74-byte capability check failed.\n" :
+                                  "[WARN] CUDA DLL ABI/capability check failed; auto backend remains on CPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "abi_capability_or_hypervsq2_layout_rejected");
+        qwn_cuda_unload(d);
+        return -1;
+    }
+    qwn_cuda_abi_header_init(&d->qwn_cuda.capabilities.header,
+                             (uint32_t)sizeof(d->qwn_cuda.capabilities));
+    if (d->qwn_cuda.get_capabilities(&d->qwn_cuda.capabilities) != QWN_CUDA_STATUS_OK ||
+        d->qwn_cuda.capabilities.header.abi_version != QWN_CUDA_ABI_VERSION ||
+        d->qwn_cuda.capabilities.header.struct_size < sizeof(QwnCudaAbiInfo) ||
+        !(d->qwn_cuda.capabilities.capability_bits & QWN_CUDA_CAP_HYPERVSQ2_GEMV) ||
+        d->qwn_cuda.capabilities.hypervsq2_block_bytes != QWN_CUDA_HYPERVSQ2_BLOCK_BYTES ||
+        d->qwn_cuda.capabilities.hypervsq2_block_elements != QWN_CUDA_HYPERVSQ2_BLOCK_ELEMENTS) {
+        fprintf(stderr, required ? "[ERROR] CUDA capability query failed.\n" :
+                                  "[WARN] CUDA capability query failed; auto backend remains on CPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "cuda_capability_query_failed");
+        qwn_cuda_unload(d);
+        return -1;
+    }
+    QwnCudaDeviceInfo devices[16];
+    memset(devices, 0, sizeof(devices));
+    uint32_t device_count = 0;
+    if (d->qwn_cuda.enumerate_devices(devices, 16, &device_count) != QWN_CUDA_STATUS_OK ||
+        device_count == 0 || gpu_id < 0 ||
+        (uint32_t)gpu_id >= device_count ||
+        (uint32_t)gpu_id >= (uint32_t)(sizeof(devices) / sizeof(devices[0]))) {
+        fprintf(stderr, required ? "[ERROR] requested CUDA device is unavailable.\n" :
+                                  "[WARN] requested CUDA device is unavailable; auto backend remains on CPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "cuda_device_index_%d_not_enumerated", gpu_id);
+        qwn_cuda_unload(d);
+        return -1;
+    }
+    QwnCudaContextOptions options;
+    memset(&options, 0, sizeof(options));
+    qwn_cuda_abi_header_init(&options.header, (uint32_t)sizeof(options));
+    options.device_id = gpu_id;
+    options.memory_budget_bytes = d->runtime_config.gpu_memory_budget_bytes;
+    options.context_size = (uint64_t)d->runtime_config.context_size;
+    qwn_cuda_abi_header_init(&d->qwn_cuda.context.header,
+                             (uint32_t)sizeof(d->qwn_cuda.context));
+    if (d->qwn_cuda.context_create(&options, &d->qwn_cuda.context) != QWN_CUDA_STATUS_OK) {
+        fprintf(stderr, required ? "[ERROR] CUDA context creation failed.\n" :
+                                  "[WARN] CUDA context creation failed; auto backend remains on CPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "cuda_context_creation_failed_device_%d", gpu_id);
         qwn_cuda_unload(d);
         return -1;
     }
     d->qwn_cuda.available = 1;
-    fprintf(stderr, "[INFO] qwn_cuda.dll loaded: GPU %d\n", gpu_id);
+    d->runtime_metrics.cuda_device = gpu_id;
+    snprintf(d->runtime_metrics.cuda_backend_reason,
+             sizeof(d->runtime_metrics.cuda_backend_reason),
+             "versioned_abi_%u_loaded_device_%d", QWN_CUDA_ABI_VERSION, gpu_id);
+    fprintf(stderr, "[INFO] qwn_cuda.dll ABI %u loaded: GPU %d (%s)\n",
+            QWN_CUDA_ABI_VERSION, gpu_id, devices[gpu_id].name);
     return 0;
 }
 
@@ -643,27 +742,94 @@ static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
     qwn_scratch_record_tensor_access(&d->scratch, logical_tensor_category(d, w),
                                      w->byte_size, d->position > 0);
     if (d->qwn_cuda.available && w) {
-        QwnCudaGemvFn gemv = NULL;
-#ifndef COLI_CUDA
-        if (w->dtype == QWN_DT_Q4_0) gemv = d->qwn_cuda.gemv_q4_0;
-#endif
-        if (w->dtype == QWN_DT_HYPER_VSQ2) gemv = d->qwn_cuda.gemv_hypervsq2;
-        if (gemv && gemv(out, in, qwn_data(&d->model, w), x, y) == 0) {
-            QwnCudaMetricsSnapshot snapshot;
-            if (d->qwn_cuda.get_metrics(&snapshot) != 0) {
-                fprintf(stderr, "[ERROR] CUDA backend returned no execution metrics.\n");
-                return -1;
+        int cuda_result = QWN_CUDA_STATUS_UNSUPPORTED;
+        if (w->dtype == QWN_DT_HYPER_VSQ2 && d->qwn_cuda.gemv_hypervsq2) {
+            uint32_t slot = d->qwn_cuda.weight_count;
+            for (uint32_t i = 0; i < d->qwn_cuda.weight_count; i++) {
+                if (d->qwn_cuda.weights[i].desc == w) {
+                    slot = i;
+                    break;
+                }
             }
-            d->runtime_metrics.cuda_matmul_count = snapshot.matmul_count;
-            d->runtime_metrics.cuda_resident_bytes = snapshot.resident_bytes;
-            d->runtime_metrics.cuda_upload_bytes = snapshot.upload_bytes;
-            d->runtime_metrics.cuda_device = snapshot.device_id;
-            snprintf(d->runtime_metrics.backend, sizeof(d->runtime_metrics.backend), "cuda");
-            snprintf(d->runtime_metrics.kernel, sizeof(d->runtime_metrics.kernel), "%s", snapshot.kernel);
-            return 0;
+            if (slot == d->qwn_cuda.weight_count && slot < QWN_CUDA_MAX_RESIDENT_TENSORS) {
+                QwnCudaTensorUpload upload;
+                memset(&upload, 0, sizeof(upload));
+                qwn_cuda_abi_header_init(&upload.header, (uint32_t)sizeof(upload));
+                upload.host_data = qwn_data(&d->model, w);
+                upload.data_bytes = w->byte_size;
+                upload.dtype = QWN_CUDA_TENSOR_HYPERVSQ2_74;
+                upload.rows = (uint32_t)out;
+                upload.cols = (uint32_t)in;
+                upload.block_bytes = QWN_CUDA_HYPERVSQ2_BLOCK_BYTES;
+                QwnCudaTensorHandle tensor;
+                memset(&tensor, 0, sizeof(tensor));
+                qwn_cuda_abi_header_init(&tensor.header, (uint32_t)sizeof(tensor));
+                if (d->qwn_cuda.upload_tensor(&d->qwn_cuda.context, &upload, &tensor) ==
+                    QWN_CUDA_STATUS_OK) {
+                    d->qwn_cuda.weights[slot].desc = w;
+                    d->qwn_cuda.weights[slot].tensor = tensor;
+                    d->qwn_cuda.weight_count++;
+                }
+            }
+            if (slot < d->qwn_cuda.weight_count) {
+                const int8_t *q8 = NULL;
+                float x_scale = 1.0f;
+                if (qwn_prepare_cuda_activation(x, in, &d->scratch, &q8, &x_scale) == 0) {
+                    QwnCudaGemmRequest request;
+                    memset(&request, 0, sizeof(request));
+                    qwn_cuda_abi_header_init(&request.header, (uint32_t)sizeof(request));
+                    request.tensor = d->qwn_cuda.weights[slot].tensor;
+                    request.input_q8 = q8;
+                    request.input_scale = x_scale;
+                    request.output = y;
+                    request.batch = 1;
+                    request.rows = (uint32_t)out;
+                    request.cols = (uint32_t)in;
+                    request.input_stride = (uint32_t)in;
+                    request.output_stride = (uint32_t)out;
+                    request.input_mode = QWN_CUDA_INPUT_Q8;
+                    QwnCudaTelemetry telemetry;
+                    memset(&telemetry, 0, sizeof(telemetry));
+                    qwn_cuda_abi_header_init(&telemetry.header, (uint32_t)sizeof(telemetry));
+                    cuda_result = d->qwn_cuda.gemv_hypervsq2(
+                        &d->qwn_cuda.context, &request, &telemetry);
+                    if (cuda_result == QWN_CUDA_STATUS_OK &&
+                        telemetry.gpu_matmul_count > 0) {
+                        d->runtime_metrics.cuda_matmul_count = telemetry.gpu_matmul_count;
+                        d->runtime_metrics.cuda_upload_bytes = telemetry.gpu_upload_bytes;
+                        d->runtime_metrics.cuda_resident_bytes =
+                            (size_t)telemetry.gpu_resident_bytes;
+                        d->runtime_metrics.cuda_device = telemetry.device_id;
+                        d->runtime_metrics.gpu_kernel_launch_count =
+                            telemetry.gpu_kernel_launch_count;
+                        d->runtime_metrics.gpu_projection_count =
+                            telemetry.gpu_projection_count;
+                        d->runtime_metrics.gpu_upload_count = telemetry.gpu_upload_count;
+                        d->runtime_metrics.unsupported_projection_count =
+                            telemetry.unsupported_projection_count;
+                        d->runtime_metrics.gpu_kernel_ms = telemetry.gpu_kernel_ms;
+                        d->runtime_metrics.gpu_transfer_ms = telemetry.gpu_transfer_ms;
+                        d->runtime_metrics.gpu_sync_ms = telemetry.gpu_sync_ms;
+                        snprintf(d->runtime_metrics.cuda_kernel_type,
+                                 sizeof(d->runtime_metrics.cuda_kernel_type), "%s",
+                                 telemetry.kernel_type);
+                        snprintf(d->runtime_metrics.backend,
+                                 sizeof(d->runtime_metrics.backend), "cuda");
+                        snprintf(d->runtime_metrics.kernel,
+                                 sizeof(d->runtime_metrics.kernel), "%s",
+                                 telemetry.kernel_type);
+                        return 0;
+                    }
+                }
+            }
+        } else {
+            d->runtime_metrics.unsupported_projection_count++;
         }
-        if (d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) return -1;
-        fprintf(stderr, "[WARN] qwn CUDA GEMV failed; auto backend returns to CPU.\n");
+        if (d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) {
+            fprintf(stderr, "[ERROR] CUDA projection failed or returned no GPU matmul.\n");
+            return -1;
+        }
+        fprintf(stderr, "[WARN] qwn CUDA projection failed; auto backend returns to CPU.\n");
         qwn_cuda_unload(d);
         d->runtime_metrics.cpu_fallback_count++;
     }

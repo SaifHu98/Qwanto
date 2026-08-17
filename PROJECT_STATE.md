@@ -28,7 +28,7 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `235 passed, 4 skipped` in `c/tests/`; safe
+- Native/Python validation: `240 passed, 4 skipped` in `c/tests/`; safe
   model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
@@ -81,6 +81,20 @@ and NVMe mmap.
 - Hosted Rust correction run `32047197045` passed after commit `363d1d8`.
   The later CPU Phase 3 commits still require a complete hosted validation run
   on their final exact commit.
+- CPU Phase A documentation was cleaned in commit `ffb46ac`; the canonical
+  status is `docs/cpu-phaseA-feature-status-2026-08-17.md`. Its measurements
+  remain bound to the recorded `9a68691` executable/source identity. The
+  current CUDA follow-up changes native sources after that boundary, so a new
+  clean CPU evidence regeneration is required before Phase A can be called
+  current.
+- CUDA Phase B has a versioned host/DLL ABI and an exact 74-byte HyperVSQ-2
+  reference GEMV/GEMM source under `c/cuda/`, with secure runtime-directory
+  loading, ABI checks, residency accounting, and fail-closed explicit CUDA.
+  Local preflight found an RTX 5070 Ti Laptop GPU but no `nvcc`, CUDA Toolkit,
+  `cl.exe`, CMake, or Ninja. CUDA is therefore `UNAVAILABLE`, not compiled or
+  GPU-tested; no CUDA performance claim exists. The gateway telemetry and
+  Qwanto Code Runtime settings now expose only observed native DONE STAT
+  counters.
 
 ## Active limitations
 
@@ -102,6 +116,10 @@ and NVMe mmap.
 - CUDA is still `UNAVAILABLE` on this workstation: explicit `--backend cuda`
   fails closed because `qwn_cuda.dll`/device support is absent. GPU detection
   alone is never classified as CUDA inference.
+- Local validation of the follow-up passed Python `240/240` executed tests with
+  4 skips, focused ABI/evidence tests `21 passed`, Web build and `56` Vitest
+  tests, and C/OpenMP syntax/link checks. `cargo`, `make`, and `nvcc` remain
+  `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED`.
 - CPU Phase 3 roofline counters for process reads, memory-controller bandwidth,
   cache misses, cycles, instructions, vector instructions, and OpenMP barrier
   time are `UNAVAILABLE` locally. The corrected selected 8-worker read-only

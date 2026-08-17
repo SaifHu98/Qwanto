@@ -1252,7 +1252,8 @@ class Engine:
         command = [str(executable), str(cap), "--backend", backend,
                    "--ctx-size", str(runtime_config["context_size"]),
                    "--max-tokens", str(runtime_config["max_tokens"])]
-        option_map = (("gpu_device", "--gpu-device"), ("threads", "--threads"),
+        option_map = (("gpu_device", "--gpu-device"), ("gpu_memory_budget_mb", "--gpu-memory-budget-mb"),
+                      ("threads", "--threads"),
                       ("kv_cache_mode", "--kv-cache"), ("quantization", "--quantization"),
                       ("kernel", "--kernel"), ("seed", "--seed"))
         for key, flag in option_map:
@@ -1286,14 +1287,29 @@ class Engine:
     def _stats(fields):
         if len(fields) < 5 or fields[0] != "STAT":
             raise RuntimeError(f"invalid engine status: {' '.join(fields)}")
-        return {
+        stats = {
             "completion_tokens": int(fields[1]),
             "tokens_per_second": float(fields[2]),
+            "tok_per_sec": float(fields[2]),
             "cache_hit_percent": float(fields[3]),
             "rss_gb": float(fields[4]),
             "prompt_tokens": int(fields[5]) if len(fields) > 5 else 0,
             "length_limited": bool(int(fields[6])) if len(fields) > 6 else False,
         }
+        for field in fields[7:]:
+            if "=" not in field:
+                continue
+            key, value = field.split("=", 1)
+            if not key or not value:
+                continue
+            try:
+                if value.lstrip("-").isdigit():
+                    stats[key] = int(value)
+                else:
+                    stats[key] = float(value)
+            except ValueError:
+                stats[key] = value
+        return stats
 
     def _fail_pending(self, error):
         with self.pending_lock:
@@ -1686,6 +1702,7 @@ class APIServer(ThreadingHTTPServer):
         self.total_tokens_generated = 0
         self.request_history = collections.deque(maxlen=20)
         self.telemetry_lock = threading.Lock()
+        self.last_runtime = {}
         
         self.engine_executable = None
         self.env = None
@@ -1727,9 +1744,25 @@ class APIServer(ThreadingHTTPServer):
             measured_tps = tokens / wall_seconds
         process = getattr(self.runtime_proc, "process", None) or self.runtime_proc
         pid = getattr(process, "pid", None)
+        runtime_keys = (
+            "backend_actual", "config_backend", "kernel", "kernel_requested",
+            "model_dtype", "active_threads", "context_size", "max_tokens",
+            "actual_device",
+            "seed", "kv_cache_mode", "quantization", "temperature", "top_p",
+            "thinking_mode", "decode_function", "gpu_matmul_count",
+            "cpu_fallback_count", "gpu_kernel_launch_count", "gpu_projection_count",
+            "gpu_upload_count", "gpu_upload_bytes", "gpu_resident_bytes",
+            "unsupported_projection_count", "gpu_kernel_ms", "gpu_transfer_ms",
+            "gpu_sync_ms", "cuda_kernel_type", "cuda_backend_reason",
+            "cuda_dll_sha256", "dispatch_reason", "runtime_ready_ms",
+        )
+        runtime_snapshot = {key: stats[key] for key in runtime_keys if key in stats}
+        runtime_snapshot["pid"] = stats.get("pid", pid)
+        runtime_snapshot["request_id"] = request_id
         with self.telemetry_lock:
             self.request_count += 1
             self.total_tokens_generated += tokens
+            self.last_runtime = dict(runtime_snapshot)
             self.request_history.append({
                 "request_id": request_id,
                 "tokens": tokens,
@@ -1739,6 +1772,7 @@ class APIServer(ThreadingHTTPServer):
                 "backend": self.backend or "unknown",
                 "model_id": self.model_id or "unknown",
                 "pid": pid,
+                "runtime_config_snapshot": runtime_snapshot,
                 "availability": {
                     "tok_per_sec": "measured" if measured_tps is not None else "unavailable: runtime did not report throughput",
                     "ttft_ms": "measured" if first_data_ms is not None else "unavailable: no DATA frame observed",
@@ -2249,7 +2283,8 @@ class APIHandler(BaseHTTPRequestHandler):
                         "gpu_names": [g["name"] for g in gpus] if gpus else [],
                         "disk_free_bytes": disk_free,
                     },
-                    "recent_requests": list(getattr(self.server, "request_history", []))
+                    "recent_requests": list(getattr(self.server, "request_history", [])),
+                    "runtime": dict(getattr(self.server, "last_runtime", {})),
                 }
                 self.send_json(200, telemetry, request_id)
                 return
@@ -2663,9 +2698,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 runtime_config.setdefault("max_tokens", body.get("max_tokens", self.server.max_tokens))
                 if runtime_config.get("backend", "auto") not in ("cpu", "cuda", "auto"):
                     raise APIError(400, "runtime_config.backend must be cpu, cuda, or auto.", "runtime_config.backend")
-                for key in ("gpu_device", "threads", "seed"):
+                for key in ("gpu_device", "threads", "seed", "gpu_memory_budget_mb"):
                     if key in runtime_config and (isinstance(runtime_config[key], bool) or int(runtime_config[key]) < 0):
                         raise APIError(400, f"runtime_config.{key} must be non-negative.", f"runtime_config.{key}")
+                if "gpu_memory_budget_mb" in runtime_config and int(runtime_config["gpu_memory_budget_mb"]) == 0:
+                    raise APIError(400, "runtime_config.gpu_memory_budget_mb must be positive when provided.", "runtime_config.gpu_memory_budget_mb")
                 for key in ("context_size", "max_tokens"):
                     if isinstance(runtime_config.get(key), bool) or int(runtime_config.get(key, 0)) <= 0:
                         raise APIError(400, f"runtime_config.{key} must be positive.", f"runtime_config.{key}")

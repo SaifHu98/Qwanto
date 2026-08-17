@@ -136,6 +136,13 @@ void qwn_gemv_hypervsq2_vnni_delayed_rows(const uint8_t *raw_blocks, const int8_
                                           size_t row_bytes, float *out,
                                           int row_block);
 
+/* Prepare the same symmetric int8 activation representation used by the
+ * validated CPU HyperVSQ-2 path. CUDA consumes this representation so a GPU
+ * result is compared against the actual decoder semantics, not an unrelated
+ * FP32-weight/FP32-activation product. */
+int qwn_prepare_cuda_activation(const float *x, int K, QwnScratch *scratch,
+                                const int8_t **q8, float *x_scale);
+
 /* Development/evidence hooks for the 32-code unpack comparison. They do not
  * alter the production dispatcher; the current shift/mask implementation is
  * the only one used by the validated GEMV path. */

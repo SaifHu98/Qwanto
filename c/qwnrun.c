@@ -89,7 +89,7 @@ static void print_build_info(const QwnRuntimeConfig *config) {
             "detected_cpu_features=avx2:%s,f16c:%s,fma:%s,vnni:%s,avx512f:%s "
             "binary_sha256=%s "
             "model_dtype=Unavailable backend_requested=%s backend_actual=Unavailable "
-            "gpu_kernel_coverage=hypervsq2-74,q4_0 gpu_matmul_count=0 "
+            "gpu_kernel_coverage=Unavailable-until-versioned-qwn-cuda-ABI gpu_matmul_count=0 "
             "cpu_fallback_count=0 pid=%lu\n",
             compiler, compiler_version, QWN_BUILD_OPT_FLAGS,
 #if defined(_OPENMP)
@@ -147,6 +147,7 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
            "\"selected_isa_kernel\":\"Unavailable\",\"binary_sha256\":\"%s\","
            "\"backend_requested\":\"%s\",\"backend_actual\":\"Unavailable\","
            "\"gpu_matmul_count\":0,\"cpu_fallback_count\":0,"
+           "\"gpu_kernel_coverage\":\"Unavailable-until-versioned-qwn-cuda-ABI\","
            "\"model_dtype\":\"Unavailable\",\"thinking_mode\":\"%s\","
            "\"kv_cache_mode\":\"%s\",\"quantization\":\"%s\",\"kernel_requested\":\"%s\","
            "\"pid\":%lu}\n",
@@ -407,8 +408,13 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
             printf("DONE %s STAT %d %.6f 0 0 %d %d "
                    "prefill_ms=%.3f prefill_tok_per_sec=%.6f "
                    "first_token_ms=%.3f decode_wall_ms=%.3f "
-                   "decode_tok_per_sec=%.6f sampling_ms=%.3f kv_reset_ms=%.3f pid=%lu backend_actual=%s "
-                   "kernel=%s gpu_matmul_count=%llu cpu_fallback_count=%llu "
+                   "decode_tok_per_sec=%.6f sampling_ms=%.3f kv_reset_ms=%.3f pid=%lu actual_device=%d backend_actual=%s "
+                   "kernel=%s cuda_dll_sha256=%s gpu_matmul_count=%llu cpu_fallback_count=%llu "
+                   "gpu_kernel_launch_count=%llu gpu_projection_count=%llu "
+                   "gpu_upload_count=%llu gpu_upload_bytes=%llu gpu_resident_bytes=%llu "
+                   "unsupported_projection_count=%llu "
+                   "gpu_kernel_ms=%.3f gpu_transfer_ms=%.3f gpu_sync_ms=%.3f "
+                   "cuda_kernel_type=%s cuda_backend_reason=%s "
                    "active_threads=%d dispatch_reason=%s model_dtype=%s "
                    "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
                    "final_lm_head_ms=%.3f intermediate_lm_head_ms=%.3f "
@@ -434,10 +440,24 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    generation ? generation->decode_wall_ms : 0.0, decode_tps,
                    generation ? generation->sampling_ms : 0.0, kv_reset_ms,
                    qwn_process_id(),
+                   strcmp(d.runtime_metrics.backend, "cuda") == 0 ?
+                       d.runtime_metrics.cuda_device : -1,
                    d.runtime_metrics.backend[0] ? d.runtime_metrics.backend : "Unavailable",
                    d.runtime_metrics.kernel[0] ? d.runtime_metrics.kernel : "Unavailable",
+                   d.runtime_metrics.cuda_dll_hash[0] ? d.runtime_metrics.cuda_dll_hash : "Unavailable",
                    (unsigned long long)d.runtime_metrics.cuda_matmul_count,
                    (unsigned long long)d.runtime_metrics.cpu_fallback_count,
+                   (unsigned long long)d.runtime_metrics.gpu_kernel_launch_count,
+                   (unsigned long long)d.runtime_metrics.gpu_projection_count,
+                   (unsigned long long)d.runtime_metrics.gpu_upload_count,
+                   (unsigned long long)d.runtime_metrics.cuda_upload_bytes,
+                   (unsigned long long)d.runtime_metrics.cuda_resident_bytes,
+                   (unsigned long long)d.runtime_metrics.unsupported_projection_count,
+                   d.runtime_metrics.gpu_kernel_ms,
+                   d.runtime_metrics.gpu_transfer_ms,
+                   d.runtime_metrics.gpu_sync_ms,
+                   d.runtime_metrics.cuda_kernel_type[0] ? d.runtime_metrics.cuda_kernel_type : "Unavailable",
+                   d.runtime_metrics.cuda_backend_reason[0] ? d.runtime_metrics.cuda_backend_reason : "Unavailable",
                    d.runtime_metrics.active_cpu_threads,
                    d.runtime_metrics.dispatch_reason[0] ? d.runtime_metrics.dispatch_reason : "Unavailable",
                    d.embed_weight ? qwn_dtype_name(d.embed_weight->dtype) : "Unavailable",
