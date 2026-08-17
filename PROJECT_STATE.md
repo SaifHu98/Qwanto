@@ -114,6 +114,11 @@ and NVMe mmap.
   activated by qwnrun; only validated, architecture-compatible QWN conversions
   can become native runtime models. Qwen3.5 hybrid/MTP and 27B conversion paths
   fail explicitly until their tensor and reference-oracle validation exists.
+- Qwen3.8-27B qualification is currently `UNSUPPORTED_QWEN38_ARCHITECTURE`:
+  the local GGUF has 65 layers, 48 Gated DeltaNet/SSM layers, 17 full-attention
+  layers, four MTP tensors, and mixed IQ dtypes not supported by the converter.
+  The qualification tool records every source tensor and refuses conversion
+  before output; no QWN support or benchmark claim exists for this source.
 - The gateway has explicit Hugging Face, allowlisted Direct HTTPS, and local
   file acquisition providers. Downloads use `.part` files and atomic publish;
   checksums, size, disk, redirects, and format compatibility are explicit.
