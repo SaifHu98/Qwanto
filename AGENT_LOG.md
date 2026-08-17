@@ -491,3 +491,22 @@
 - **Evidence:** Final VNNI warm decode median/p95 `15.445769/15.552753 tok/s`,
   prefill median `15.053010 tok/s`, 32 active workers, and all five persistent
   runs PID-reuse proven. README was intentionally not modified.
+
+## 2026-08-17 — CPU phase 2 clean evidence
+
+- **Change:** Rebuilt `c/qwnrun_phase2.exe` from commit `e23c2a8`, added
+  release-quality hot-path counters to the evidence record, and generated the
+  sanitized evidence set under `benchmarks/evidence/windows/2026-08-17/e23c2a8/`.
+- **Evidence:** Clean persistent CPU decode is `17.877580 tok/s` median at
+  eight active workers, VNNI selected and executed, seven measured requests
+  under PID `35928`, p95 decode latency `3639.493 ms`, and CV
+  `0.007662274209327826`. Cold startup is `67.355 ms`; persistent prefill is
+  `17.791128 tok/s`; current one-shot end-to-end is `9.919145 tok/s`.
+- **Investigation:** Thread scaling proved requested=active workers for
+  1/2/4/8/16/32. Activation-sum precompute beat the same-config recompute
+  baseline (`17.920965` vs `17.355390 tok/s` median) and was retained. CUDA
+  remains unavailable; README, tags, and releases were not changed.
+- **Validation:** Local C syntax/OpenMP link, 140/140 HyperVSQ-2 differential
+  tests, Python focused/full suites, web build/tests, and diff checks passed;
+  Cargo, Make, and NVCC are unavailable locally. Hosted CI is not claimed
+  green while the GitHub incident is active.

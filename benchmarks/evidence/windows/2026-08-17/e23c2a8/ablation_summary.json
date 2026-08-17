@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0.0",
+  "benchmark_class": "ABLATION_SUMMARY",
+  "identity": {
+    "executable_sha256": "3cca5eb31638ccaf8dad90992d46bd3828b6e2b9d09304bbf560a87e02e9f24b",
+    "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+    "requested_threads": 8,
+    "generated_tokens": 64
+  },
+  "variants": [
+    {
+      "variant": "baseline",
+      "classification": "MEASURED",
+      "invalid_reasons": [],
+      "evidence_path": "external/phase2-ablation-clean-e23c2a8-8-baseline.json",
+      "executable_sha256": "3cca5eb31638ccaf8dad90992d46bd3828b6e2b9d09304bbf560a87e02e9f24b",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "selected_kernel": "vnni",
+      "active_threads": 8,
+      "decode_tok_per_sec_median": 17.35539,
+      "decode_tok_per_sec_p95": null,
+      "decode_latency_ms_median": 3687.615,
+      "decode_latency_ms_p95": 3785.527,
+      "ttft_ms_median": 2756.348,
+      "decode_tok_per_sec_cv": 0.01097568497419604,
+      "activation_sum_mode": "recomputed"
+    },
+    {
+      "variant": "activation_sum_precompute",
+      "classification": "MEASURED",
+      "invalid_reasons": [],
+      "evidence_path": "external/phase2-ablation-clean-e23c2a8-8-activation_sum_precompute.json",
+      "executable_sha256": "3cca5eb31638ccaf8dad90992d46bd3828b6e2b9d09304bbf560a87e02e9f24b",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "selected_kernel": "vnni",
+      "active_threads": 8,
+      "decode_tok_per_sec_median": 17.920965,
+      "decode_tok_per_sec_p95": null,
+      "decode_latency_ms_median": 3571.236,
+      "decode_latency_ms_p95": 3640.375,
+      "ttft_ms_median": 2701.618,
+      "decode_tok_per_sec_cv": 0.009301862485793254,
+      "activation_sum_mode": "precomputed"
+    },
+    {
+      "variant": "thread_autotune",
+      "classification": "UNAVAILABLE",
+      "reason": "Requires an explicit local autotune run; not silently folded into the final variant."
+    },
+    {
+      "variant": "lm_head_correction",
+      "classification": "UNAVAILABLE",
+      "reason": "Instrumentation is present; no predictive correction algorithm is implemented."
+    },
+    {
+      "variant": "delayed_reductions",
+      "classification": "UNAVAILABLE",
+      "reason": "No mathematically validated delayed-reduction variant is implemented."
+    },
+    {
+      "variant": "row_blocking",
+      "classification": "UNAVAILABLE",
+      "reason": "No row-blocking variant is retained without end-to-end evidence."
+    },
+    {
+      "variant": "two_bit_unpack",
+      "classification": "UNAVAILABLE",
+      "reason": "No alternative unpack variant is retained without full GEMV and decode evidence."
+    },
+    {
+      "variant": "simd_swiglu",
+      "classification": "UNAVAILABLE",
+      "reason": "No SIMD SwiGLU variant is retained without correctness and end-to-end evidence."
+    }
+  ],
+  "accepted_variants": [
+    "activation_sum_precompute"
+  ],
+  "rejected_variants": [
+    "thread_autotune",
+    "lm_head_correction",
+    "delayed_reductions",
+    "row_blocking",
+    "two_bit_unpack",
+    "simd_swiglu"
+  ],
+  "final_variant": "activation_sum_precompute",
+  "final_selection_reason": "Activation-sum precompute improved measured median decode throughput over the same-config baseline."
+}

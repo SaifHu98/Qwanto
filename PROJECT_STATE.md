@@ -139,6 +139,16 @@ and NVMe mmap.
   scope and README performance claims remain unchanged.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
 
+- Phase 2 clean evidence is now regenerated from commit `e23c2a8` with
+  executable SHA-256 `3cca5eb31638ccaf8dad90992d46bd3828b6e2b9d09304bbf560a87e02e9f24b`.
+  The persistent release-quality CPU record is `MEASURED` at 8 active VNNI
+  workers with median warm decode `17.877580 tok/s`, p95 decode latency
+  `3639.493 ms`, seven same-PID requests, and zero GPU matmuls/CPU fallbacks.
+  Thread scaling measured requested=active workers 1/2/4/8/16/32; the 8-worker
+  row was highest for this workload. Activation-sum precompute won the
+  same-configuration ablation and is retained. README performance claims,
+  CUDA, tags, and releases remain unchanged.
+
 ## 2026-08-17 — Desktop agent UX and evidence matrix
 
 - **Change:** Kept the Qwanto Code primary navigation at Project, Chats, Files,
