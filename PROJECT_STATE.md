@@ -28,7 +28,7 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `242 passed, 4 skipped` in `c/tests/`; safe
+- Native/Python validation: `243 passed, 4 skipped` in `c/tests/`; safe
   model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
@@ -124,7 +124,7 @@ and NVMe mmap.
   on the local RTX host it reports actual CUDA only after a successful model
   matmul. GPU detection or DLL loading alone is never classified as CUDA
   inference.
-- Local validation of the follow-up passed Python `242/242` executed tests with
+- Local validation of the follow-up passed Python `243/243` executed tests with
   4 skips, focused ABI/evidence tests `21 passed`, Web build and `56` Vitest
   tests, and C/OpenMP syntax/link checks. `cargo` and `make` remain
   `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED`; CUDA NVCC synthetic and
