@@ -480,6 +480,10 @@ code, kbd, samp, pre {
 .desktop-sidebar-head, .desktop-panel-heading, .desktop-composer-footer, .desktop-chat-heading, .desktop-topbar, .desktop-project-form, .desktop-approval-actions { display: flex; align-items: center; }
 .desktop-sidebar-head, .desktop-topbar { justify-content: space-between; gap: 10px; }
 .desktop-wordmark { display: flex; align-items: center; gap: 9px; font-size: .82rem; font-weight: 700; white-space: nowrap; }
+.desktop-topbar-brand { display: flex; align-items: center; gap: 8px; min-width: 154px; }
+.desktop-topbar-brand span { display: grid; gap: 2px; min-width: 0; }
+.desktop-topbar-brand strong { color: #eef5ff; font-size: .78rem; letter-spacing: -.01em; }
+.desktop-topbar-brand small { color: #74829a; font-size: .61rem; white-space: nowrap; }
 .brand-icon { display: block; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 8px; object-fit: contain; }
 .icon-button { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid transparent; border-radius: 7px; color: #8490a7; background: transparent; cursor: pointer; }
 .icon-button:hover { color: #dce6f5; border-color: #33415a; background: #172033; }
@@ -504,6 +508,8 @@ code, kbd, samp, pre {
 .desktop-mode-toggle button, .desktop-inspector-tabs button { padding: 6px 10px; border: 0; border-radius: 6px; color: #8390a6; background: transparent; cursor: pointer; font-size: .7rem; }
 .desktop-mode-toggle button.active, .desktop-inspector-tabs button.active { color: #09121a; background: #79e6c2; font-weight: 700; }
 .desktop-gateway-state { display: flex; align-items: center; gap: 7px; color: #8996ac; font-size: .72rem; white-space: nowrap; }
+.desktop-gateway-state strong, .desktop-gateway-state small { display: block; }
+.desktop-gateway-state small { margin-top: 2px; color: #74829a; font-size: .6rem; }
 .desktop-gateway-state span, .browser-connection-pill span { width: 7px; height: 7px; border-radius: 50%; background: #d59b63; }
 .desktop-gateway-state.connected span, .browser-connection-pill span.connected { background: #79e6c2; box-shadow: 0 0 10px #79e6c2; }
 .desktop-gateway-banner, .desktop-error, .desktop-success { display: flex; align-items: center; gap: 10px; margin: 14px 18px 0; padding: 10px 12px; border: 1px solid #394560; border-radius: 8px; color: #dbe5f3; background: #141c2b; font-size: .78rem; }
@@ -512,8 +518,8 @@ code, kbd, samp, pre {
 .desktop-error button { color: inherit; background: transparent; border: 0; cursor: pointer; }
 .desktop-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 310px; flex: 1; min-height: 0; }
 .desktop-center-panel { min-width: 0; padding: 30px clamp(18px, 4vw, 58px); overflow-y: auto; }
-.desktop-inspector { min-width: 0; border-left: 1px solid #20283a; background: #0e131e; overflow: auto; }
-.desktop-inspector-tabs { display: flex; gap: 2px; padding: 10px; border-bottom: 1px solid #20283a; }
+.desktop-inspector { min-width: 0; width: 100%; border-left: 1px solid #20283a; background: #0e131e; overflow: auto; resize: horizontal; }
+.desktop-inspector-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 10px; border-bottom: 1px solid #20283a; }
 .desktop-code-preview { min-height: 180px; margin: 0; padding: 14px; overflow: auto; color: #a9e7d2; background: #0a0e16; font: .7rem/1.6 ui-monospace, monospace; white-space: pre-wrap; }
 .desktop-code-preview.large { min-height: 360px; margin-top: 20px; border: 1px solid #20283a; border-radius: 10px; }
 .desktop-file-title { padding: 12px 14px; border-bottom: 1px solid #20283a; color: #e6edf8; font: .72rem ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; }
@@ -534,7 +540,15 @@ code, kbd, samp, pre {
 .desktop-file-list { display: grid; gap: 4px; margin-top: 22px; }
 .desktop-file-list button { padding: 10px 12px; border: 1px solid #263149; border-radius: 7px; color: #c4cede; background: #111827; text-align: left; cursor: pointer; font: .75rem ui-monospace, monospace; }
 .desktop-file-list button:hover { border-color: #79e6c2; }
+.desktop-file-search { display: flex; align-items: center; gap: 7px; margin-top: 18px; padding: 8px 10px; border: 1px solid #263149; border-radius: 8px; color: #77849a; background: #0f1623; }
+.desktop-file-search:focus-within { border-color: #79e6c2; }
+.desktop-file-search input { width: 100%; border: 0; outline: 0; color: #e2eaf5; background: transparent; font-size: .74rem; }
 .desktop-chat-heading { justify-content: space-between; align-items: flex-start; gap: 18px; }
+.desktop-no-model { display: grid; gap: 4px; margin-top: 20px; padding: 12px 14px; border: 1px solid #3e3a28; border-radius: 9px; color: #d8c58d; background: #211d12; }
+.desktop-no-model span { color: #a79b76; font-size: .73rem; line-height: 1.5; }
+.desktop-session-state { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px; border-left: 2px solid #79e6c2; color: #9aa7ba; background: #101a22; }
+.desktop-session-state span { color: #9aefd4; font-size: .62rem; font-weight: 800; letter-spacing: .1em; }
+.desktop-session-state p { margin: 0; font-size: .72rem; line-height: 1.45; }
 .desktop-timeline { display: grid; gap: 10px; margin: 26px 0; }
 .desktop-timeline-step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 11px 12px; border-left: 2px solid #2b3851; color: #9ba7bb; }
 .desktop-timeline-step span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #101a22; background: #68758b; font-size: .7rem; }

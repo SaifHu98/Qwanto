@@ -1,7 +1,7 @@
 {
-  "schema_version": "3.0.0",
-  "benchmark_id": "qwn-bench-1786889283394915900",
-  "timestamp_utc": "2026-08-16T14:08:00.812702+00:00",
+  "schema_version": "4.0.0",
+  "benchmark_id": "qwn-bench-1786962766476235400",
+  "timestamp_utc": "2026-08-17T10:32:43.048590+00:00",
   "evidence_classification": "MEASURED",
   "error_reason": null,
   "host_environment": {
@@ -20,15 +20,32 @@
     "gpu_query_status": "queried"
   },
   "runtime_metadata": {
+    "qwn_version": "0.1.0",
+    "git_commit": "5ef406ad8f2a9cb08c5979aa6e91d0ab119c145e",
+    "git_worktree_dirty": true,
     "executable_path": "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
-    "executable_sha256": "ef531123975ab13d8484b81b7347fd4bc2a8c6b7f9371c9299c2c3c9ab8ea68d"
+    "executable_sha256": "ef531123975ab13d8484b81b7347fd4bc2a8c6b7f9371c9299c2c3c9ab8ea68d",
+    "cuda_library_path": null,
+    "cuda_dll_sha256": "Unavailable",
+    "compiler": "clang",
+    "optimization_flags": "Unavailable",
+    "openmp_enabled": false,
+    "active_thread_count": 1,
+    "selected_cpu_isa_kernel": "avx2",
+    "gpu_kernel_coverage": "Unavailable",
+    "build_info": "qwnrun build: compiler=clang openmp_enabled=false openmp_runtime=none omp_max_threads=1 active_threads=1 isa_backend=avx2",
+    "build_info_returncode": 0
   },
   "model_metadata": {
+    "architecture": "qwen35",
+    "qwn_dtype": "HyperVSQ-2",
+    "model_id": "DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2",
     "path": "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
     "file_size_bytes": 1266202104,
     "sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36"
   },
   "benchmark_parameters": {
+    "prompt": "Explain zero-copy NVMe memory tiering in Qwanto.",
     "prompt_length_chars": 48,
     "max_tokens_requested": 64,
     "command_argv": [
@@ -36,23 +53,54 @@
       "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
       "Explain zero-copy NVMe memory tiering in Qwanto.",
       "64",
-      "4096"
-    ]
+      "4096",
+      "--backend",
+      "cpu",
+      "--ctx-size",
+      "4096",
+      "--max-tokens",
+      "64",
+      "--seed",
+      "0"
+    ],
+    "backend_requested": "cpu",
+    "context_size": 4096,
+    "seed": 0,
+    "warmup_tokens": 8,
+    "cpu_threads_requested": null,
+    "warmup_returncode": 0,
+    "warmup_timed_out": false
   },
   "execution_evidence": {
     "returncode": 0,
     "timed_out": false,
     "stdout_sha256": "46bb5a158cd8d6d0a35471c26ba329d3b3c736c56b55c62202b3ac2015e09b14",
-    "stderr_sha256": "6f1568b591b4e64fe0e6638d65e50a2490ba542f6060e294613bd352c9cd35d1"
+    "stderr_sha256": "c7dbf69e498e04358d7e220edf33a4a6bf1d4fc9432ef3fe7ee949ac96243b3b"
   },
   "measured_evidence": {
+    "backend_requested": "cpu",
+    "backend_actual": "cpu",
+    "selected_kernel": "avx-vnni",
+    "gpu_matmul_count": "Unavailable",
+    "cpu_fallback_count": "Unavailable",
+    "cuda_upload_bytes": "Unavailable",
+    "cuda_resident_bytes": "Unavailable",
+    "gpu_device": "Unavailable",
+    "cuda_dll_sha256": "Unavailable",
     "generated_tokens": 64,
-    "wall_seconds": 8.952839,
-    "tok_per_sec": 7.148571,
-    "ttft_ms": 0.0
+    "wall_seconds": 7.848717,
+    "prefill_tok_per_sec": "Unavailable",
+    "decode_tok_per_sec": 8.154199,
+    "tok_per_sec": 8.154199,
+    "ttft_ms": 0.0,
+    "prompt_prefill_tok_s": "Unavailable",
+    "gpu_utilization": "Unavailable",
+    "vram_measured_bytes": "Unavailable"
   },
   "unavailable_metrics": {
     "vram_allocated_gb": "NVML process polling inactive",
-    "nvme_bandwidth_mb_s": "Direct block device counter inactive"
+    "nvme_bandwidth_mb_s": "Direct block device counter inactive",
+    "prefill_throughput_tok_s": "qwnrun did not report a prefill counter",
+    "gpu_utilization": "Direct GPU utilization polling inactive"
   }
 }

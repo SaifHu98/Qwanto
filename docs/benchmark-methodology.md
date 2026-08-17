@@ -10,8 +10,13 @@ Run it with a real local fixture:
 python benchmarks/benchmark_reproducible.py \
   --model experiments/results/4B_hyper_vsq2.qwn \
   --executable c/qwnrun \
+  --backend cpu \
+  --context-size 4096 \
   --max-tokens 64 \
+  --seed 0 \
+  --warmup-tokens 8 \
   --output benchmark_evidence.json
+python benchmarks/generate_benchmark_matrix.py
 ```
 
 The command must be rerun on each host. The repository does not provide a
@@ -21,7 +26,7 @@ universal hardware profile or fallback throughput value.
 
 | Classification | Meaning | Measured throughput allowed? |
 | --- | --- | --- |
-| `MEASURED` | Real qwnrun exited zero and reported a positive token count; wall time was measured | Yes |
+| `MEASURED` | Real qwnrun exited zero, reported the actual backend/kernel, produced a positive token count, and wall time was measured with matching executable/model hashes | Yes |
 | `UNAVAILABLE` | Required executable/model/sensor is missing, or execution timed out | No |
 | `INVALID` | Nonzero exit, malformed output, conflicting records, or zero/negative tokens | No |
 | `TEST_FIXTURE` | Explicitly marked test data used to exercise parsers or UI states | No production claim |
@@ -36,8 +41,12 @@ unavailable; they are never backfilled from a host profile.
 ## Reproducibility requirements
 
 - Keep the exact model and executable hashes with the artifact.
-- Record prompt length, requested token limit, context size, backend, and
-  relevant environment variables.
+- Record the exact prompt, requested token limit, context size, fixed seed,
+  warmup, requested/actual backend, selected kernel, Qwanto version, Git
+  commit, active threads, and runtime counters in `benchmarks/benchmark_matrix.json`.
+- A CUDA row is invalid unless GPU matmul count is greater than zero and the
+  required-layer CPU fallback count is zero. GPU inventory alone is not CUDA
+  execution evidence.
 - Do not compare runs across different model hashes, token limits, or backends
   without labeling the comparison.
 - Do not report a speedup unless both operands are independently measured and

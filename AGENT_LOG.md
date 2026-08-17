@@ -313,3 +313,20 @@
   builds, Python 3.11, Web, docs, security, and changed-area detection passed.
 - **Decision:** Keep the existing unsigned Beta.4 release unchanged; the
   follow-up is validated on `main` but is not part of the existing tag.
+
+## 2026-08-17 — Desktop agent UX and evidence matrix
+
+- **Change:** Refined Qwanto Code with the official-logo top bar, truthful
+  startup timing, no-model guidance, searchable project files, collapsed and
+  auto-revealing inspector, and focused Settings pages for Skills & Plugins,
+  GitHub, and Feedback.
+- **Change:** Added `benchmark_matrix.json`, its schema and generator; made
+  the performance report reject incomplete static MEASURED fixtures and
+  regenerated the current native CPU evidence from real qwnrun execution.
+- **Files:** `README.md`, `web/`, `desktop/src-tauri/src/lib.rs`,
+  `benchmarks/`, `benchmark_evidence.json`, `docs/performance*`, and tests.
+- **Validation:** Python `219 passed, 3 skipped`; web `56 passed` and build;
+  brand, release policy, skills, documentation links, and `git diff --check`
+  passed. Cargo, Make, and nvcc are unavailable locally.
+- **Decision:** Keep the existing unsigned Beta.4 unchanged; no tag or release
+  was created.

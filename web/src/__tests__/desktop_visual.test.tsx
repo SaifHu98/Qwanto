@@ -25,12 +25,13 @@ describe("desktop settings visual contract", () => {
   it.each([
     ["desktop-1280", 1280, 820],
     ["desktop-1440", 1440, 900],
+    ["desktop-1920", 1920, 1080],
     ["laptop-short", 1280, 650],
   ])("keeps the %s layout contract at %d x %d", (_name, width, height) => {
     const html = renderToStaticMarkup(<DesktopSettingsView {...settingsProps} />)
     expect(html).toContain('data-testid="desktop-settings-layout"')
     expect(html).toContain('data-settings-tab="models"')
-    expect(html).toContain('data-settings-tab="privacy"')
+    for (const section of ["models", "runtime", "agent", "memory", "skills", "github", "privacy", "diagnostics", "feedback"]) expect(html).toContain(`data-settings-tab="${section}"`)
     expect(html).toContain('aria-orientation="vertical"')
     expect(css).toContain(".desktop-settings-layout { display: grid; grid-template-columns: 208px")
     expect(css).toContain(".settings-section-nav button.active")

@@ -35,7 +35,7 @@ class TestPerformanceReport(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             evidence_path.write_text(json.dumps({
                 "benchmark_id": "fixture-benchmark",
-                "evidence_classification": "MEASURED",
+                "evidence_classification": "TEST_FIXTURE",
                 "model_metadata": {"sha256": manifest["models"][0]["target_sha256"]},
                 "host_environment": {"os": "TEST_FIXTURE", "cpu_model": "fixture"},
                 "measured_evidence": {"tok_per_sec": 12.5, "ttft_ms": 0.0},
@@ -64,9 +64,9 @@ class TestPerformanceReport(unittest.TestCase):
                 manifest_path, [evidence_path], bpw_path, empirical_path
             )
 
-        self.assertEqual(report["native_qwn_rows"][0]["tokens_per_second"], 12.5)
+        self.assertIsNone(report["native_qwn_rows"][0]["tokens_per_second"])
         self.assertIsNone(report["native_qwn_rows"][0]["ttft_ms"])
-        self.assertEqual(report["native_qwn_rows"][0]["evidence_class"], "MEASURED")
+        self.assertEqual(report["native_qwn_rows"][0]["evidence_class"], "TEST_FIXTURE")
         self.assertEqual(report["external_gguf_rows"][0]["evidence_class"], "EXPERIMENTAL_EXTERNAL")
         self.assertNotIn("99.0", json.dumps(report["native_qwn_rows"]))
 

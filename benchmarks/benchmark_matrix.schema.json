@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qwanto Native benchmark matrix",
+  "type": "object",
+  "required": ["schema_version", "generated_at_utc", "rows"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "benchmark_id", "timestamp_utc", "qwn_version", "git_commit",
+          "executable_sha256", "model_sha256", "model_architecture", "qwn_dtype",
+          "backend_requested", "backend_actual", "selected_cpu_isa_kernel",
+          "active_cpu_thread_count", "gpu_device", "gpu_matmul_count",
+          "cpu_fallback_count", "warmup", "prompt", "context_size", "seed",
+          "token_count", "prefill_throughput_tok_s", "decode_throughput_tok_s",
+          "ttft_ms", "wall_seconds", "evidence_classification"
+        ],
+        "properties": {
+          "benchmark_id": { "type": "string" },
+          "timestamp_utc": { "type": "string", "format": "date-time" },
+          "evidence_classification": { "enum": ["MEASURED", "VALIDATED", "EXPERIMENTAL", "UNAVAILABLE", "INVALID", "TEST_FIXTURE", "PROJECTED"] },
+          "backend_requested": { "type": "string" },
+          "backend_actual": { "type": "string" },
+          "gpu_matmul_count": {},
+          "cpu_fallback_count": {},
+          "prefill_throughput_tok_s": {},
+          "decode_throughput_tok_s": {},
+          "ttft_ms": {},
+          "wall_seconds": {}
+        }
+      }
+    }
+  }
+}

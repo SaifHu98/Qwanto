@@ -503,9 +503,12 @@ pub fn run() {
         .setup(|app| {
             let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
             let data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
-            let state = app.state::<AppState>();
-            let mut gateway = state.gateway_manager.lock().map_err(|error| error.to_string())?;
-            let _ = gateway.start(&resource_dir, &data_dir);
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Ok(mut gateway) = handle.state::<AppState>().gateway_manager.lock() {
+                    let _ = gateway.start(&resource_dir, &data_dir);
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

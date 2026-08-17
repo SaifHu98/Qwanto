@@ -28,18 +28,22 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `217 passed, 3 skipped` in `c/tests/`; the decoder
+- Native/Python validation: `219 passed, 3 skipped` in `c/tests/`; the decoder
   test passed separately (`2 passed`). Focused gateway tests passed
   (`45 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
-- Web validation: production build passed and Vitest passed (`54 tests`). The
+- Web validation: production build passed and Vitest passed (`56 tests`). The
   desktop surface has exactly five primary destinations—Project, Chats, Files,
   Changes, Settings—while the browser surface remains chat-only. Settings now
   uses an internal one-section-at-a-time navigation with viewport contracts for
-  1280px, 1440px, and short laptop heights.
+  1280px, 1440px, 1920px, and short laptop heights. Skills & Plugins, GitHub,
+  and Feedback are separate lazy settings sections; model/conversion/download
+  work remains focused under Models.
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
-  `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
+  `benchmark_evidence.json` and `benchmarks/benchmark_matrix.json` record for
+  the checked-in 4B `.qwn` fixture: CPU decode `8.154199 tok/s`; TTFT and CUDA
+  execution counters are explicitly unavailable for this run.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
   native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
@@ -83,7 +87,7 @@ and NVMe mmap.
   implemented as conditional protected `release-signing` environment gates.
   With credentials absent, Beta.4 is explicitly unsigned; enabling a platform
   gate without complete credentials or verification fails that package job.
-- Skills and Plugins are available under Settings > Agent. Built-in skills are
+- Skills and Plugins are available under Settings > Skills & Plugins. Built-in skills are
   locally invokable with `@skill-name`; native plugin manifests are checksum-
   and capability-validated, stored in app data disabled by default, and never
   executed without a future supervised sandbox.
@@ -117,3 +121,26 @@ and NVMe mmap.
   beside the executable. The runtime reports actual ISA, OpenMP, CUDA counters,
   and a load-time CUDA DLL SHA-256 without hashing the hot path.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
+
+## 2026-08-17 — Desktop agent UX and evidence matrix
+
+- **Change:** Kept the Qwanto Code primary navigation at Project, Chats, Files,
+  Changes, and Settings; added a compact official-logo top bar, no-model state,
+  file search, lazy gateway startup timing, and an inspector that starts
+  collapsed and auto-reveals for diffs, approvals, output, or selected files.
+- **Change:** Split Skills & Plugins, GitHub, and Feedback into focused internal
+  Settings sections with keyboard-oriented vertical navigation; removed the
+  duplicated GitHub card from Privacy & Internet.
+- **Change:** Added benchmark matrix schema/generator and regenerated evidence
+  and performance reports from the real local qwnrun executable/model hashes.
+  CUDA remains unavailable because no GPU matmul was observed.
+- **Files:** `web/src/App.tsx`, `web/src/components/DesktopAgentView.tsx`,
+  `web/src/components/DesktopSettingsView.tsx`, `web/src/index.css`,
+  `desktop/src-tauri/src/lib.rs`, `benchmarks/`, `benchmark_evidence.json`,
+  `docs/performance*`, `README.md`, and focused tests.
+- **Validation:** Full Python `219 passed, 3 skipped`; web `56 passed` and
+  production build; brand/release/skill/documentation checks passed; local
+  Cargo/Make/nvcc remain unavailable and require hosted CI.
+- **Decision:** Do not create or modify a tag/release. Existing unsigned
+  Beta.4 remains unchanged; this follow-up must pass hosted CI before any
+  future publication.

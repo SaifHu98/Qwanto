@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "generated_at_utc": "2026-08-16T21:40:50.376939+00:00",
+  "generated_at_utc": "2026-08-17T10:38:43.049969+00:00",
   "generator": "benchmarks/generate_performance_report.py",
   "policy": {
     "native_inference_numbers_require": "successful qwnrun evidence with matching model hash",
@@ -25,7 +25,38 @@
       "bits_per_weight": 2.34028,
       "ram_vram_measurement": "Unavailable",
       "ttft_ms": null,
-      "tokens_per_second": 7.148571,
+      "tokens_per_second": 8.154199,
+      "backend_requested": "cpu",
+      "backend_actual": "cpu",
+      "selected_cpu_isa_kernel": "avx2",
+      "selected_kernel": "avx-vnni",
+      "active_cpu_thread_count": 1,
+      "gpu_device": "Unavailable",
+      "gpu_matmul_count": "Unavailable",
+      "cpu_fallback_count": "Unavailable",
+      "executable_sha256": "ef531123975ab13d8484b81b7347fd4bc2a8c6b7f9371c9299c2c3c9ab8ea68d",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "qwn_version": "0.1.0",
+      "git_commit": "5ef406ad8f2a9cb08c5979aa6e91d0ab119c145e",
+      "prefill_tokens_per_second": "Unavailable",
+      "decode_tokens_per_second": 8.154199,
+      "generated_tokens": 64,
+      "wall_seconds": 7.848717,
+      "reproduce_command": [
+        "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+        "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
+        "Explain zero-copy NVMe memory tiering in Qwanto.",
+        "64",
+        "4096",
+        "--backend",
+        "cpu",
+        "--ctx-size",
+        "4096",
+        "--max-tokens",
+        "64",
+        "--seed",
+        "0"
+      ],
       "hardware": "Windows 11 (10.0.26200); CPU: AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD; GPU: NVIDIA GeForce RTX 5070 Ti Laptop GPU",
       "evidence_class": "MEASURED",
       "measurement_scope": "native qwnrun inference",
@@ -33,7 +64,7 @@
         "manifest": "docs/model-manifest.json",
         "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
         "artifact": "benchmark_evidence.json",
-        "benchmark_id": "qwn-bench-1786889283394915900"
+        "benchmark_id": "qwn-bench-1786962766476235400"
       }
     }
   ],
@@ -189,18 +220,33 @@
       "evidence_class": "MEASURED"
     },
     {
-      "format": "TWLA 1.58-bit",
-      "status": "implemented/tested kernel path; no complete model evidence",
+      "format": "TWLA",
+      "status": "reference only; no validated end-to-end QWN evidence",
       "evidence_class": "EXPERIMENTAL"
     },
     {
-      "format": "LittleBit",
-      "status": "implemented/tested library path; not a QWN container dtype",
+      "format": "LittleBit-2",
+      "status": "reference only; no validated end-to-end QWN evidence",
       "evidence_class": "EXPERIMENTAL"
     },
     {
       "format": "TurboQuant",
-      "status": "implemented/tested KV path; no complete model evidence",
+      "status": "reference only; no validated end-to-end QWN evidence",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "JetSpec",
+      "status": "reference only; no validated end-to-end QWN evidence",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "SlimInfer",
+      "status": "reference only; no validated end-to-end QWN evidence",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "BitDecoding",
+      "status": "reference only; no validated end-to-end QWN evidence",
       "evidence_class": "EXPERIMENTAL"
     }
   ]

@@ -51,8 +51,15 @@ export default function App() {
   const [logs, setLogs] = useState<Array<{ time: string; type: "error" | "warn" | "info"; message: string }>>([])
   const [sessionUsage, setSessionUsage] = useState<SessionUsage>({ promptTokens: null, completionTokens: null, totalTokens: null, elapsedMs: null, ttftMs: null, tokensPerSecond: null, contextUse: null, toolCalls: 0, queueState: "idle" })
   const [searchContext, setSearchContext] = useState("")
+  const uiShellStartedAt = useRef(performance.now())
+  const [uiShellReadyElapsedMs, setUiShellReadyElapsedMs] = useState<number | null>(null)
+  const [modelReadyElapsedMs, setModelReadyElapsedMs] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const desktopProbeRef = useRef(false)
+
+  useEffect(() => {
+    setUiShellReadyElapsedMs(Math.round(performance.now() - uiShellStartedAt.current))
+  }, [])
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
     setLogs((current) => [...current.slice(-200), { time: new Date().toLocaleTimeString(), type, message }])
@@ -144,11 +151,13 @@ export default function App() {
     if (!connected || !path) return
     setLoadingModel(true)
     setError("")
+    const startedAt = performance.now()
     try {
       const profile = profileConfig(agentProfile)
       const result = await loadModel(baseUrl, path, "auto", undefined, apiKey, profile.contextSize)
       setModel(result.model_id)
       await connect()
+      setModelReadyElapsedMs(Math.round(performance.now() - startedAt))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not start the selected model.")
       addLog("error", `Model start: ${cause instanceof Error ? cause.message : cause}`)
@@ -159,6 +168,7 @@ export default function App() {
     try {
       await unloadModel(baseUrl, apiKey)
       setModel("")
+      setModelReadyElapsedMs(null)
       setHealth(null)
       setGatewayState("model-required")
       setGatewayMessage("Gateway ready. Choose a validated local QWN model to start inference.")
@@ -262,6 +272,8 @@ export default function App() {
     usage={sessionUsage}
     loading={loading}
     error={error}
+    uiShellReadyElapsedMs={uiShellReadyElapsedMs}
+    modelReadyElapsedMs={modelReadyElapsedMs}
     onRestartGateway={async () => {
       try { await desktopInvoke("restart_gateway"); await connect(false) }
       catch (cause) { setError(cause instanceof Error ? cause.message : "Gateway restart failed."); addLog("error", `Gateway restart: ${cause instanceof Error ? cause.message : cause}`) }

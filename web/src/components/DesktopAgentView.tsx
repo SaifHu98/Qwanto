@@ -60,6 +60,8 @@ interface DesktopAgentViewProps {
   usage?: SessionUsage
   loading: boolean
   error: string
+  uiShellReadyElapsedMs?: number | null
+  modelReadyElapsedMs?: number | null
   onRestartGateway?: () => void
   onResumeSession?: (session: AgentSession) => void
   settingsContent?: ReactNode
@@ -69,7 +71,7 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
   const [section, setSection] = useState<DesktopSection>("chats")
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("file")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(true)
   const [workspace, setWorkspace] = useState("")
   const [fileOutput, setFileOutput] = useState("")
   const [filePath, setFilePath] = useState("")
@@ -192,6 +194,10 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
     void desktopInvoke("save_agent_session", { session }).catch(() => undefined)
   }, [workspace, props.messages, props.model, props.mode, sessionId])
 
+  useEffect(() => {
+    if (diffOutput || commandOutput || approval || filePath) setInspectorCollapsed(false)
+  }, [approval, commandOutput, diffOutput, filePath])
+
   const addAttachment = async () => {
     if (!workspace) { setToolError("Open a project before adding an attachment."); return }
     try {
@@ -228,7 +234,7 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
                 <FolderOpen className="size-4" /><span>{workspace ? workspace.split(/[\\/]/).pop() : "Choose a project"}</span>
               </button>
             </section>
-            <nav className="desktop-primary-nav" aria-label="Desktop Agent">
+            <nav className="desktop-primary-nav" aria-label="Desktop Agent" data-testid="desktop-primary-nav">
               {([
                 ["project", "Project", FolderOpen],
                 ["chats", "Chats", MessageSquare],
@@ -245,18 +251,19 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
               <div className="desktop-section-heading"><span>CONVERSATIONS</span><button className="icon-button" aria-label="New conversation" onClick={props.onClear}><Plus className="size-3.5" /></button></div>
               <button className="desktop-conversation active"><MessageSquare className="size-3.5" /><span>New local session</span></button>
             </section>
-            <section className="desktop-file-tree">
+            {workspace && <section className="desktop-file-tree">
               <div className="desktop-section-heading"><span>FILES</span><button className="icon-button" aria-label="Refresh files" onClick={() => void refreshFiles()}><Search className="size-3.5" /></button></div>
               {fileTree.slice(0, 30).map((entry) => <button key={entry} className="desktop-tree-item" onClick={() => void selectFile(entry)}>{entry}</button>)}
-              {!fileTree.length && <span className="desktop-muted">Open a project to inspect files.</span>}
-            </section>
+              {!fileTree.length && <span className="desktop-muted">Files appear after the project is opened.</span>}
+            </section>}
           </>
         )}
       </aside>
 
       <main className="desktop-main-column">
         <header className="desktop-topbar">
-          <div className="desktop-topbar-model"><span className="desktop-label">MODEL</span><select value={props.model} onChange={(event) => props.onSelectModel(event.target.value)} disabled={!props.connected}>
+          <div className="desktop-topbar-brand"><img className="brand-icon" src="/qwanto-icon.png" alt="Qwanto Native" /><span><strong>Qwanto Code</strong><small>Local coding agent</small></span></div>
+          <div className="desktop-topbar-model"><label className="desktop-label" htmlFor="desktop-model-select">MODEL</label><select id="desktop-model-select" aria-label="Active validated QWN model" value={props.model} onChange={(event) => props.onSelectModel(event.target.value)} disabled={!props.connected}>
             <option value="">No model selected</option>
             {qwnModels.map((candidate) => <option key={candidate.path} value={candidate.path}>{candidate.name}</option>)}
           </select></div>
@@ -265,7 +272,7 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
             <button className={props.mode === "plan" ? "active" : ""} onClick={() => props.onModeChange("plan")}>Plan</button>
             <button className={props.mode === "agent" ? "active" : ""} onClick={() => props.onModeChange("agent")}>Agent</button>
           </div>
-          <div className={cn("desktop-gateway-state", props.connected && "connected")} role="status"><span />{props.connected ? `Gateway ready${props.gateway?.ready_elapsed_ms != null ? ` · ${props.gateway.ready_elapsed_ms}ms` : ""}` : props.gateway?.state === "starting" ? "Starting gateway" : "Gateway unavailable"}</div>
+          <div className={cn("desktop-gateway-state", props.connected && "connected")} role="status"><span />{props.connected ? <><strong>Gateway ready</strong><small>Shell {props.uiShellReadyElapsedMs != null ? `${props.uiShellReadyElapsedMs} ms` : "Unavailable"} · Gateway {props.gateway?.ready_elapsed_ms != null ? `${props.gateway.ready_elapsed_ms} ms` : "Unavailable"}{props.modelReadyElapsedMs != null ? ` · Model ${props.modelReadyElapsedMs} ms` : ""}</small></> : props.gateway?.state === "starting" ? "Starting gateway" : "Gateway unavailable"}</div>
           {props.gatewayState === "connected" && props.model ? <Button size="sm" variant="destructive" onClick={props.onStopModel} disabled={!props.connected}><Square className="size-3" /> Stop</Button> : <Button size="sm" onClick={() => props.onLoadModel(props.model)} disabled={!props.connected || !props.model || props.loadingModel}><Play className="size-3" /> Start</Button>}
           <button className="icon-button" aria-label="Open settings" onClick={() => setSection("settings")}><Settings2 className="size-4" /></button>
         </header>
@@ -285,7 +292,7 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
 
           {!inspectorCollapsed && <aside className="desktop-inspector">
             <div className="desktop-inspector-tabs">
-              {(["diff", "approvals", "output", "file"] as InspectorTab[]).map((tab) => <button key={tab} className={inspectorTab === tab ? "active" : ""} onClick={() => setInspectorTab(tab)}>{tab === "diff" ? "Diff" : tab === "approvals" ? "Approvals" : tab === "output" ? "Output" : "Selected file"}</button>)}<button className="icon-button inspector-collapse-button" aria-label="Hide inspector" onClick={() => setInspectorCollapsed(true)}><PanelRightClose className="size-3.5" /></button>
+              {(["diff", "approvals", "output", "file"] as InspectorTab[]).map((tab) => <button key={tab} className={inspectorTab === tab ? "active" : ""} onClick={() => setInspectorTab(tab)}>{tab === "diff" ? "Diff" : tab === "approvals" ? "Approvals" : tab === "output" ? "Output" : "File"}</button>)}<button className="icon-button inspector-collapse-button" aria-label="Hide inspector" onClick={() => setInspectorCollapsed(true)}><PanelRightClose className="size-3.5" /></button>
             </div>
             {inspectorTab === "diff" && <pre className="desktop-code-preview">{diffOutput || "No diff loaded. Open Changes to inspect the working tree."}</pre>}
             {inspectorTab === "approvals" && <ApprovalPanel approval={approval} onApprove={() => void approveCommand()} onReject={() => setApproval(null)} />}
@@ -304,7 +311,9 @@ function ProjectPanel({ workspace, onOpen, sessions, onResume }: { workspace: st
 }
 
 function FilesPanel({ entries, onSelect, onRefresh }: { entries: string[]; onSelect: (entry: string) => void; onRefresh: () => void }) {
-  return <div className="desktop-panel-content"><div className="desktop-panel-heading"><div><div className="desktop-eyebrow">FILES</div><h1>Project files</h1></div><Button size="sm" variant="secondary" onClick={onRefresh}><Search className="size-3.5" /> Refresh</Button></div><div className="desktop-file-list">{entries.map((entry) => <button key={entry} onClick={() => onSelect(entry)}>{entry}</button>)}{!entries.length && <p className="desktop-muted">Open a project to load its file tree.</p>}</div></div>
+  const [query, setQuery] = useState("")
+  const visibleEntries = entries.filter((entry) => entry.toLowerCase().includes(query.toLowerCase()))
+  return <div className="desktop-panel-content"><div className="desktop-panel-heading"><div><div className="desktop-eyebrow">FILES</div><h1>Project files</h1></div><Button size="sm" variant="secondary" onClick={onRefresh}><Search className="size-3.5" /> Refresh</Button></div><label className="desktop-file-search"><Search className="size-3.5" /><input aria-label="Search project files" value={query} placeholder="Search files" onChange={(event) => setQuery(event.target.value)} /></label><div className="desktop-file-list">{visibleEntries.map((entry) => <button key={entry} onClick={() => onSelect(entry)}>{entry}</button>)}{!entries.length && <p className="desktop-muted">Open a project to load its file tree.</p>}{entries.length > 0 && !visibleEntries.length && <p className="desktop-muted">No files match this search.</p>}</div></div>
 }
 
 function ChangesPanel({ diff, onInspect }: { diff: string; onInspect: () => void }) {
@@ -319,5 +328,5 @@ function ApprovalPanel({ approval, onApprove, onReject }: { approval: DesktopToo
 function ChatPanel(props: Omit<DesktopAgentViewProps, "onSend"> & { onSend: () => void; attachments: ChatAttachment[]; onAddAttachment: () => void; onRemoveAttachment: (attachment: ChatAttachment) => void }) {
   const usage = props.usage || { promptTokens: null, completionTokens: null, totalTokens: null, elapsedMs: null, ttftMs: null, tokensPerSecond: null, contextUse: null, toolCalls: null, queueState: "idle" }
   const draftSkill = resolveSkillInvocation(props.draft)
-  return <div className="desktop-chat-panel"><div className="desktop-chat-heading"><div><div className="desktop-eyebrow">LOCAL AGENT</div><h1>Build with your machine</h1><p className="desktop-muted">Plan first, then execute only through the approval-gated desktop boundary.</p></div><Button size="sm" variant="ghost" onClick={props.onClear} disabled={!props.messages.length}><Command className="size-3.5" /> Clear</Button></div><div className="desktop-timeline"><div className="desktop-timeline-step complete"><span>1</span><div><strong>Plan</strong><p>{props.mode === "plan" ? "Plan Mode is read-only." : "Agent Mode can request approved tools."}</p></div></div><div className="desktop-timeline-step"><span>2</span><div><strong>Execute</strong><p>File edits and commands appear in the inspector before they run.</p></div></div>{props.messages.map((message) => <article key={message.id} className={cn("desktop-message", message.role)}><span>{message.role === "user" ? "You" : "Q"}</span>{message.skill && <small className="chat-skill-badge">Active skill: @{message.skill.id} · {message.skill.capabilities.join(", ")}{capabilitiesNeedApproval(message.skill.capabilities) ? " · approval required" : ""}</small>}<p>{message.content}</p>{message.attachments?.map((attachment) => <span className="chat-attachment-note" key={attachment.id}>Local attachment: {attachment.name} · not sent because this runtime does not report file or image input support.</span>)}</article>)}</div><section className="session-usage-panel" aria-label="Session usage"><div><span>Prompt</span><strong>{usage.promptTokens ?? "Unavailable"}</strong></div><div><span>Completion</span><strong>{usage.completionTokens ?? "Unavailable"}</strong></div><div><span>Total</span><strong>{usage.totalTokens ?? "Unavailable"}</strong></div><div><span>Elapsed</span><strong>{usage.elapsedMs != null ? `${(usage.elapsedMs / 1000).toFixed(1)}s` : "Unavailable"}</strong></div><div><span>TTFT</span><strong>{usage.ttftMs != null ? `${usage.ttftMs.toFixed(0)}ms` : "Unavailable"}</strong></div><div><span>Tokens/s</span><strong>{usage.tokensPerSecond?.toFixed(2) || "Unavailable"}</strong></div><div><span>Context</span><strong>{usage.contextUse != null ? `${usage.contextUse}%` : "Unavailable"}</strong></div><div><span>Tools</span><strong>{usage.toolCalls ?? "Unavailable"}</strong></div><div><span>Queue</span><strong>{usage.queueState}</strong></div></section><div className="desktop-composer"><Textarea value={props.draft} onChange={(event) => props.onDraftChange(event.target.value)} placeholder="Ask the local agent to inspect or explain your project…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); props.onSend() } }} />{draftSkill && <div className="chat-skill-preview" role="status"><strong>Active skill: @{draftSkill.skill.id}</strong><span>{draftSkill.skill.capabilities.join(", ")}{capabilitiesNeedApproval(draftSkill.skill.capabilities) ? " · approval required" : ""}</span></div>}<div className="chat-attachment-bar"><button type="button" className="attachment-button" onClick={props.onAddAttachment}><Paperclip className="size-3.5" /> Attach file</button><span>Stored in the workspace · 10 MiB max · runtime input support: Unavailable</span></div>{props.attachments.length > 0 && <div className="chat-attachment-list">{props.attachments.map((attachment) => <div className="chat-attachment" key={attachment.id}>{attachment.preview_url ? <img src={attachment.preview_url} alt="" /> : <Paperclip className="size-4" />}<span>{attachment.name}<small>{(attachment.size / 1024).toFixed(1)} KB · local only</small></span><button aria-label={`Remove ${attachment.name}`} onClick={() => props.onRemoveAttachment(attachment)}><X className="size-3.5" /></button></div>)}</div>}<div className="desktop-composer-footer"><span>{props.mode === "plan" ? "Plan Mode · read-only" : "Agent Mode · approvals required"}</span>{props.loading ? <Button variant="destructive" size="sm" onClick={props.onStopGeneration}><Square className="size-3" /> Stop</Button> : <Button size="sm" onClick={props.onSend} disabled={!props.draft.trim() || !props.connected || !props.model}><Play className="size-3" /> Send</Button>}</div></div></div>
+  return <div className="desktop-chat-panel"><div className="desktop-chat-heading"><div><div className="desktop-eyebrow">LOCAL AGENT</div><h1>Build with your machine</h1><p className="desktop-muted">Plan first, then execute only through the approval-gated desktop boundary.</p></div><Button size="sm" variant="ghost" onClick={props.onClear} disabled={!props.messages.length}><Command className="size-3.5" /> Clear</Button></div>{(!props.connected || !props.model) && <div className="desktop-no-model" role="status"><strong>{!props.connected ? "Gateway is getting ready" : "Choose a validated QWN model"}</strong><span>{!props.connected ? "Your workspace is ready. The local gateway will appear here when its loopback handshake completes." : "Open Settings › Models, select a QWN model that passes validation and hardware fit, then press Start."}</span></div>}<div className="desktop-timeline"><div className="desktop-session-state"><span>{props.mode === "plan" ? "PLAN" : "AGENT"}</span><p>{props.mode === "plan" ? "Read-only planning is active. Approved execution stays off until you switch modes." : "Agent actions stay visible and approval-gated."}</p></div>{props.messages.map((message) => <article key={message.id} className={cn("desktop-message", message.role)}><span>{message.role === "user" ? "You" : "Q"}</span>{message.skill && <small className="chat-skill-badge">Active skill: @{message.skill.id} · {message.skill.capabilities.join(", ")}{capabilitiesNeedApproval(message.skill.capabilities) ? " · approval required" : ""}</small>}<p>{message.content}</p>{message.attachments?.map((attachment) => <span className="chat-attachment-note" key={attachment.id}>Local attachment: {attachment.name} · not sent because this runtime does not report file or image input support.</span>)}</article>)}</div><section className="session-usage-panel" aria-label="Session usage"><div><span>Prompt</span><strong>{usage.promptTokens ?? "Unavailable"}</strong></div><div><span>Completion</span><strong>{usage.completionTokens ?? "Unavailable"}</strong></div><div><span>Total</span><strong>{usage.totalTokens ?? "Unavailable"}</strong></div><div><span>Elapsed</span><strong>{usage.elapsedMs != null ? `${(usage.elapsedMs / 1000).toFixed(1)}s` : "Unavailable"}</strong></div><div><span>TTFT</span><strong>{usage.ttftMs != null ? `${usage.ttftMs.toFixed(0)}ms` : "Unavailable"}</strong></div><div><span>Tokens/s</span><strong>{usage.tokensPerSecond?.toFixed(2) || "Unavailable"}</strong></div><div><span>Context</span><strong>{usage.contextUse != null ? `${usage.contextUse}%` : "Unavailable"}</strong></div><div><span>Tools</span><strong>{usage.toolCalls ?? "Unavailable"}</strong></div><div><span>Queue</span><strong>{usage.queueState}</strong></div></section><div className="desktop-composer"><Textarea value={props.draft} onChange={(event) => props.onDraftChange(event.target.value)} placeholder="Ask the local agent to inspect or explain your project…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); props.onSend() } }} />{draftSkill && <div className="chat-skill-preview" role="status"><strong>Active skill: @{draftSkill.skill.id}</strong><span>{draftSkill.skill.capabilities.join(", ")}{capabilitiesNeedApproval(draftSkill.skill.capabilities) ? " · approval required" : ""}</span></div>}<div className="chat-attachment-bar"><button type="button" className="attachment-button" onClick={props.onAddAttachment}><Paperclip className="size-3.5" /> Attach file</button><span>Stored in the workspace · 10 MiB max · runtime input support: Unavailable</span></div>{props.attachments.length > 0 && <div className="chat-attachment-list">{props.attachments.map((attachment) => <div className="chat-attachment" key={attachment.id}>{attachment.preview_url ? <img src={attachment.preview_url} alt="" /> : <Paperclip className="size-4" />}<span>{attachment.name}<small>{(attachment.size / 1024).toFixed(1)} KB · local only</small></span><button aria-label={`Remove ${attachment.name}`} onClick={() => props.onRemoveAttachment(attachment)}><X className="size-3.5" /></button></div>)}</div>}<div className="desktop-composer-footer"><span>{props.mode === "plan" ? "Plan Mode · read-only" : "Agent Mode · approvals required"}</span>{props.loading ? <Button variant="destructive" size="sm" onClick={props.onStopGeneration}><Square className="size-3" /> Stop</Button> : <Button size="sm" onClick={props.onSend} disabled={!props.draft.trim() || !props.connected || !props.model}><Play className="size-3" /> Send</Button>}</div></div></div>
 }

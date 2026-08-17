@@ -8,6 +8,7 @@ model manifest, and recorded conversion artifacts:
 python benchmarks/generate_performance_report.py \
   --output docs/performance-report.json \
   --markdown-output docs/performance-report.md
+python benchmarks/generate_benchmark_matrix.py
 ```
 
 The generated [machine-readable report](performance-report.json) and
@@ -20,10 +21,11 @@ run is shown as `Unavailable`; it is never represented as zero or estimated.
 ## Verified native evidence
 
 The current local record is one Windows `qwnrun` execution of the validated
-4B HyperVSQ-2 container. Its 7.148571 tokens/s is evidence for that executable,
-model hash, prompt, token limit, and host only. It is not a universal QWN
-throughput claim. TTFT and process VRAM allocation were not reported by that
-run.
+4B HyperVSQ-2 container. Its 8.154199 tokens/s is evidence for that executable,
+model hash, prompt, context, seed, token limit, and host only. It is not a
+universal QWN throughput claim. TTFT and process VRAM allocation were not
+reported by that run. The host has an RTX 5070 Ti, but this CPU run reported no
+CUDA matmul and must not be described as GPU execution.
 
 The complete generated table, including the exact host and evidence IDs, is in
 [`performance-report.md`](performance-report.md). QWN container invariants are
@@ -37,9 +39,10 @@ defined in [`qwn-format.md`](qwn-format.md).
 | FP16 | Implemented container dtype; no current report evidence | Lower storage and bandwidth than FP32, with reduced precision. |
 | Q4_0 | Implemented and container-validated; no matching native inference row in the current report | Conventional 4-bit storage trade-off; native speed and quality must be measured on the same model and host. |
 | HyperVSQ-2 | Validated conversion and measured native `qwnrun` evidence | Smaller weights and lower memory pressure; quality and speed remain model- and kernel-dependent. |
-| TWLA 1.58-bit | Implemented/tested kernel path; no complete model evidence | Experimental ternary/low-bit path; not a published model-level performance claim. |
-| LittleBit | Implemented/tested library path; not a QWN container dtype | Low-rank binary factors trade representation size against approximation error. |
-| TurboQuant | Implemented/tested KV path; no complete model evidence | Low-bit KV-cache storage trades cache capacity against approximation behavior. |
+| TWLA | Reference/experimental only; no complete model evidence | Experimental ternary/low-bit path; not a published model-level performance claim. |
+| LittleBit-2 | Reference/experimental only; no complete model evidence | Low-rank binary factors trade representation size against approximation error. |
+| TurboQuant | Reference/experimental only; no complete model evidence | Low-bit KV-cache storage trades cache capacity against approximation behavior. |
+| JetSpec / SlimInfer / BitDecoding | Reference/experimental only | No tested Qwanto end-to-end evidence is published. |
 
 The format names, dtype IDs, 4 KiB header, 64-byte payload padding, and
 validation rules are documented in [`qwn-format.md`](qwn-format.md). The

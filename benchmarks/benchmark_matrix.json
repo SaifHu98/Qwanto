@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_utc": "2026-08-17T10:38:32.497251+00:00",
+  "source_evidence": [
+    "benchmark_evidence.json"
+  ],
+  "rows": [
+    {
+      "benchmark_id": "qwn-bench-1786962766476235400",
+      "timestamp_utc": "2026-08-17T10:32:43.048590+00:00",
+      "qwn_version": "0.1.0",
+      "git_commit": "5ef406ad8f2a9cb08c5979aa6e91d0ab119c145e",
+      "git_worktree_dirty": true,
+      "executable_path": "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+      "executable_sha256": "ef531123975ab13d8484b81b7347fd4bc2a8c6b7f9371c9299c2c3c9ab8ea68d",
+      "model_path": "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "model_architecture": "qwen35",
+      "qwn_dtype": "HyperVSQ-2",
+      "backend_requested": "cpu",
+      "backend_actual": "cpu",
+      "selected_cpu_isa_kernel": "avx2",
+      "selected_kernel": "avx-vnni",
+      "active_cpu_thread_count": 1,
+      "gpu_device": "Unavailable",
+      "gpu_driver": "Unavailable",
+      "cuda_dll_sha256": "Unavailable",
+      "cuda_kernel_type": "Unavailable",
+      "gpu_matmul_count": "Unavailable",
+      "cpu_fallback_count": "Unavailable",
+      "gpu_vram_resident_bytes": "Unavailable",
+      "gpu_upload_bytes": "Unavailable",
+      "gpu_utilization": "Unavailable",
+      "warmup": {
+        "tokens": 8,
+        "returncode": 0,
+        "timed_out": false
+      },
+      "prompt": "Explain zero-copy NVMe memory tiering in Qwanto.",
+      "context_size": 4096,
+      "seed": 0,
+      "requested_tokens": 64,
+      "token_count": 64,
+      "prefill_throughput_tok_s": "Unavailable",
+      "decode_throughput_tok_s": 8.154199,
+      "ttft_ms": 0.0,
+      "wall_seconds": 7.848717,
+      "evidence_classification": "MEASURED",
+      "reason": "",
+      "reproduce_command": [
+        "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+        "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
+        "Explain zero-copy NVMe memory tiering in Qwanto.",
+        "64",
+        "4096",
+        "--backend",
+        "cpu",
+        "--ctx-size",
+        "4096",
+        "--max-tokens",
+        "64",
+        "--seed",
+        "0"
+      ]
+    }
+  ]
+}

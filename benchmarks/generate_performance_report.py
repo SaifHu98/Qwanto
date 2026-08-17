@@ -154,6 +154,21 @@ def _conversion_evidence(
     return included, excluded
 
 
+def _measured_evidence_is_complete(evidence: dict[str, Any]) -> bool:
+    runtime = evidence.get("runtime_metadata") or {}
+    model = evidence.get("model_metadata") or {}
+    params = evidence.get("benchmark_parameters") or {}
+    measured = evidence.get("measured_evidence") or {}
+    required = (
+        runtime.get("qwn_version"), runtime.get("git_commit"), runtime.get("executable_sha256"),
+        model.get("sha256"), model.get("architecture"), model.get("qwn_dtype"),
+        params.get("prompt"), params.get("context_size"), params.get("seed"),
+        measured.get("backend_actual"), measured.get("selected_kernel"),
+        measured.get("generated_tokens"), measured.get("wall_seconds"),
+    )
+    return all(value not in (None, "", UNAVAILABLE, "file_not_found", "file_unreadable") for value in required)
+
+
 def _native_row(model: dict[str, Any], evidence: dict[str, Any] | None, bpw_rows: dict[tuple[str, str], dict[str, str]]) -> dict[str, Any]:
     quantization = str(model.get("quantization") or UNAVAILABLE)
     mode = {
@@ -164,12 +179,16 @@ def _native_row(model: dict[str, Any], evidence: dict[str, Any] | None, bpw_rows
     }.get(quantization.lower().replace("qwn-", ""), quantization.lower().replace("-", "_"))
     bpw_row = bpw_rows.get(("4B", mode))
     measured = (evidence or {}).get("measured_evidence") or {}
+    runtime = (evidence or {}).get("runtime_metadata") or {}
+    params = (evidence or {}).get("benchmark_parameters") or {}
     host = (evidence or {}).get("host_environment") or {}
     classification = str((evidence or {}).get("evidence_classification") or "UNAVAILABLE")
+    if classification == "MEASURED" and not _measured_evidence_is_complete(evidence or {}):
+        classification = "TEST_FIXTURE"
     ttft = measured.get("ttft_ms")
     if not isinstance(ttft, (int, float)) or ttft <= 0:
         ttft = None
-    tokens_per_second = measured.get("tok_per_sec") if classification == "MEASURED" else None
+    tokens_per_second = measured.get("decode_tok_per_sec", measured.get("tok_per_sec")) if classification == "MEASURED" else None
     return {
         "model": model.get("model_id", UNAVAILABLE),
         "source_format": "QWN container",
@@ -183,9 +202,26 @@ def _native_row(model: dict[str, Any], evidence: dict[str, Any] | None, bpw_rows
         ),
         "ttft_ms": ttft,
         "tokens_per_second": tokens_per_second,
+        "backend_requested": params.get("backend_requested", UNAVAILABLE),
+        "backend_actual": measured.get("backend_actual", UNAVAILABLE),
+        "selected_cpu_isa_kernel": runtime.get("selected_cpu_isa_kernel", UNAVAILABLE),
+        "selected_kernel": measured.get("selected_kernel", UNAVAILABLE),
+        "active_cpu_thread_count": runtime.get("active_thread_count", UNAVAILABLE),
+        "gpu_device": measured.get("gpu_device", UNAVAILABLE),
+        "gpu_matmul_count": measured.get("gpu_matmul_count", UNAVAILABLE),
+        "cpu_fallback_count": measured.get("cpu_fallback_count", UNAVAILABLE),
+        "executable_sha256": runtime.get("executable_sha256", UNAVAILABLE),
+        "model_sha256": (evidence or {}).get("model_metadata", {}).get("sha256", model.get("target_sha256", UNAVAILABLE)),
+        "qwn_version": runtime.get("qwn_version", UNAVAILABLE),
+        "git_commit": runtime.get("git_commit", UNAVAILABLE),
+        "prefill_tokens_per_second": measured.get("prefill_tok_per_sec", UNAVAILABLE),
+        "decode_tokens_per_second": tokens_per_second if tokens_per_second is not None else UNAVAILABLE,
+        "generated_tokens": measured.get("generated_tokens", UNAVAILABLE),
+        "wall_seconds": measured.get("wall_seconds", UNAVAILABLE),
+        "reproduce_command": params.get("command_argv", []),
         "hardware": _hardware_label(host) if evidence else UNAVAILABLE,
         "evidence_class": classification,
-        "measurement_scope": "native qwnrun inference" if classification == "MEASURED" else "no valid native qwnrun evidence",
+        "measurement_scope": "native qwnrun inference" if classification == "MEASURED" else "fixture or incomplete native evidence; not a product performance claim",
         "evidence": {
             "manifest": "docs/model-manifest.json",
             "model_sha256": model.get("target_sha256"),
@@ -250,10 +286,13 @@ def build_report(
             {"format": "FP32", "status": "implemented container dtype; no current report evidence", "evidence_class": "UNAVAILABLE"},
             {"format": "FP16", "status": "implemented container dtype; no current report evidence", "evidence_class": "UNAVAILABLE"},
             {"format": "Q4_0", "status": "implemented and container-validated; no matching native inference row", "evidence_class": "UNAVAILABLE"},
-            {"format": "HyperVSQ-2", "status": "validated conversion and measured native qwnrun evidence", "evidence_class": "MEASURED"},
-            {"format": "TWLA 1.58-bit", "status": "implemented/tested kernel path; no complete model evidence", "evidence_class": "EXPERIMENTAL"},
-            {"format": "LittleBit", "status": "implemented/tested library path; not a QWN container dtype", "evidence_class": "EXPERIMENTAL"},
-            {"format": "TurboQuant", "status": "implemented/tested KV path; no complete model evidence", "evidence_class": "EXPERIMENTAL"},
+            {"format": "HyperVSQ-2", "status": "validated conversion and measured native qwnrun evidence" if any(row["evidence_class"] == "MEASURED" for row in native_rows) else "validated conversion; native measurement unavailable", "evidence_class": "MEASURED" if any(row["evidence_class"] == "MEASURED" for row in native_rows) else "UNAVAILABLE"},
+            {"format": "TWLA", "status": "reference only; no validated end-to-end QWN evidence", "evidence_class": "EXPERIMENTAL"},
+            {"format": "LittleBit-2", "status": "reference only; no validated end-to-end QWN evidence", "evidence_class": "EXPERIMENTAL"},
+            {"format": "TurboQuant", "status": "reference only; no validated end-to-end QWN evidence", "evidence_class": "EXPERIMENTAL"},
+            {"format": "JetSpec", "status": "reference only; no validated end-to-end QWN evidence", "evidence_class": "EXPERIMENTAL"},
+            {"format": "SlimInfer", "status": "reference only; no validated end-to-end QWN evidence", "evidence_class": "EXPERIMENTAL"},
+            {"format": "BitDecoding", "status": "reference only; no validated end-to-end QWN evidence", "evidence_class": "EXPERIMENTAL"},
         ],
     }
 
@@ -272,32 +311,31 @@ def render_markdown(report: dict[str, Any]) -> str:
         "contains no fallback throughput or memory values. `Unavailable` means the",
         "runtime did not report a metric or the evidence was not comparable.",
         "",
-        "## Native QWN inference",
+        "## Verified Performance Evidence",
         "",
-        "| Model | Source Format | QWN Quantization | File Size | Bits/Weight if known | RAM / VRAM Measurement | TTFT | Tokens/s | Hardware | Evidence Class |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "Numbers below are generated from matching executable/model hashes and the local qwnrun harness. A detected GPU is not treated as CUDA execution.",
+        "",
+        "| Model | Native QWN Format | Size | Backend Actually Used | Decode tok/s | TTFT | Evidence Class | Reproduce |",
+        "| --- | --- | --- | --- | ---: | ---: | --- | --- |",
     ]
     for row in report["native_qwn_rows"]:
         lines.append(
-            "| {model} | {source_format} | {qwn_quantization} | {file_size} | {bpw} | {memory} | {ttft} | {tokens} | {hardware} | {evidence} |".format(
+            "| {model} | {format} ({quant}) | {file_size} | {backend} | {tokens} | {ttft} | {evidence} | `{reproduce}` |".format(
                 model=row["model"],
-                source_format=row["source_format"],
-                qwn_quantization=row["qwn_quantization"],
+                format=row["source_format"],
+                quant=row["qwn_quantization"],
                 file_size=_format_bytes(row.get("file_size_bytes")),
-                bpw=_display(row.get("bits_per_weight"), " bpw"),
-                memory=row.get("ram_vram_measurement") or UNAVAILABLE,
+                backend=row.get("backend_actual") or UNAVAILABLE,
                 ttft=_display(row.get("ttft_ms"), " ms"),
-                tokens=_display(row.get("tokens_per_second")),
-                hardware=row.get("hardware") or UNAVAILABLE,
+                tokens=_display(row.get("tokens_per_second"), " tok/s"),
                 evidence=row["evidence_class"],
+                reproduce=" ".join(str(value) for value in row.get("reproduce_command") or []) or UNAVAILABLE,
             )
         )
 
     lines += [
         "",
-        "The native row above is only a qwnrun inference claim when its evidence",
-        "class is `MEASURED`. The current artifact records TTFT as unavailable",
-        "because the runtime did not expose a positive first-token measurement.",
+        "The native row above is only a product performance claim when its evidence class is `MEASURED`; otherwise it is explicitly unavailable or experimental.",
         "",
         "## Conversion evidence (not inference throughput)",
         "",
@@ -314,9 +352,26 @@ def render_markdown(report: dict[str, Any]) -> str:
     if report["excluded_conversion_records"]:
         lines += ["", "Excluded conversion records are retained in the JSON report with their integrity reason."]
 
-    lines += ["", "## Format status", "", "| Format | Status | Evidence Class |", "| --- | --- | --- |"]
+    lines += ["", "## Runtime Feature Status", "", "| Capability | Status | Evidence |", "| --- | --- | --- |"]
     for item in report["format_status"]:
-        lines.append(f"| {item['format']} | {item['status']} | {item['evidence_class']} |")
+        lines.append(f"| {item['format']} | {item['status']} | `{item['evidence_class']}` |")
+
+    lines += [
+        "",
+        "## How to reproduce",
+        "",
+        "Run the real local executable; do not substitute an external GGUF runtime:",
+        "",
+        "```powershell",
+        "python benchmarks/benchmark_reproducible.py --model experiments/results/4B_hyper_vsq2.qwn --executable c/qwnrun.exe --backend cpu --context-size 4096 --max-tokens 64 --seed 0 --warmup-tokens 8 --output benchmark_evidence.json",
+        "python benchmarks/generate_benchmark_matrix.py",
+        "python benchmarks/generate_performance_report.py",
+        "```",
+        "",
+        "## Research and Future Work",
+        "",
+        "TWLA, LittleBit-2, TurboQuant, JetSpec, SlimInfer, and BitDecoding remain reference or experimental work until Qwanto has a tested kernel, validated end-to-end model path, and measured evidence. Projections and external GGUF results are not native performance claims.",
+    ]
 
     lines += [
         "",

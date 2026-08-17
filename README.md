@@ -24,8 +24,9 @@ gateway, Qwanto Web, and Qwanto Code.
   payload padding, and a tail-block offset recorded by the converter.
 - **Native execution paths:** target-specific SIMD kernels are compiled for
   supported CPU targets. HyperVSQ-2 and Q4_0 paths are exercised by native
-  tests; TWLA, LittleBit, and TurboQuant remain explicitly scoped to their
-  implemented/tested kernel or KV paths until complete model evidence exists.
+  tests; TWLA, LittleBit-2, TurboQuant, JetSpec, SlimInfer, and BitDecoding
+  remain reference or experimental work without published end-to-end model
+  evidence.
 - **Memory-aware runtime:** the QWN loader uses memory mapping and layer-ahead
   prefetching. CPU/RAM/NVMe residency planning is implemented; CUDA execution
   is reported only when a compatible `qwn_cuda.dll` completes a supported
@@ -44,23 +45,53 @@ gateway, Qwanto Web, and Qwanto Code.
 
 ## Verified Performance Evidence
 
-Performance claims are evidence claims, not product slogans. The current
-native record is a real local `qwnrun` run of the 4B HyperVSQ-2 QWN fixture:
+Performance claims are evidence claims, not product slogans. This table is
+generated from `benchmark_evidence.json`, `benchmarks/benchmark_matrix.json`,
+and the checked-in model manifest. The current real local CPU record is the
+validated 4B HyperVSQ-2 QWN fixture:
 
-| Model | Source Format | QWN Quantization | File Size | Bits/Weight if known | RAM / VRAM Measurement | TTFT | Tokens/s | Hardware | Evidence Class |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container | HyperVSQ-2 | 1.18 GiB (1,266,202,104 bytes) | 2.34028 bpw | Unavailable | Unavailable | 7.148571 | Windows 11; AMD64 Family 26 Model 68; NVIDIA GeForce RTX 5070 Ti Laptop GPU | MEASURED native `qwnrun` |
+| Model | Native QWN Format | Size | Backend Actually Used | Decode tok/s | TTFT | Evidence Class | Reproduce |
+| --- | --- | --- | --- | ---: | ---: | --- | --- |
+| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB | CPU | 8.154199 | Unavailable | MEASURED | [`docs/performance-report.md`](docs/performance-report.md) |
 
 This row is valid only for the recorded executable hash, model hash, prompt,
-token limit, and host. It is not a universal throughput claim. The full
-machine-readable evidence and generator are in
+context, seed, token limit, and host. It is not a universal throughput claim.
+The detected RTX 5070 Ti is hardware inventory only; this run performed no
+CUDA matmul and is therefore not a CUDA result. The full machine-readable
+evidence and generator are in
 [`docs/performance.md`](docs/performance.md),
 [`docs/performance-report.json`](docs/performance-report.json), and
+[`benchmarks/benchmark_matrix.json`](benchmarks/benchmark_matrix.json),
 [`benchmarks/generate_performance_report.py`](benchmarks/generate_performance_report.py).
 Unknown values remain `Unavailable`; the report never substitutes zeros,
 host guesses, or projections. Archived GGUF/`llama-server` measurements are
 kept in a separate `EXPERIMENTAL_EXTERNAL` section for provenance only; GGUF
 is not an executable Qwanto runtime format.
+
+### Runtime Feature Status
+
+| Capability | Status | Evidence |
+| --- | --- | --- |
+| HyperVSQ-2 CPU kernel | Measured native CPU result | [`benchmark_matrix.json`](benchmarks/benchmark_matrix.json) |
+| HyperVSQ-2 CUDA kernel | Unavailable; no CUDA DLL or GPU matmul evidence | [`benchmark-methodology.md`](docs/benchmark-methodology.md) |
+| TWLA | Experimental/reference only | [`qwn-format.md`](docs/qwn-format.md) |
+| LittleBit-2 | Experimental/reference only | [`qwn-format.md`](docs/qwn-format.md) |
+| TurboQuant | Experimental/reference only | [`qwn-format.md`](docs/qwn-format.md) |
+| JetSpec | Experimental/reference only | [`performance-report.md`](docs/performance-report.md) |
+| SlimInfer | Experimental/reference only | [`performance-report.md`](docs/performance-report.md) |
+| BitDecoding | Experimental/reference only | [`performance-report.md`](docs/performance-report.md) |
+
+### How to reproduce
+
+```powershell
+python benchmarks/benchmark_reproducible.py --model experiments/results/4B_hyper_vsq2.qwn --executable c/qwnrun.exe --backend cpu --context-size 4096 --max-tokens 64 --seed 0 --warmup-tokens 8 --output benchmark_evidence.json
+python benchmarks/generate_benchmark_matrix.py
+python benchmarks/generate_performance_report.py
+```
+
+Research citations and projections are intentionally separate from measured
+results. A referenced paper is not an integrated Qwanto feature until code,
+tests, an end-to-end model path, and measured evidence exist.
 
 ## QWN Quantization and Container Formats
 
@@ -82,9 +113,10 @@ The current evidence distinguishes formats precisely:
 | FP32 / FP16 | Implemented container dtypes; no current performance row | Precision and compatibility at a larger memory footprint. |
 | Q4_0 | Implemented and container-validated; no matching native inference row in the current report | Conventional 4-bit compression; speed and quality require same-host measurement. |
 | HyperVSQ-2 | Validated conversion and measured native QWN evidence | Lower storage and memory pressure; model quality and speed remain workload-dependent. |
-| TWLA 1.58-bit | Implemented/tested kernel path; no complete model evidence | Experimental sub-2-bit path, not a model-level claim. |
-| LittleBit | Implemented/tested library path, not a QWN dtype | Low-rank binary factors trade representation size against approximation error. |
-| TurboQuant | Implemented/tested KV path; no complete model evidence | Low-bit KV-cache storage trades capacity against approximation behavior. |
+| TWLA | Reference/experimental only; no complete model evidence | Experimental sub-2-bit path, not a model-level claim. |
+| LittleBit-2 | Reference/experimental only; no complete model evidence | Low-rank binary factors trade representation size against approximation error. |
+| TurboQuant | Reference/experimental only; no complete model evidence | Low-bit KV-cache storage trades capacity against approximation behavior. |
+| JetSpec / SlimInfer / BitDecoding | Reference/experimental only | No tested Qwanto end-to-end evidence is published. |
 
 Conversion MB/s is not inference tokens/s. Different model sizes, hosts,
 backends, token limits, and runtime hashes must not be compared as though they

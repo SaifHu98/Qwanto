@@ -4,15 +4,15 @@ This file is generated from the machine-readable sources listed below. It
 contains no fallback throughput or memory values. `Unavailable` means the
 runtime did not report a metric or the evidence was not comparable.
 
-## Native QWN inference
+## Verified Performance Evidence
 
-| Model | Source Format | QWN Quantization | File Size | Bits/Weight if known | RAM / VRAM Measurement | TTFT | Tokens/s | Hardware | Evidence Class |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container | HyperVSQ-2 | 1.18 GiB (1,266,202,104 bytes) | 2.34028 bpw | Unavailable | Unavailable | 7.148571 | Windows 11 (10.0.26200); CPU: AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD; GPU: NVIDIA GeForce RTX 5070 Ti Laptop GPU | MEASURED |
+Numbers below are generated from matching executable/model hashes and the local qwnrun harness. A detected GPU is not treated as CUDA execution.
 
-The native row above is only a qwnrun inference claim when its evidence
-class is `MEASURED`. The current artifact records TTFT as unavailable
-because the runtime did not expose a positive first-token measurement.
+| Model | Native QWN Format | Size | Backend Actually Used | Decode tok/s | TTFT | Evidence Class | Reproduce |
+| --- | --- | --- | --- | ---: | ---: | --- | --- |
+| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB (1,266,202,104 bytes) | cpu | 8.154199 tok/s | Unavailable | MEASURED | `D:\EcoUni\qwanto\c\qwnrun.exe D:\EcoUni\qwanto\experiments\results\4B_hyper_vsq2.qwn Explain zero-copy NVMe memory tiering in Qwanto. 64 4096 --backend cpu --ctx-size 4096 --max-tokens 64 --seed 0` |
+
+The native row above is only a product performance claim when its evidence class is `MEASURED`; otherwise it is explicitly unavailable or experimental.
 
 ## Conversion evidence (not inference throughput)
 
@@ -26,24 +26,39 @@ because the runtime did not expose a positive first-token measurement.
 
 Excluded conversion records are retained in the JSON report with their integrity reason.
 
-## Format status
+## Runtime Feature Status
 
-| Format | Status | Evidence Class |
+| Capability | Status | Evidence |
 | --- | --- | --- |
-| FP32 | implemented container dtype; no current report evidence | UNAVAILABLE |
-| FP16 | implemented container dtype; no current report evidence | UNAVAILABLE |
-| Q4_0 | implemented and container-validated; no matching native inference row | UNAVAILABLE |
-| HyperVSQ-2 | validated conversion and measured native qwnrun evidence | MEASURED |
-| TWLA 1.58-bit | implemented/tested kernel path; no complete model evidence | EXPERIMENTAL |
-| LittleBit | implemented/tested library path; not a QWN container dtype | EXPERIMENTAL |
-| TurboQuant | implemented/tested KV path; no complete model evidence | EXPERIMENTAL |
+| FP32 | implemented container dtype; no current report evidence | `UNAVAILABLE` |
+| FP16 | implemented container dtype; no current report evidence | `UNAVAILABLE` |
+| Q4_0 | implemented and container-validated; no matching native inference row | `UNAVAILABLE` |
+| HyperVSQ-2 | validated conversion and measured native qwnrun evidence | `MEASURED` |
+| TWLA | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
+| LittleBit-2 | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
+| TurboQuant | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
+| JetSpec | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
+| SlimInfer | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
+| BitDecoding | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
 
-## Archived external GGUF evidence
+## How to reproduce
 
-These historical measurements used the external local `llama-server`
-boundary. They are retained for provenance only and must not be read as
-native QWN results or as a supported Qwanto runtime path. GGUF is a
-conversion input; native execution requires a validated QWN container.
+Run the real local executable; do not substitute an external GGUF runtime:
+
+```powershell
+python benchmarks/benchmark_reproducible.py --model experiments/results/4B_hyper_vsq2.qwn --executable c/qwnrun.exe --backend cpu --context-size 4096 --max-tokens 64 --seed 0 --warmup-tokens 8 --output benchmark_evidence.json
+python benchmarks/generate_benchmark_matrix.py
+python benchmarks/generate_performance_report.py
+```
+
+## Research and Future Work
+
+TWLA, LittleBit-2, TurboQuant, JetSpec, SlimInfer, and BitDecoding remain reference or experimental work until Qwanto has a tested kernel, validated end-to-end model path, and measured evidence. Projections and external GGUF results are not native performance claims.
+
+## External GGUF evidence
+
+These measurements used the external local `llama-server` boundary. They
+are shown for provenance only and must not be read as native QWN results.
 
 | Model | Cold load | TTFT mean | Decode mean | Decode median | Evidence |
 | --- | ---: | ---: | ---: | ---: | --- |

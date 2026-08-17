@@ -26,13 +26,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent
-SCHEMA_VERSION = "3.0.0"
+SCHEMA_VERSION = "4.0.0"
 CLASSIFICATIONS = {"MEASURED", "UNAVAILABLE", "INVALID", "TEST_FIXTURE", "EXPERIMENTAL", "PROJECTED"}
 
 _STATUS_RE = re.compile(r"status=(?P<status>ok|error)\b(?:\s+tokens=(?P<tokens>-?\d+))?")
 _GENERATED_RE = re.compile(r"Generated\s+Tokens\s*:\s*(?P<tokens>-?\d+)", re.IGNORECASE)
 _TTFT_RE = re.compile(r"ttft_ms=(?P<ttft>[+-]?(?:\d+(?:\.\d*)?|\.\d+))")
-_RUNTIME_FIELD_RE = re.compile(r"\b(?P<key>backend|kernel|gpu_device|gpu_matmul_count|cpu_fallback_count|cuda_upload_bytes|cuda_resident_bytes|cuda_dll_sha256)=([A-Za-z0-9_.-]+)")
+_RUNTIME_FIELD_RE = re.compile(r"\b(?P<key>backend|kernel|gpu_device|gpu_matmul_count|cpu_fallback_count|cuda_upload_bytes|cuda_resident_bytes|cuda_dll_sha256)=([A-Za-z0-9_.-]+)", re.IGNORECASE)
+_KERNEL_SELECTED_RE = re.compile(r"kernel\s+selected:\s*(?P<kernel>[A-Za-z0-9_.-]+)", re.IGNORECASE)
 
 
 def compute_file_sha256(path: Path) -> str:
@@ -46,6 +47,72 @@ def compute_file_sha256(path: Path) -> str:
     except OSError:
         return "file_unreadable"
     return digest.hexdigest()
+
+
+def project_revision(host_hw: dict | None = None) -> dict[str, str | bool]:
+    """Capture the source revision used to produce the evidence artifact."""
+    if (host_hw or {}).get("os") == "TEST_FIXTURE":
+        return {"qwn_version": "TEST_FIXTURE", "git_commit": "TEST_FIXTURE", "git_worktree_dirty": False}
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, capture_output=True,
+            text=True, timeout=5, check=False,
+        ).stdout.strip()
+        dirty = bool(subprocess.run(
+            ["git", "status", "--porcelain"], cwd=PROJECT_ROOT, capture_output=True,
+            text=True, timeout=5, check=False,
+        ).stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        commit, dirty = "Unavailable", False
+    version = "Unavailable"
+    cargo_manifest = PROJECT_ROOT / "desktop" / "src-tauri" / "Cargo.toml"
+    try:
+        match = re.search(r"^version\s*=\s*\"([^\"]+)\"", cargo_manifest.read_text(encoding="utf-8"), re.MULTILINE)
+        if match:
+            version = match.group(1)
+    except OSError:
+        pass
+    return {"qwn_version": version, "git_commit": commit or "Unavailable", "git_worktree_dirty": dirty}
+
+
+def model_manifest_metadata(model_file: Path) -> dict[str, str]:
+    """Resolve architecture and native dtype from the checked-in model manifest."""
+    result = {"architecture": "Unavailable", "qwn_dtype": "Unavailable", "model_id": "Unavailable"}
+    manifest_path = PROJECT_ROOT / "docs" / "model-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return result
+    model_hash = compute_file_sha256(model_file)
+    try:
+        candidates = manifest.get("models", [])
+        for candidate in candidates:
+            target = candidate.get("target_file")
+            target_hash = candidate.get("target_sha256")
+            target_path = (PROJECT_ROOT / target).resolve() if target else None
+            if (target_hash and target_hash == model_hash) or (target_path and target_path == model_file):
+                result.update({
+                    "architecture": candidate.get("architecture", "Unavailable"),
+                    "qwn_dtype": candidate.get("quantization", "Unavailable"),
+                    "model_id": candidate.get("model_id", "Unavailable"),
+                })
+                break
+    except (AttributeError, TypeError):
+        return result
+    return result
+
+
+def parse_build_info(build_info: str | None) -> dict[str, str | int | bool]:
+    """Normalize qwnrun's key=value build record without treating detection as execution."""
+    values: dict[str, str | int | bool] = {}
+    for key, raw in re.findall(r"\b([a-z][a-z0-9_]*)=([A-Za-z0-9_.-]+)", build_info or ""):
+        if raw.lower() in {"true", "false"}:
+            values[key] = raw.lower() == "true"
+        elif raw.isdigit():
+            values[key] = int(raw)
+        else:
+            values[key] = raw
+    return values
 
 
 def detect_host_hardware() -> dict:
@@ -218,17 +285,22 @@ def parse_runtime_metrics(stdout: str, stderr: str) -> dict:
     for match in _RUNTIME_FIELD_RE.finditer(stderr + "\n" + stdout):
         key, raw = match.group("key"), match.group(2)
         if key in {"backend", "kernel", "cuda_dll_sha256"}:
-            values[key] = raw
+            values[key] = raw.lower() if key != "cuda_dll_sha256" else raw
         else:
             try:
                 values[key] = int(raw)
             except ValueError:
                 values[key] = None
+    selected_kernel = list(_KERNEL_SELECTED_RE.finditer(stderr + "\n" + stdout))
+    if selected_kernel:
+        values["kernel"] = selected_kernel[-1].group("kernel").lower()
     return values
 
 
 def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable: Path | None, cmd: list[str]) -> dict:
     cuda_library = resolve_cuda_library(executable)
+    revision = project_revision(host_hw)
+    model_info = model_manifest_metadata(model_file)
     return {
         "schema_version": SCHEMA_VERSION,
         "benchmark_id": f"qwn-bench-{time.time_ns()}",
@@ -237,17 +309,26 @@ def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable
         "error_reason": None,
         "host_environment": host_hw,
         "runtime_metadata": {
+            **revision,
             "executable_path": str(executable) if executable else None,
             "executable_sha256": compute_file_sha256(executable) if executable else "file_not_found",
             "cuda_library_path": str(cuda_library) if cuda_library else None,
             "cuda_dll_sha256": compute_file_sha256(cuda_library) if cuda_library else "Unavailable",
+            "compiler": "Unavailable",
+            "optimization_flags": "Unavailable",
+            "openmp_enabled": "Unavailable",
+            "active_thread_count": "Unavailable",
+            "selected_cpu_isa_kernel": "Unavailable",
+            "gpu_kernel_coverage": "Unavailable",
         },
         "model_metadata": {
+            **model_info,
             "path": str(model_file),
             "file_size_bytes": model_file.stat().st_size if model_file.is_file() else None,
             "sha256": compute_file_sha256(model_file),
         },
         "benchmark_parameters": {
+            "prompt": None,
             "prompt_length_chars": None,
             "max_tokens_requested": None,
             "command_argv": cmd,
@@ -262,6 +343,8 @@ def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable
         "unavailable_metrics": {
             "vram_allocated_gb": "NVML process polling inactive",
             "nvme_bandwidth_mb_s": "Direct block device counter inactive",
+            "prefill_throughput_tok_s": "qwnrun did not report a prefill counter",
+            "gpu_utilization": "Direct GPU utilization polling inactive",
         },
     }
 
@@ -302,6 +385,7 @@ def execute_real_benchmark(
         cmd += ["--threads", str(threads)]
     report = _report_base(timestamp_utc, host_hw, model_file, executable, cmd)
     report["benchmark_parameters"].update({
+        "prompt": prompt,
         "prompt_length_chars": len(prompt),
         "max_tokens_requested": max_tokens,
         "backend_requested": backend,
@@ -337,6 +421,15 @@ def execute_real_benchmark(
     build_process, build_stdout, build_stderr, _, _ = run_command([str(executable), "--build-info"], 10.0)
     report["runtime_metadata"]["build_info"] = (build_stdout + "\n" + build_stderr).strip() or None
     report["runtime_metadata"]["build_info_returncode"] = build_process.returncode if build_process else None
+    build_fields = parse_build_info(report["runtime_metadata"]["build_info"])
+    report["runtime_metadata"].update({
+        "compiler": build_fields.get("compiler", "Unavailable"),
+        "optimization_flags": build_fields.get("optimization_flags", "Unavailable"),
+        "openmp_enabled": build_fields.get("openmp_enabled", "Unavailable"),
+        "active_thread_count": build_fields.get("active_threads", "Unavailable"),
+        "selected_cpu_isa_kernel": build_fields.get("isa_backend", "Unavailable"),
+        "gpu_kernel_coverage": build_fields.get("gpu_kernel_coverage", "Unavailable"),
+    })
 
     if warmup_tokens > 0:
         warmup_cmd = list(cmd)
@@ -375,8 +468,9 @@ def execute_real_benchmark(
 
     runtime_metrics = parse_runtime_metrics(stdout, stderr)
     report["measured_evidence"] = {
-        "backend": runtime_metrics.get("backend", "Unavailable"),
-        "kernel": runtime_metrics.get("kernel", "Unavailable"),
+        "backend_requested": backend,
+        "backend_actual": runtime_metrics.get("backend", "Unavailable"),
+        "selected_kernel": runtime_metrics.get("kernel", report["runtime_metadata"]["selected_cpu_isa_kernel"]),
         "gpu_matmul_count": runtime_metrics.get("gpu_matmul_count", "Unavailable"),
         "cpu_fallback_count": runtime_metrics.get("cpu_fallback_count", "Unavailable"),
         "cuda_upload_bytes": runtime_metrics.get("cuda_upload_bytes", "Unavailable"),
@@ -403,6 +497,8 @@ def execute_real_benchmark(
     report["measured_evidence"].update({
         "generated_tokens": generated_tokens,
         "wall_seconds": round(wall_seconds, 6),
+        "prefill_tok_per_sec": "Unavailable",
+        "decode_tok_per_sec": round(generated_tokens / wall_seconds, 6),
         "tok_per_sec": round(generated_tokens / wall_seconds, 6),
         "ttft_ms": ttft_ms,
         "prompt_prefill_tok_s": "Unavailable",
