@@ -28,7 +28,7 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `225 passed, 4 skipped` in `c/tests/`; the decoder
+- Native/Python validation: `228 passed, 4 skipped` in `c/tests/`; the decoder
   test passed separately (`2 passed`). Focused gateway tests passed
   (`45 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
@@ -40,18 +40,16 @@ and NVMe mmap.
   1280px, 1440px, 1920px, and short laptop heights. Skills & Plugins, GitHub,
   and Feedback are separate lazy settings sections; model/conversion/download
   work remains focused under Models.
-- The existing `benchmark_evidence.json` claim remains unchanged while the
-  split phase methodology is validated. New local evidence uses a rebuilt
-  Windows Clang/OpenMP scalar executable and is stored in uncommitted
-  `benchmark_cold_start_omp.json`, `benchmark_prefill_omp.json`,
-  `benchmark_warm_decode_omp.json`, and `benchmark_thread_scaling_omp.json`.
-  The fresh 4B HyperVSQ-2 rows report cold readiness `77.633 ms` (model load
-  `63 ms`), warm prefill `1.129704 tok/s`, and persistent warm decode
-  `1.243495 tok/s` across two sequential requests under PID `22704`. The
-  thread matrix proved active hot-path workers of `1, 2, 4, 8, 16, 32` for
-  requested counts `1, 2, 4, 8, 16, 32`; the executable selected scalar because
-  this local build did not compile AVX2 code. README performance claims remain
-  intentionally unchanged until a clean, versioned evidence decision is made.
+- The existing `benchmark_evidence.json` claim remains unchanged. Final clean
+  local evidence from commit `70083b1` uses `c/qwnrun_investigation.exe` SHA-256
+  `a89a65d508f080c24b3496d23ad673e3edbb1918d8292aa1c18d3524c6a6a03c` and the
+  4B HyperVSQ-2 model SHA-256
+  `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
+  It reports cold readiness `109 ms`, first tensor touch `93.695 ms`, persistent
+  prefill median `15.053010 tok/s`, and persistent warm decode median/p95
+  `15.445769/15.552753 tok/s` with VNNI and 32 active workers. Five-run PID
+  reuse is proven; thread scaling proves active workers `1,2,4,8,16,32`.
+  README performance claims remain intentionally unchanged.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
   native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
@@ -82,8 +80,9 @@ and NVMe mmap.
 - The Beta.3 Tauri package contains target-native qwnrun and gateway sidecar
   resources but no model weights. Converter/downloader controls remain behind
   Settings and explicit acquisition consent.
-- TTFT and sensor metrics remain unavailable unless the runtime protocol or
-  local sensor query supplies them.
+- Gateway/client sensor metrics remain unavailable unless the runtime protocol
+  or local sensor query supplies them; qwnrun's current phase evidence reports
+  measured first-token latency and decode timing.
 - CUDA is still `UNAVAILABLE` on this workstation: explicit `--backend cuda`
   fails closed because `qwn_cuda.dll`/device support is absent. GPU detection
   alone is never classified as CUDA inference.

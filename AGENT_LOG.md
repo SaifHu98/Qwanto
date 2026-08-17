@@ -459,3 +459,17 @@
   `nvcc` are unavailable locally.
 - **Decision:** README performance claims were intentionally not changed; no
   tag or release was created.
+
+## 2026-08-17 — CPU performance discrepancy investigation
+
+- **Change:** Rebuilt and re-ran clean cold-start, persistent prefill, warm
+  decode, one-shot, and thread-scaling evidence; documented the one-shot versus
+  serve timing boundary, scalar fallback cause, startup phase breakdown, and
+  HyperVSQ-2 SIMD dispatch in `docs/cpu-performance-investigation-2026-08-17.md`.
+- **Validation:** Python `228 passed, 4 skipped`; focused runtime tests `14
+  passed, 1 skipped`; HyperVSQ-2 differential tests `140/140`; web build and
+  `56` Vitest tests passed; `git diff --check` passed. Cargo and Make are not
+  installed locally. CUDA remains unavailable and no release/tag was created.
+- **Evidence:** Final VNNI warm decode median/p95 `15.445769/15.552753 tok/s`,
+  prefill median `15.053010 tok/s`, 32 active workers, and all five persistent
+  runs PID-reuse proven. README was intentionally not modified.
