@@ -324,7 +324,7 @@ fn pick_chat_attachment(app: AppHandle, state: State<AppState>) -> Result<Option
     }
     let bytes = fs::read(&path).map_err(|error| format!("Could not read attachment: {error}"))?;
     let root = workspace_root(&state)?;
-    attachments::store(&root, &path.file_name().and_then(|value| value.to_str()).unwrap_or("attachment"), attachment_mime(&path), &bytes).map(Some)
+    attachments::store(&root, path.file_name().and_then(|value| value.to_str()).unwrap_or("attachment"), attachment_mime(&path), &bytes).map(Some)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
