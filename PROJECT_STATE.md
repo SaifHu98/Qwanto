@@ -190,3 +190,7 @@ and NVMe mmap.
 - **Follow-up:** Windows CI/package builds resolve the Clang executable from
   PATH or standard LLVM locations and use that exact path for compiler and
   sccache invocation.
+
+- **Follow-up:** The resolver also covers versioned Visual Studio
+  `VC\Tools\Llvm\x64\bin\clang.exe` installations, the likely hosted runner
+  location when Clang is not on PATH.

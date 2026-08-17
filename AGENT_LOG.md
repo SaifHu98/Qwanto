@@ -392,6 +392,15 @@
   LLVM install locations and pass the resolved path to Clang/sccache, while
   retaining strict OpenMP import/runtime validation.
 - **Validation:** Workflow YAML and release-policy checks pass locally.
+
+## 2026-08-17 — Visual Studio LLVM path coverage
+
+- **Evidence:** Hosted run `32024330860` showed checkout/sccache success and
+  failure only in Windows step 5, before `make test-c`, after roughly 10
+  seconds. The public log exposes no command text.
+- **Change:** Added the versioned Visual Studio `VC\Tools\Llvm\x64\bin` path
+  family to strict Clang resolution for CI and package builds.
+- **Validation:** Workflow YAML and release-policy checks pass locally.
 - **Decision:** The first hardened commit remains pushed; this follow-up is
   required before treating hosted Windows validation as representative.
 

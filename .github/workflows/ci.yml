@@ -88,10 +88,15 @@ jobs:
           Set-Location c
           $clangCommand = Get-Command clang -ErrorAction SilentlyContinue
           $clangPath = if ($clangCommand) { $clangCommand.Source } else {
-            @('C:\Program Files\LLVM\bin\clang.exe', 'C:\Program Files (x86)\LLVM\bin\clang.exe') |
-              Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            @(
+              'C:\Program Files\LLVM\bin\clang.exe',
+              'C:\Program Files (x86)\LLVM\bin\clang.exe',
+              'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe',
+              'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe'
+            ) | ForEach-Object { Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue } |
+              Select-Object -First 1 -ExpandProperty FullName
           }
-          if (-not $clangPath) { throw 'LLVM Clang was not found in PATH or the standard LLVM installation paths.' }
+          if (-not $clangPath) { throw 'LLVM Clang was not found in PATH, LLVM, or Visual Studio LLVM installation paths.' }
           & $clangPath --version
           $clangRoot = Split-Path -Parent (Split-Path -Parent $clangPath)
           $ompRoots = @(
