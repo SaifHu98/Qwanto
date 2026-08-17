@@ -341,3 +341,12 @@
 - **Validation:** `git diff --check` passed locally; Cargo remains unavailable.
 - **Decision:** Push the focused correction and wait for hosted Rust/Tauri
   validation; keep Beta.4 unchanged and do not create a tag or release.
+
+## 2026-08-17 — Final hosted Clippy borrow correction
+
+- **Evidence:** Hosted run `32021947287` removed the prior Clippy findings but
+  retained one generic path-borrow diagnostic.
+- **Change:** Replaced `starts_with(&workspace)` with explicit
+  `starts_with(workspace.as_path())` in attachment and diagnostic containment.
+- **Validation:** `git diff --check` passed locally; hosted Rust validation is
+  required because Cargo is unavailable on this workstation.

@@ -63,7 +63,7 @@ pub fn create(
     let directory = workspace.join(".qwanto").join("diagnostics");
     fs::create_dir_all(&directory).map_err(|error| format!("Could not create diagnostics storage: {error}"))?;
     let directory = directory.canonicalize().map_err(|error| format!("Diagnostics storage is unavailable: {error}"))?;
-    if !directory.starts_with(&workspace) { return Err("Diagnostics storage escaped the workspace boundary.".into()); }
+    if !directory.starts_with(workspace.as_path()) { return Err("Diagnostics storage escaped the workspace boundary.".into()); }
 
     let workspace_text = workspace.to_string_lossy().into_owned();
     let redacted_description = PermissionPolicy::redact_secrets(description).replace(&workspace_text, "[REDACTED_WORKSPACE]");

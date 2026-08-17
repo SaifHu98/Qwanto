@@ -72,7 +72,7 @@ pub fn store(root: &Path, name: &str, mime: &str, bytes: &[u8]) -> Result<Stored
     let canonical_directory = directory
         .canonicalize()
         .map_err(|error| format!("Attachment storage is unavailable: {error}"))?;
-    if !canonical_directory.starts_with(&workspace) {
+    if !canonical_directory.starts_with(workspace.as_path()) {
         return Err("Attachment storage escaped the workspace boundary.".into());
     }
 

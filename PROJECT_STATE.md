@@ -155,3 +155,6 @@ and NVMe mmap.
   annotations. No release or tag was created.
 - **Validation:** `git diff --check` passed locally; Cargo remains unavailable
   here, so the corrected Rust gate is being verified by hosted CI.
+- **Follow-up:** The first correction left one generic path-borrow Clippy
+  diagnostic; `Path::as_path()` now makes both workspace containment checks
+  explicit.
