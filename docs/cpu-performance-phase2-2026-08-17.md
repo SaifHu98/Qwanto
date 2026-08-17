@@ -204,8 +204,8 @@ as active.
 
 ## Evidence files
 
-The sanitized, checked-in evidence set is
-[`benchmarks/evidence/windows/2026-08-17/e23c2a8`](../benchmarks/evidence/windows/2026-08-17/e23c2a8/):
+The sanitized, checked-in evidence set is indexed by
+[`manifest.json`](../benchmarks/evidence/windows/2026-08-17/e23c2a8/manifest.json):
 
 - [`release_quality_cpu.json`](../benchmarks/evidence/windows/2026-08-17/e23c2a8/release_quality_cpu.json)
 - [`cold_start.json`](../benchmarks/evidence/windows/2026-08-17/e23c2a8/cold_start.json)
