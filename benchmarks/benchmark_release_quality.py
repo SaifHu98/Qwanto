@@ -280,6 +280,20 @@ def run_release_quality(
         update_runtime_config_snapshot(report["runtime_config_snapshot"], item)
     for request in report["requests"]:
         request["runtime_config_snapshot"] = dict(report["runtime_config_snapshot"])
+    if report["requests"]:
+        final_request = report["requests"][-1]
+        for key in (
+            "backend_actual", "kernel", "cuda_dll_sha256", "cuda_kernel_type",
+            "gpu_matmul_count", "gpu_kernel_launch_count", "gpu_projection_count",
+            "gpu_upload_count", "gpu_upload_bytes", "gpu_resident_bytes",
+            "cpu_fallback_count", "unsupported_projection_count", "gpu_kernel_ms",
+            "gpu_transfer_ms", "gpu_sync_ms", "actual_device", "active_threads",
+        ):
+            if key in final_request:
+                report["runtime_metadata"][key] = final_request[key]
+        report["runtime_metadata"]["kernel_invocation_count"] = _kernel_invocation_count(
+            backend, final_request
+        )
     throughput = [float(r["decode_tok_per_sec"]) for r in report["requests"]]
     latency = [float(r["decode_wall_ms"]) for r in report["requests"]]
     ttft = [float(r["first_token_ms"]) for r in report["requests"]]
