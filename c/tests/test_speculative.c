@@ -3,7 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
-#include "qwanto_speculative.h"
+#include "qwn_speculative.h"
 
 static int g_tests_run = 0;
 static int g_tests_passed = 0;
@@ -204,6 +204,15 @@ static void test_stress_cache_and_rates(void) {
     qwn_speculative_engine_free(&engine);
 }
 
+static void test_product_path_fails_closed_without_draft(void) {
+    QwnSpeculativeEngine engine;
+    EXPECT_EQ(qwn_speculative_engine_init(&engine, NULL, NULL, 8), 0);
+    EXPECT_EQ(qwn_speculative_forward(&engine, NULL, 0, NULL, 0, 0.0f),
+              QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL);
+    EXPECT_EQ(qwn_verify_and_accept(&engine, NULL, 0, NULL, NULL, NULL), 0);
+    qwn_speculative_engine_free(&engine);
+}
+
 int main(void) {
     printf("=================================================================\n");
     printf("       Qwanto Saguaro (SSD) Speculative Engine Verification      \n");
@@ -214,13 +223,14 @@ int main(void) {
     test_adaptive_draft_length();
     test_ring_buffer();
     test_stress_cache_and_rates();
+    test_product_path_fails_closed_without_draft();
 
     printf("-----------------------------------------------------------------\n");
     printf("Results: %d passed / %d total assertions\n", g_tests_passed, g_tests_run);
     printf("=================================================================\n");
 
     if (g_tests_passed == g_tests_run && g_tests_run >= 200) {
-        printf("[SUCCESS] All Saguaro Speculative Engine tests passed with 100%% accuracy!\n");
+        printf("[SUCCESS] Legacy cache compatibility and fail-closed boundary tests passed.\n");
         return 0;
     } else {
         printf("[FAILURE] One or more tests failed!\n");

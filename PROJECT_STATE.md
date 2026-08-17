@@ -162,6 +162,12 @@ and NVMe mmap.
 - Speculative decoding and JetSpec remain disabled while compatible native
   draft-model and tree-aware transaction prerequisites are unavailable; their
   counters do not start with fabricated acceptance or speedup values.
+- Phase 2 now uses `qwn_speculative.c` in the qwnrun build, with typed
+  compatibility checks, draft/target probability correction, bonus-token
+  handling, and fail-closed CLI/gateway behavior. No compatible native draft
+  QWN exists in the repository, so the product state remains
+  `IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL`; no speculative performance or
+  acceptance result is claimed.
 - macOS signing/notarization and installed-package smoke tests require the
   corresponding maintainer-owned platform credentials/runners.
 - Windows Artifact Signing, macOS notarization, and Linux GPG signing are

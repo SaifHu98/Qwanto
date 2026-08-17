@@ -67,22 +67,25 @@ class TestSpeculativeQuality(unittest.TestCase):
         engine.cache.acceptance_rate = 0.50
         self.assertEqual(engine.get_optimal_draft_length(), 3)
 
+    def test_invalid_statistics_do_not_mutate_cache(self):
+        cache = SpeculationCache()
+        with self.assertRaises(ValueError):
+            cache.update_stats(4, 5)
+        self.assertEqual(cache.total_drafted, 0)
+        self.assertEqual(cache.total_accepted, 0)
+        self.assertEqual(cache.acceptance_rate, 0.0)
+
     def test_saguaro_engine_generation(self):
-        """Verify Saguaro engine execution and stats recording."""
+        """Verify missing compatible draft fails closed without fake metrics."""
         model_path = ROOT_DIR / "experiments" / "results" / "4B_hyper_vsq2.qwn"
         if not model_path.exists():
             self.skipTest("Target model not present")
 
         engine = SaguaroEngine(target_model=model_path)
-        try:
-            res = engine.generate("What is 2 + 2?", max_tokens=8)
-            self.assertGreater(res["tokens_generated"], 0)
-            self.assertGreater(res["acceptance_rate"], 0.0)
-            self.assertIn("optimal_draft_len", res)
-        except OSError as e:
-            if getattr(e, "winerror", None) == 4551:
-                self.skipTest("Windows Application Control blocked binary execution")
-            raise
+        res = engine.generate("What is 2 + 2?", max_tokens=8)
+        self.assertEqual(res["status"], "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL")
+        self.assertEqual(res["tokens_generated"], 0)
+        self.assertIsNone(res["acceptance_rate"])
 
 
 if __name__ == "__main__":

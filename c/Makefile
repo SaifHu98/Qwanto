@@ -191,6 +191,7 @@ TEST_BINS = tests/test_json$(EXE) tests/test_st$(EXE) tests/test_tier$(EXE) test
 TEST_BINS += tests/test_hypervsq2_kernels$(EXE)
 TEST_BINS += tests/test_kv_cache$(EXE)
 TEST_BINS += tests/test_runtime_config$(EXE)
+TEST_BINS += tests/test_speculative$(EXE)
 ifneq (,$(LINUX))
 TEST_BINS += tests/test_uring$(EXE)
 endif
@@ -239,7 +240,7 @@ glm: glm$(EXE)
 glm$(EXE): glm.c st.h uring.h json.h tok.h tok_unicode.h compat.h grammar.h $(CUDA_OBJ) $(METAL_OBJ)
 	$(CC) $(CFLAGS) glm.c $(CUDA_OBJ) $(METAL_OBJ) -o glm$(EXE) $(LDFLAGS)
 
-QWNRUN_SRCS = qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c
+QWNRUN_SRCS = qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwn_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c
 QWNRUN_LIB_SRCS = $(filter-out qwnrun.c,$(QWNRUN_SRCS))
 
 qwnrun$(EXE): $(QWNRUN_SRCS) $(CUDA_OBJ)
@@ -379,6 +380,9 @@ tests/test_kv_cache$(EXE): tests/test_kv_cache.c qwanto_turboquant.c qwanto_nati
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 tests/test_runtime_config$(EXE): tests/test_runtime_config.c qwn_runtime_config.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+tests/test_speculative$(EXE): tests/test_speculative.c $(QWNRUN_LIB_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-c: $(TEST_BINS)

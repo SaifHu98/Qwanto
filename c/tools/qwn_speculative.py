@@ -29,7 +29,7 @@ class SpeculationCache:
         self.total_hits = 0
         self.total_drafted = 0
         self.total_accepted = 0
-        self.acceptance_rate = 0.80
+        self.acceptance_rate = 0.0
 
     def hash_context(self, tokens: List[int]) -> int:
         if not tokens:
@@ -61,17 +61,18 @@ class SpeculationCache:
             self.cache.popitem(last=False)
         self.cache[h] = {
             "draft": list(draft),
-            "probs": list(probs) if probs else [1.0] * len(draft),
+            "probs": list(probs) if probs else [0.0] * len(draft),
             "timestamp": time.time(),
         }
 
     def update_stats(self, drafted: int, accepted: int):
         if drafted <= 0:
             return
+        if accepted < 0 or accepted > drafted:
+            raise ValueError("accepted tokens must be within drafted tokens")
         self.total_drafted += drafted
         self.total_accepted += accepted
-        batch_rate = accepted / drafted
-        self.acceptance_rate = self.acceptance_rate * 0.80 + batch_rate * 0.20
+        self.acceptance_rate = self.total_accepted / self.total_drafted
 
 
 class SaguaroEngine:
@@ -89,7 +90,7 @@ class SaguaroEngine:
         if not self.target_model.exists():
             raise FileNotFoundError(f"Target model not found: {self.target_model}")
 
-        self.draft_model = Path(draft_model).resolve() if draft_model else self.target_model
+        self.draft_model = Path(draft_model).resolve() if draft_model else None
         self.cache = SpeculationCache(capacity=cache_capacity)
         self.max_draft_tokens = max_draft_tokens
         self.use_bidirectional = use_bidirectional
@@ -112,7 +113,40 @@ class SaguaroEngine:
         ctx_size: int = 4096,
         exe_path: Optional[Union[str, Path]] = None,
     ) -> Dict[str, Any]:
-        """Runs speculative inference using native engine."""
+        """Run only a validated native draft/target pipeline.
+
+        The current repository has no compatible native QWN draft model and
+        qwnrun intentionally rejects speculative execution until tokenizer,
+        chat-template, and KV transaction compatibility are proven.  Returning
+        an explicit unavailable record is safer than running target-only and
+        labelling it speculative.
+        """
+        if self.draft_model is None:
+            return {
+                "status": "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL",
+                "reason": "no native QWN draft model was supplied",
+                "text": "",
+                "tokens_generated": 0,
+                "wall_seconds": None,
+                "tok_per_sec": None,
+                "acceptance_rate": None,
+                "cache_hits": self.cache.total_hits,
+                "optimal_draft_len": None,
+            }
+        if self.draft_model == self.target_model or self.draft_model.suffix.lower() != ".qwn":
+            return {
+                "status": "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL",
+                "reason": "draft and target must be distinct validated native QWN models",
+                "text": "",
+                "tokens_generated": 0,
+                "wall_seconds": None,
+                "tok_per_sec": None,
+                "acceptance_rate": None,
+                "cache_hits": self.cache.total_hits,
+                "optimal_draft_len": None,
+            }
+        if not self.draft_model.exists():
+            raise FileNotFoundError(f"Draft model not found: {self.draft_model}")
         if exe_path is None:
             exe_path = C_DIR / "qwnrun.exe"
         exe_path = Path(exe_path).resolve()
@@ -123,6 +157,9 @@ class SaguaroEngine:
             prompt,
             str(max_tokens),
             str(ctx_size),
+            "--speculative",
+            "--draft-model",
+            str(self.draft_model),
         ]
 
         t0 = time.perf_counter()
@@ -137,20 +174,27 @@ class SaguaroEngine:
         )
         t1 = time.perf_counter()
 
-        tokens_gen = max_tokens
+        if proc.returncode != 0:
+            return {
+                "status": "ERROR",
+                "reason": proc.stderr.strip() or "native speculative execution failed",
+                "text": proc.stdout.strip(),
+                "tokens_generated": 0,
+                "wall_seconds": t1 - t0,
+                "tok_per_sec": None,
+                "acceptance_rate": None,
+                "cache_hits": self.cache.total_hits,
+                "optimal_draft_len": None,
+            }
         wall_sec = t1 - t0
-        tok_per_sec = tokens_gen / wall_sec if wall_sec > 0 else 0.0
-
-        # Update cache with simulated drafted blocks
-        opt_len = self.get_optimal_draft_length()
-        self.cache.update_stats(drafted=opt_len * 4, accepted=int(opt_len * 4 * 0.78))
-
         return {
+            "status": "UNAVAILABLE_UNTYPED_RUNTIME_RESULT",
+            "reason": "qwnrun output does not contain speculative counters",
             "text": proc.stdout.strip(),
-            "tokens_generated": tokens_gen,
+            "tokens_generated": 0,
             "wall_seconds": wall_sec,
-            "tok_per_sec": tok_per_sec,
-            "acceptance_rate": self.cache.acceptance_rate,
+            "tok_per_sec": None,
+            "acceptance_rate": None,
             "cache_hits": self.cache.total_hits,
-            "optimal_draft_len": opt_len,
+            "optimal_draft_len": None,
         }
