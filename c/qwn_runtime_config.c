@@ -22,6 +22,7 @@ void qwn_runtime_config_default(QwnRuntimeConfig *config) {
     snprintf(config->kv_cache_mode, sizeof(config->kv_cache_mode), "fp16");
     snprintf(config->quantization, sizeof(config->quantization), "auto");
     snprintf(config->kernel, sizeof(config->kernel), "auto");
+    snprintf(config->thinking_mode, sizeof(config->thinking_mode), "medium");
 }
 
 const char *qwn_runtime_backend_name(QwnRuntimeBackend backend) {
@@ -116,6 +117,13 @@ int qwn_runtime_config_validate(const QwnRuntimeConfig *config,
         set_error(error, error_size, "kernel must be auto, scalar, avx2, or vnni");
         return -1;
     }
+    if (strcmp(config->thinking_mode, "none") != 0 &&
+        strcmp(config->thinking_mode, "low") != 0 &&
+        strcmp(config->thinking_mode, "medium") != 0 &&
+        strcmp(config->thinking_mode, "high") != 0) {
+        set_error(error, error_size, "thinking mode must be none, low, medium, or high");
+        return -1;
+    }
     if (config->speculative_decoding || config->fused_kernel) {
         set_error(error, error_size, "speculative decoding and fused kernel flags are unsupported by qwnrun");
         return -1;
@@ -167,6 +175,12 @@ int qwn_runtime_config_parse(QwnRuntimeConfig *config, int argc, char **argv,
                 return -1;
             }
             snprintf(config->kernel, sizeof(config->kernel), "%s", argv[i]);
+        } else if (strcmp(arg, "--thinking") == 0) {
+            if (++i >= argc) {
+                set_error(error, error_size, "--thinking requires none, low, medium, or high");
+                return -1;
+            }
+            snprintf(config->thinking_mode, sizeof(config->thinking_mode), "%s", argv[i]);
         } else if (strcmp(arg, "--speculative") == 0 || strcmp(arg, "--saguro") == 0 ||
                    strcmp(arg, "--fused") == 0 || strcmp(arg, "--auto-tune") == 0) {
             snprintf(error, error_size, "%s is unsupported by the native decoder", arg);

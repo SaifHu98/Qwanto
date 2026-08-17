@@ -5,10 +5,10 @@
   "required": [
     "schema_version", "benchmark_id", "timestamp_utc", "mode",
     "evidence_classification", "runtime_metadata", "model_metadata",
-    "benchmark_parameters", "execution_evidence", "measurements"
+    "benchmark_parameters", "runtime_config_snapshot", "execution_evidence", "measurements"
   ],
   "properties": {
-    "schema_version": { "const": "5.0.0" },
+    "schema_version": { "const": "5.1.0" },
     "mode": { "enum": ["cold-start", "prefill", "warm-decode"] },
     "evidence_classification": { "enum": ["MEASURED", "UNAVAILABLE", "INVALID"] },
     "runtime_metadata": {
@@ -22,6 +22,16 @@
         "gpu_matmul_count", "cpu_fallback_count", "model_hash"
       ]
     },
+    "runtime_config_snapshot": {
+      "type": "object",
+      "required": [
+        "backend_requested", "backend_actual", "cpu_threads_requested",
+        "context_size", "max_tokens", "seed", "prompt_sha256",
+        "thinking_mode", "decode_function", "kv_cache_mode", "quantization",
+        "kernel_requested", "temperature", "top_p", "batch_size",
+        "speculative_decoding", "fused_kernel"
+      ]
+    },
     "model_metadata": {
       "type": "object",
       "required": ["path", "sha256", "architecture", "qwn_dtype"]
@@ -33,6 +43,12 @@
     },
     "measurements": {
       "type": "object",
+      "required": [
+        "process_create_ms", "file_open_ms", "mmap_ms", "metadata_parse_ms",
+        "tokenizer_init_ms", "kv_cache_alloc_ms", "advisory_preload_ms",
+        "first_tensor_touch_ms", "first_real_forward_ms", "prompt_prefill_ms",
+        "decode_ms", "total_end_to_end_ms"
+      ],
       "properties": { "runtime_stat_line": { "type": "string" } }
     }
   }

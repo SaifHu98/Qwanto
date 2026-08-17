@@ -24,6 +24,7 @@ typedef struct {
     int      hypervsq2_last_active_threads;
     int      hypervsq2_max_active_threads;
     char     hypervsq2_kernel[32];
+    char     hypervsq2_dispatch_reason[128];
 } QwnScratch;
 
 /* Allocate once per session. No malloc/free occurs in the token hot path. */
@@ -57,6 +58,8 @@ typedef struct {
 } QwnCpuFeatures;
 
 const QwnCpuFeatures *qwn_get_cpu_features(void);
+int qwn_cpu_avx2_kernel_compiled(void);
+int qwn_cpu_vnni_kernel_compiled(void);
 const char *qwn_cpu_kernel_name(void);
 int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size);
 

@@ -874,8 +874,12 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
     int max_q_out=0, max_kv_out=0, max_ffn_out=0;
     size_t floats, kv_elems, kv_bytes;
     float *p;
+    double kv_started;
+    double tokenizer_started;
+    double startup_started = qwn_decode_wall_seconds();
 
     memset(d,0,sizeof(*d));if(error)*error=NULL;
+    d->startup_started_seconds = startup_started;
     snprintf(d->runtime_metrics.cuda_dll_hash,
              sizeof(d->runtime_metrics.cuda_dll_hash), "Unavailable");
     qwn_runtime_config_default(&d->runtime_config);
@@ -901,6 +905,9 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
 #endif
     d->runtime_metrics.requested_cpu_threads = d->runtime_config.cpu_threads;
     if(qwn_open(path,&d->model,error)!=0)return -1;
+    d->startup_metrics.file_open_ms = d->model.open_metrics.file_open_ms;
+    d->startup_metrics.mmap_ms = d->model.open_metrics.mmap_ms;
+    d->startup_metrics.metadata_parse_ms = d->model.open_metrics.metadata_parse_ms;
     if (strcmp(d->runtime_config.quantization, "auto") != 0) {
         uint32_t wanted = strcmp(d->runtime_config.quantization, "q4_0") == 0 ? QWN_DT_Q4_0 :
                           strcmp(d->runtime_config.quantization, "hyper_vsq2") == 0 ? QWN_DT_HYPER_VSQ2 :
@@ -915,7 +922,11 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
             goto fail;
         }
     }
-    if(load_config(d)!=0||load_tokenizer(d)!=0){if(error)*error=ERR_CONFIG;goto fail;}
+    if(load_config(d)!=0){if(error)*error=ERR_CONFIG;goto fail;}
+    tokenizer_started = qwn_decode_wall_seconds();
+    if(load_tokenizer(d)!=0){if(error)*error=ERR_CONFIG;goto fail;}
+    d->startup_metrics.tokenizer_init_ms =
+        (qwn_decode_wall_seconds() - tokenizer_started) * 1000.0;
     if(d->runtime_config.context_size>0&&d->runtime_config.context_size<d->cfg.max_ctx)
         d->cfg.max_ctx=d->runtime_config.context_size;
     if(required_tensors(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
@@ -963,6 +974,7 @@ for (int l = 0; l < d->cfg.layers; l++) {
     d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
     d->ctx=p;p+=Q;d->att=p;p+=(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx;d->gate=p;p+=I;
     d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
+    kv_started = qwn_decode_wall_seconds();
     kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*max_kv_out;
     int kv_head_dim = d->cfg.kv_heads ? max_kv_out / d->cfg.kv_heads : 0;
     int page_blocks = (d->cfg.max_ctx + QWN_PAGE_BLOCK_SIZE - 1) / QWN_PAGE_BLOCK_SIZE;
@@ -990,6 +1002,8 @@ for (int l = 0; l < d->cfg.layers; l++) {
         d->value_cache=(uint16_t*)((uint8_t*)d->kv_allocation+kv_bytes);
         memset(d->kv_allocation,0,kv_bytes*2);
     }
+    d->startup_metrics.kv_cache_alloc_ms =
+        (qwn_decode_wall_seconds() - kv_started) * 1000.0;
     if(load_norms(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
 #ifdef COLI_CUDA
     d->cuda_device_count = 0;
@@ -1046,9 +1060,25 @@ for (int l = 0; l < d->cfg.layers; l++) {
             goto fail;
         }
     }
-    init_residency(d);
+    if (d->embed_weight) {
+        const uint8_t *first = (const uint8_t *)qwn_data(&d->model, d->embed_weight);
+        if (first) {
+            volatile uint8_t first_tensor_byte = first[0];
+            (void)first_tensor_byte;
+            d->startup_metrics.first_tensor_touch_ms =
+                (qwn_decode_wall_seconds() - startup_started) * 1000.0;
+        }
+    }
+    {
+        double preload_started = qwn_decode_wall_seconds();
+        init_residency(d);
+        d->startup_metrics.advisory_preload_ms =
+            (qwn_decode_wall_seconds() - preload_started) * 1000.0;
+    }
     /* Precompute RoPE table once at load time */
     rope_cache_ensure(d, d->cfg.max_ctx, d->cfg.head_dim / 2, d->cfg.rope_theta);
+    d->startup_metrics.model_load_ms =
+        (qwn_decode_wall_seconds() - startup_started) * 1000.0;
     qwn_decoder_refresh_runtime_metrics(d);
     return 0;
 fail:qwn_decoder_close(d);return -1;
@@ -1068,6 +1098,10 @@ void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d) {
         d->scratch.hypervsq2_last_active_threads;
     d->runtime_metrics.hypervsq2_max_active_threads =
         d->scratch.hypervsq2_max_active_threads;
+    snprintf(d->runtime_metrics.dispatch_reason,
+             sizeof(d->runtime_metrics.dispatch_reason), "%s",
+             d->scratch.hypervsq2_dispatch_reason[0] ?
+             d->scratch.hypervsq2_dispatch_reason : "Unavailable");
     if (d->scratch.hypervsq2_matmul_calls > 0) {
         d->runtime_metrics.active_cpu_threads =
             d->scratch.hypervsq2_last_active_threads;
@@ -1082,6 +1116,10 @@ void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d) {
 
 const QwnGenerationMetrics *qwn_decoder_generation_metrics(const QwnDecoder *d) {
     return d ? &d->generation_metrics : NULL;
+}
+
+const QwnStartupMetrics *qwn_decoder_startup_metrics(const QwnDecoder *d) {
+    return d ? &d->startup_metrics : NULL;
 }
 
 void qwn_decoder_reset(QwnDecoder *d){
@@ -1386,6 +1424,10 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                         config->last_exit_layer = l;
                         d->position++;
                         if (out_logits) *out_logits = d->logits;
+                        if (d->startup_metrics.first_real_forward_ms <= 0.0 &&
+                            d->startup_started_seconds > 0.0)
+                            d->startup_metrics.first_real_forward_ms =
+                                (qwn_decode_wall_seconds() - d->startup_started_seconds) * 1000.0;
                         return 0;
                     }
                 }
@@ -1415,6 +1457,10 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         }
     }
     if(out_logits)*out_logits=d->logits;
+    if (d->startup_metrics.first_real_forward_ms <= 0.0 &&
+        d->startup_started_seconds > 0.0)
+        d->startup_metrics.first_real_forward_ms =
+            (qwn_decode_wall_seconds() - d->startup_started_seconds) * 1000.0;
     return 0;
 }
 
@@ -1483,7 +1529,10 @@ int qwn_decoder_generate(QwnDecoder *d,const int *prompt,int prompt_count,
     int generated=0;
     double first_token_at = 0.0;
     for(int step=0;step<max_new_tokens;step++){
+        double sampling_started = qwn_decode_wall_seconds();
         token=sample_token(logits,d->cfg.vocab,temperature,top_p,&d->rng_state);
+        d->generation_metrics.sampling_ms +=
+            (qwn_decode_wall_seconds() - sampling_started) * 1000.0;
         if(token==d->cfg.eos_id)break;
         if (first_token_at == 0.0) first_token_at = qwn_decode_wall_seconds();
         if(callback) {

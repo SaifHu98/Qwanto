@@ -7,16 +7,21 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmarks"))
 
 import benchmark_runtime_phases
+import benchmark_warm_repeats
+from runtime_config_snapshot import comparable_runtime_config, make_runtime_config_snapshot
 
 
 class TestRuntimeBenchmarkEvidence(unittest.TestCase):
     def test_ready_stat_contains_machine_readable_load_fields(self):
         stat = benchmark_runtime_phases.parse_ready_stat(
-            b"STAT 0 0.000 0.0 0.0 0 0 model_load_ms=12.5 runtime_ready_ms=14.0 pid=42\n"
+            b"STAT 0 0.000 0.0 0.0 0 0 model_load_ms=12.5 runtime_ready_ms=14.0 "
+            b"file_open_ms=1.0 mmap_ms=2.0 metadata_parse_ms=3.0 tokenizer_init_ms=4.0 "
+            b"kv_cache_alloc_ms=5.0 advisory_preload_ms=6.0 first_tensor_touch_ms=7.0 pid=42\n"
         )
         self.assertEqual(stat["model_load_ms"], 12.5)
         self.assertEqual(stat["runtime_ready_ms"], 14.0)
         self.assertEqual(stat["pid"], 42)
+        self.assertEqual(stat["first_tensor_touch_ms"], 7.0)
 
     def test_done_keeps_legacy_stat_prefix_and_exposes_phases(self):
         done = benchmark_runtime_phases.parse_done(
@@ -31,6 +36,35 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
         self.assertEqual(done["decode_wall_ms"], 400.0)
         self.assertEqual(done["pid"], 99)
         self.assertEqual(done["active_threads"], 4)
+
+    def test_runtime_snapshot_exposes_decode_path_and_is_comparable(self):
+        one_shot = make_runtime_config_snapshot(
+            backend="cpu", context_size=4096, max_tokens=8, seed=0,
+            prompt="Hello", threads=4, warmup_tokens=4,
+        )
+        persistent = make_runtime_config_snapshot(
+            backend="cpu", context_size=4096, max_tokens=8, seed=0,
+            prompt="Hello", threads=4, warmup_tokens=4,
+        )
+        self.assertEqual(comparable_runtime_config(one_shot), comparable_runtime_config(persistent))
+        self.assertEqual(one_shot["decode_function"], "qwn_decoder_generate")
+        self.assertEqual(one_shot["thinking_mode"], "none")
+
+    def test_phase_reports_always_reserve_startup_breakdown(self):
+        report = benchmark_runtime_phases.run_phase_benchmark(
+            str(ROOT / "missing-model.qwn"), "cold-start", "Hello", 4
+        )
+        self.assertIn("runtime_config_snapshot", report)
+        for key in ("process_create_ms", "file_open_ms", "mmap_ms",
+                    "metadata_parse_ms", "tokenizer_init_ms", "kv_cache_alloc_ms",
+                    "advisory_preload_ms", "first_tensor_touch_ms",
+                    "first_real_forward_ms", "prompt_prefill_ms", "decode_ms",
+                    "total_end_to_end_ms"):
+            self.assertIn(key, report["measurements"])
+
+    def test_repeat_percentile_is_deterministic(self):
+        self.assertEqual(benchmark_warm_repeats.percentile95([1.0, 2.0, 3.0, 4.0, 5.0]), 5.0)
+        self.assertIsNone(benchmark_warm_repeats.percentile95([]))
 
     def test_warm_decode_requires_two_requests_under_one_pid(self):
         self.assertTrue(benchmark_runtime_phases.persistent_pid_proven([42, 42], 42, 2))

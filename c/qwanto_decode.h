@@ -83,6 +83,7 @@ typedef struct {
     uint64_t hypervsq2_worker_participations;
     int hypervsq2_last_active_threads;
     int hypervsq2_max_active_threads;
+    char dispatch_reason[128];
     char backend[16];
     char kernel[32];
     char cuda_dll_hash[65];
@@ -94,7 +95,20 @@ typedef struct {
     double prefill_ms;
     double first_token_ms;
     double decode_wall_ms;
+    double sampling_ms;
 } QwnGenerationMetrics;
+
+typedef struct {
+    double model_load_ms;
+    double file_open_ms;
+    double mmap_ms;
+    double metadata_parse_ms;
+    double tokenizer_init_ms;
+    double kv_cache_alloc_ms;
+    double advisory_preload_ms;
+    double first_tensor_touch_ms;
+    double first_real_forward_ms;
+} QwnStartupMetrics;
 
 int qwn_sha256_file_hex(const char *path, char output[65]);
 
@@ -135,6 +149,8 @@ typedef struct QwnDecoder {
     QwnRuntimeConfig runtime_config;
     QwnRuntimeMetrics runtime_metrics;
     QwnGenerationMetrics generation_metrics;
+    QwnStartupMetrics startup_metrics;
+    double startup_started_seconds;
 #ifdef COLI_CUDA
     int cuda_devices[COLI_CUDA_MAX_DEVICES];
     int cuda_device_count;
@@ -154,6 +170,7 @@ int qwn_decoder_open_with_config(QwnDecoder *d, const char *path,
 const QwnRuntimeMetrics *qwn_decoder_metrics(const QwnDecoder *d);
 void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d);
 const QwnGenerationMetrics *qwn_decoder_generation_metrics(const QwnDecoder *d);
+const QwnStartupMetrics *qwn_decoder_startup_metrics(const QwnDecoder *d);
 void qwn_decoder_close(QwnDecoder *d);
 void qwn_decoder_reset(QwnDecoder *d);
 

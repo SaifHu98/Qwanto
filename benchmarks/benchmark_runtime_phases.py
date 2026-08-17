@@ -21,9 +21,14 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from .runtime_config_snapshot import make_runtime_config_snapshot, update_runtime_config_snapshot
+except ImportError:
+    from runtime_config_snapshot import make_runtime_config_snapshot, update_runtime_config_snapshot
+
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent
-SCHEMA_VERSION = "5.0.0"
+SCHEMA_VERSION = "5.1.0"
 MODES = {"cold-start", "prefill", "warm-decode"}
 CLASSIFICATIONS = {"MEASURED", "UNAVAILABLE", "INVALID"}
 KEY_VALUE = re.compile(r"(?P<key>[a-z][a-z0-9_]*)=(?P<value>[^\s]+)", re.IGNORECASE)
@@ -124,7 +129,7 @@ class PersistentQwnrun:
                  max_tokens: int, threads: int | None, seed: int, timeout: float):
         command = [str(executable), str(model), "--serve", "--backend", backend,
                    "--ctx-size", str(context_size), "--max-tokens", str(max_tokens),
-                   "--seed", str(seed)]
+                   "--seed", str(seed), "--thinking", "none"]
         if threads is not None:
             command += ["--threads", str(threads)]
         environment = os.environ.copy()
@@ -158,6 +163,7 @@ class PersistentQwnrun:
                   f"{temperature:.8g} {top_p:.8g}\n").encode("ascii")
         if self.process.stdin is None or self.process.stdout is None:
             raise RuntimeError("qwnrun protocol pipes are unavailable")
+        request_started = time.perf_counter()
         self.process.stdin.write(header + payload + b"\n")
         self.process.stdin.flush()
         while True:
@@ -174,7 +180,9 @@ class PersistentQwnrun:
                 if len(data) != size or terminator != b"\n":
                     raise RuntimeError("invalid qwnrun DATA frame")
             elif fields[0] == "DONE":
-                return parse_done(line)
+                result = parse_done(line)
+                result["protocol_request_wall_ms"] = (time.perf_counter() - request_started) * 1000.0
+                return result
             elif fields[0] == "ERROR":
                 raise RuntimeError("qwnrun request failed: " + " ".join(fields[2:]))
 
@@ -233,7 +241,7 @@ def revision() -> dict[str, str | bool]:
 
 
 def build_info(executable: Path, backend: str, threads: int | None) -> tuple[str, dict, int | None]:
-    command = [str(executable), "--build-info", "--backend", backend]
+    command = [str(executable), "--build-info", "--json", "--backend", backend]
     if threads is not None:
         command += ["--threads", str(threads)]
     try:
@@ -243,7 +251,18 @@ def build_info(executable: Path, backend: str, threads: int | None) -> tuple[str
     except (OSError, subprocess.SubprocessError) as error:
         return str(error), {}, None
     text = (result.stdout or "") + "\n" + (result.stderr or "")
-    return text.strip(), parse_key_values(text), result.returncode
+    fields = parse_key_values(text)
+    try:
+        document = json.loads(result.stdout)
+        if isinstance(document, dict):
+            fields.update({key: value for key, value in document.items() if not isinstance(value, dict)})
+            features = document.get("cpu_features", {})
+            if isinstance(features, dict):
+                fields.update({f"cpu_{key}": value for key, value in features.items()})
+            fields["selected_isa_kernel"] = document.get("selected_isa_kernel", fields.get("selected_isa_kernel"))
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return text.strip(), fields, result.returncode
 
 
 def model_manifest_metadata(model: Path) -> dict[str, str]:
@@ -299,6 +318,8 @@ def base_report(mode: str, model: Path, executable: Path | None, prompt: str,
             "requested_cpu_threads": threads if threads is not None else "auto",
             "active_cpu_threads": "Unavailable",
             "selected_cpu_isa_kernel": "Unavailable",
+            "binary_avx2_kernel": "Unavailable",
+            "binary_vnni_kernel": "Unavailable",
             "cpu_feature_detection": "Unavailable",
             "model_dtype": "Unavailable",
             "backend_requested": backend,
@@ -317,6 +338,11 @@ def base_report(mode: str, model: Path, executable: Path | None, prompt: str,
             "warmup_tokens": warmup_tokens,
             "cpu_threads_requested": threads,
         },
+        "runtime_config_snapshot": make_runtime_config_snapshot(
+            backend=backend, context_size=context_size, max_tokens=max_tokens,
+            seed=seed, prompt=prompt, threads=threads,
+            warmup_tokens=warmup_tokens,
+        ),
         "execution_evidence": {
             "process_create_ms": None,
             "runtime_ready_ms": None,
@@ -327,7 +353,20 @@ def base_report(mode: str, model: Path, executable: Path | None, prompt: str,
             "stdout_sha256": None,
             "stderr_sha256": None,
         },
-        "measurements": {},
+        "measurements": {
+            "process_create_ms": None,
+            "file_open_ms": None,
+            "mmap_ms": None,
+            "metadata_parse_ms": None,
+            "tokenizer_init_ms": None,
+            "kv_cache_alloc_ms": None,
+            "advisory_preload_ms": None,
+            "first_tensor_touch_ms": None,
+            "first_real_forward_ms": None,
+            "prompt_prefill_ms": None,
+            "decode_ms": None,
+            "total_end_to_end_ms": None,
+        },
         "unavailable_metrics": {},
     }
 
@@ -370,6 +409,9 @@ def run_phase_benchmark(model_path: str, mode: str, prompt: str, max_tokens: int
         ("requested_threads", "requested_cpu_threads"),
         ("hot_path_active_threads", "active_cpu_threads"),
         ("hot_path_isa_kernel", "selected_cpu_isa_kernel"),
+        ("selected_isa_kernel", "selected_cpu_isa_kernel"),
+        ("binary_avx2_kernel", "binary_avx2_kernel"),
+        ("binary_vnni_kernel", "binary_vnni_kernel"),
     ):
         if source in build_fields:
             report["runtime_metadata"][target] = build_fields[source]
@@ -393,9 +435,17 @@ def run_phase_benchmark(model_path: str, mode: str, prompt: str, max_tokens: int
         })
         ready = runtime.ready_stat
         report["measurements"].update({
+            "process_create_ms": round(runtime.process_create_ms, 3),
             "cold_start_ms": round(runtime.ready_ms, 3),
             "model_load_ms": _number(ready, "model_load_ms"),
             "runtime_ready_ms": _number(ready, "runtime_ready_ms"),
+            "file_open_ms": _number(ready, "file_open_ms"),
+            "mmap_ms": _number(ready, "mmap_ms"),
+            "metadata_parse_ms": _number(ready, "metadata_parse_ms"),
+            "tokenizer_init_ms": _number(ready, "tokenizer_init_ms"),
+            "kv_cache_alloc_ms": _number(ready, "kv_cache_alloc_ms"),
+            "advisory_preload_ms": _number(ready, "advisory_preload_ms"),
+            "first_tensor_touch_ms": _number(ready, "first_tensor_touch_ms"),
         })
         if mode == "cold-start":
             if _number(ready, "model_load_ms") is None or _number(ready, "runtime_ready_ms") is None:
@@ -425,6 +475,12 @@ def run_phase_benchmark(model_path: str, mode: str, prompt: str, max_tokens: int
             "generated_tokens": selected.get("generated_tokens"),
             "first_token_ms": selected.get("first_token_ms"),
             "decode_wall_ms": selected.get("decode_wall_ms"),
+            "decode_ms": selected.get("decode_wall_ms"),
+            "prompt_prefill_ms": selected.get("prefill_ms"),
+            "first_real_forward_ms": selected.get("first_real_forward_ms"),
+            "sampling_ms": selected.get("sampling_ms"),
+            "kv_reset_ms": selected.get("kv_reset_ms"),
+            "protocol_request_wall_ms": selected.get("protocol_request_wall_ms"),
             "decode_tok_per_sec": selected.get("decode_tok_per_sec"),
             "request_id": selected.get("request_id"),
             "runtime_stat_line": selected.get("runtime_stat_line"),
@@ -443,6 +499,7 @@ def run_phase_benchmark(model_path: str, mode: str, prompt: str, max_tokens: int
                 target = "selected_cpu_isa_kernel" if key == "kernel" else (
                     "active_cpu_threads" if key == "active_threads" else key)
                 report["runtime_metadata"][target] = selected[key]
+        update_runtime_config_snapshot(report["runtime_config_snapshot"], selected)
         if backend == "cuda" and not cuda_execution_proven(selected):
             return finish(report, "INVALID",
                           "CUDA benchmark did not prove actual GPU matmul-only execution")
@@ -466,6 +523,7 @@ def run_phase_benchmark(model_path: str, mode: str, prompt: str, max_tokens: int
                                    ("hot_path_isa_kernel", "selected_cpu_isa_kernel")):
                 if source in runtime_fields:
                     report["runtime_metadata"][target] = runtime_fields[source]
+            update_runtime_config_snapshot(report["runtime_config_snapshot"], runtime_fields)
 
 
 def main() -> None:

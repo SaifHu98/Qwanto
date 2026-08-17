@@ -23,6 +23,7 @@ typedef struct {
     char kv_cache_mode[16];
     char quantization[32];
     char kernel[32];
+    char thinking_mode[16];
     int speculative_decoding;
     int fused_kernel;
 } QwnRuntimeConfig;

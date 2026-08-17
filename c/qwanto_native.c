@@ -5,6 +5,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+static double qwn_native_wall_seconds(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER frequency;
+    static int initialized = 0;
+    LARGE_INTEGER counter;
+    if (!initialized) {
+        QueryPerformanceFrequency(&frequency);
+        initialized = 1;
+    }
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return (double)clock() / (double)CLOCKS_PER_SEC;
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
 
 /* Platform-specific mmap. compat.h already provides CreateFileMapping on
  * Windows, but to keep this module self-contained (and to avoid pulling
@@ -153,9 +177,13 @@ static int qwn_validate_desc(const QwnTensorDesc *t, size_t file_size) {
 }
 
 int qwn_open(const char *path, QwnModel *m, const char **err) {
+    double file_open_started;
+    double mmap_started;
+    double metadata_started;
     if (err) *err = NULL;
     memset(m, 0, sizeof(*m));
     m->fd = QWN_BAD_FD;
+    file_open_started = qwn_native_wall_seconds();
     if (qwn_open_fd(path, &m->fd) != 0) {
         if (err) *err = ERR_IO;
         return -1;
@@ -166,11 +194,15 @@ int qwn_open(const char *path, QwnModel *m, const char **err) {
         if (err) *err = ERR_TRUNC;
         return -1;
     }
+    m->open_metrics.file_open_ms = (qwn_native_wall_seconds() - file_open_started) * 1000.0;
+    mmap_started = qwn_native_wall_seconds();
     if (qwn_mmap(m->fd, m->file_size, &m->base) != 0) {
         qwn_close_fd(m->fd); m->fd = QWN_BAD_FD;
         if (err) *err = ERR_IO;
         return -1;
     }
+    m->open_metrics.mmap_ms = (qwn_native_wall_seconds() - mmap_started) * 1000.0;
+    metadata_started = qwn_native_wall_seconds();
     /* Footer is always read first. It is the only way to locate the tail
      * index without assumptions about model size or payload padding. */
     memcpy(&m->tail_offset, m->base + m->file_size - sizeof(uint64_t),
@@ -274,6 +306,8 @@ int qwn_open(const char *path, QwnModel *m, const char **err) {
             }
         }
     }
+    m->open_metrics.metadata_parse_ms =
+        (qwn_native_wall_seconds() - metadata_started) * 1000.0;
     return 0;
 }
 

@@ -24,6 +24,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from .runtime_config_snapshot import make_runtime_config_snapshot, update_runtime_config_snapshot
+except ImportError:
+    from runtime_config_snapshot import make_runtime_config_snapshot, update_runtime_config_snapshot
+
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent
 SCHEMA_VERSION = "4.0.0"
@@ -32,7 +37,15 @@ CLASSIFICATIONS = {"MEASURED", "UNAVAILABLE", "INVALID", "TEST_FIXTURE", "EXPERI
 _STATUS_RE = re.compile(r"status=(?P<status>ok|error)\b(?:\s+tokens=(?P<tokens>-?\d+))?")
 _GENERATED_RE = re.compile(r"Generated\s+Tokens\s*:\s*(?P<tokens>-?\d+)", re.IGNORECASE)
 _TTFT_RE = re.compile(r"ttft_ms=(?P<ttft>[+-]?(?:\d+(?:\.\d*)?|\.\d+))")
-_RUNTIME_FIELD_RE = re.compile(r"\b(?P<key>backend|kernel|gpu_device|gpu_matmul_count|cpu_fallback_count|cuda_upload_bytes|cuda_resident_bytes|cuda_dll_sha256)=([A-Za-z0-9_.-]+)", re.IGNORECASE)
+_RUNTIME_FIELD_RE = re.compile(
+    r"\b(?P<key>backend|backend_actual|kernel|kernel_requested|model_dtype|gpu_device|"
+    r"gpu_matmul_count|cpu_fallback_count|cuda_upload_bytes|cuda_resident_bytes|cuda_dll_sha256|"
+    r"active_threads|dispatch_reason|thinking_mode|decode_function|config_backend|context_size|"
+    r"max_tokens|seed|kv_cache_mode|quantization|temperature|top_p|first_real_forward_ms|"
+    r"file_open_ms|mmap_ms|metadata_parse_ms|tokenizer_init_ms|kv_cache_alloc_ms|"
+    r"advisory_preload_ms|first_tensor_touch_ms|total_end_to_end_ms|prefill_ms|decode_wall_ms|"
+    r"prefill_tok_per_sec|decode_tok_per_sec|generation_wall_ms|"
+    r"sampling_ms)=(?P<value>[A-Za-z0-9_.;+-]+)", re.IGNORECASE)
 _KERNEL_SELECTED_RE = re.compile(r"kernel\s+selected:\s*(?P<kernel>[A-Za-z0-9_.-]+)", re.IGNORECASE)
 
 
@@ -283,14 +296,17 @@ def parse_runtime_metrics(stdout: str, stderr: str) -> dict:
     """Read only counters emitted by qwnrun; absent counters stay unavailable."""
     values = {}
     for match in _RUNTIME_FIELD_RE.finditer(stderr + "\n" + stdout):
-        key, raw = match.group("key"), match.group(2)
+        key, raw = match.group("key"), match.group("value")
         if key in {"backend", "kernel", "cuda_dll_sha256"}:
             values[key] = raw.lower() if key != "cuda_dll_sha256" else raw
         else:
             try:
                 values[key] = int(raw)
             except ValueError:
-                values[key] = None
+                try:
+                    values[key] = float(raw)
+                except ValueError:
+                    values[key] = raw
     selected_kernel = list(_KERNEL_SELECTED_RE.finditer(stderr + "\n" + stdout))
     if selected_kernel:
         values["kernel"] = selected_kernel[-1].group("kernel").lower()
@@ -333,6 +349,10 @@ def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable
             "max_tokens_requested": None,
             "command_argv": cmd,
         },
+        "runtime_config_snapshot": make_runtime_config_snapshot(
+            backend="cpu", context_size=4096, max_tokens=1, seed=0,
+            prompt="", threads=None, warmup_tokens=0,
+        ),
         "execution_evidence": {
             "returncode": None,
             "timed_out": False,
@@ -380,7 +400,7 @@ def execute_real_benchmark(
     cmd = [str(executable) if executable else "qwnrun", str(model_file), prompt,
            str(max_tokens), str(context_size), "--backend", backend,
            "--ctx-size", str(context_size), "--max-tokens", str(max_tokens),
-           "--seed", str(seed)]
+           "--seed", str(seed), "--thinking", "none"]
     if threads is not None:
         cmd += ["--threads", str(threads)]
     report = _report_base(timestamp_utc, host_hw, model_file, executable, cmd)
@@ -394,6 +414,10 @@ def execute_real_benchmark(
         "warmup_tokens": warmup_tokens,
         "cpu_threads_requested": threads,
     })
+    report["runtime_config_snapshot"] = make_runtime_config_snapshot(
+        backend=backend, context_size=context_size, max_tokens=max_tokens,
+        seed=seed, prompt=prompt, threads=threads, warmup_tokens=warmup_tokens,
+    )
 
     if max_tokens <= 0 or not prompt:
         return _finish_report(report, "INVALID", "prompt must be non-empty and max_tokens must be positive")
@@ -405,8 +429,12 @@ def execute_real_benchmark(
     def run_command(command: list[str], timeout: float):
         started = time.perf_counter()
         try:
+            environment = os.environ.copy()
+            environment["QWANTO_TEMP"] = "0"
+            environment["QWANTO_TOP_P"] = "1"
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       text=True, encoding="utf-8", errors="replace")
+                                       text=True, encoding="utf-8", errors="replace",
+                                       env=environment)
             try:
                 stdout, stderr = process.communicate(timeout=timeout)
                 timed_out = False
@@ -418,16 +446,26 @@ def execute_real_benchmark(
         except OSError as error:
             return None, "", str(error), 0.0, False
 
-    build_process, build_stdout, build_stderr, _, _ = run_command([str(executable), "--build-info"], 10.0)
+    build_process, build_stdout, build_stderr, _, _ = run_command([str(executable), "--build-info", "--json"], 10.0)
     report["runtime_metadata"]["build_info"] = (build_stdout + "\n" + build_stderr).strip() or None
     report["runtime_metadata"]["build_info_returncode"] = build_process.returncode if build_process else None
     build_fields = parse_build_info(report["runtime_metadata"]["build_info"])
+    try:
+        build_json = json.loads(build_stdout)
+        if isinstance(build_json, dict):
+            build_fields.update({key: value for key, value in build_json.items() if not isinstance(value, dict)})
+            features = build_json.get("cpu_features", {})
+            if isinstance(features, dict):
+                build_fields.update({f"cpu_{key}": value for key, value in features.items()})
+    except (json.JSONDecodeError, TypeError):
+        pass
     report["runtime_metadata"].update({
         "compiler": build_fields.get("compiler", "Unavailable"),
         "optimization_flags": build_fields.get("optimization_flags", "Unavailable"),
         "openmp_enabled": build_fields.get("openmp_enabled", "Unavailable"),
         "active_thread_count": build_fields.get("active_threads", "Unavailable"),
-        "selected_cpu_isa_kernel": build_fields.get("isa_backend", "Unavailable"),
+        "selected_cpu_isa_kernel": build_fields.get(
+            "selected_isa_kernel", build_fields.get("isa_backend", "Unavailable")),
         "gpu_kernel_coverage": build_fields.get("gpu_kernel_coverage", "Unavailable"),
     })
 
@@ -467,6 +505,7 @@ def execute_real_benchmark(
         return _finish_report(report, "INVALID", f"qwnrun exited with status {process.returncode}")
 
     runtime_metrics = parse_runtime_metrics(stdout, stderr)
+    update_runtime_config_snapshot(report["runtime_config_snapshot"], runtime_metrics)
     report["measured_evidence"] = {
         "backend_requested": backend,
         "backend_actual": runtime_metrics.get("backend", "Unavailable"),
@@ -477,6 +516,7 @@ def execute_real_benchmark(
         "cuda_resident_bytes": runtime_metrics.get("cuda_resident_bytes", "Unavailable"),
         "gpu_device": runtime_metrics.get("gpu_device", "Unavailable"),
         "cuda_dll_sha256": runtime_metrics.get("cuda_dll_sha256", report["runtime_metadata"]["cuda_dll_sha256"]),
+        "runtime_config_snapshot": report["runtime_config_snapshot"],
     }
     if backend == "cuda" and (runtime_metrics.get("backend") != "cuda" or
                                runtime_metrics.get("gpu_matmul_count", 0) <= 0 or
@@ -497,13 +537,27 @@ def execute_real_benchmark(
     report["measured_evidence"].update({
         "generated_tokens": generated_tokens,
         "wall_seconds": round(wall_seconds, 6),
-        "prefill_tok_per_sec": "Unavailable",
-        "decode_tok_per_sec": round(generated_tokens / wall_seconds, 6),
+        "prefill_tok_per_sec": runtime_metrics.get("prefill_tok_per_sec", "Unavailable"),
+        "decode_tok_per_sec": runtime_metrics.get(
+            "decode_tok_per_sec", round(generated_tokens / wall_seconds, 6)),
         "tok_per_sec": round(generated_tokens / wall_seconds, 6),
         "ttft_ms": ttft_ms,
         "prompt_prefill_tok_s": "Unavailable",
         "gpu_utilization": "Unavailable",
         "vram_measured_bytes": runtime_metrics.get("cuda_resident_bytes", "Unavailable"),
+        "file_open_ms": runtime_metrics.get("file_open_ms", "Unavailable"),
+        "mmap_ms": runtime_metrics.get("mmap_ms", "Unavailable"),
+        "metadata_parse_ms": runtime_metrics.get("metadata_parse_ms", "Unavailable"),
+        "tokenizer_init_ms": runtime_metrics.get("tokenizer_init_ms", "Unavailable"),
+        "kv_cache_alloc_ms": runtime_metrics.get("kv_cache_alloc_ms", "Unavailable"),
+        "advisory_preload_ms": runtime_metrics.get("advisory_preload_ms", "Unavailable"),
+        "first_tensor_touch_ms": runtime_metrics.get("first_tensor_touch_ms", "Unavailable"),
+        "first_real_forward_ms": runtime_metrics.get("first_real_forward_ms", "Unavailable"),
+        "prefill_ms": runtime_metrics.get("prefill_ms", "Unavailable"),
+        "decode_wall_ms": runtime_metrics.get("decode_wall_ms", "Unavailable"),
+        "sampling_ms": runtime_metrics.get("sampling_ms", "Unavailable"),
+        "total_end_to_end_ms": runtime_metrics.get("total_end_to_end_ms", round(wall_seconds * 1000.0, 3)),
+        "generation_wall_ms": runtime_metrics.get("generation_wall_ms", "Unavailable"),
     })
     return _finish_report(report, "MEASURED", None)
 

@@ -9,7 +9,10 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from benchmark_runtime_phases import run_phase_benchmark
+try:
+    from .benchmark_runtime_phases import run_phase_benchmark
+except ImportError:
+    from benchmark_runtime_phases import run_phase_benchmark
 
 
 def main() -> None:

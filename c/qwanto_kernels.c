@@ -43,8 +43,16 @@ static void aligned_free64(void *p) {
 static QwnCpuFeatures g_cpu_features;
 static int g_cpu_features_initialized = 0;
 
-static int qwn_avx2_kernel_compiled(void) {
+int qwn_cpu_avx2_kernel_compiled(void) {
 #if defined(__AVX2__)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int qwn_cpu_vnni_kernel_compiled(void) {
+#if defined(__AVX2__) && (defined(__clang__) || defined(__GNUC__) || defined(__AVX_VNNI__))
     return 1;
 #else
     return 0;
@@ -143,14 +151,14 @@ const QwnCpuFeatures *qwn_get_cpu_features(void) {
 const char *qwn_cpu_kernel_name(void) {
     const QwnCpuFeatures *cpu = qwn_get_cpu_features();
     if (cpu->forced_mode == 1) return "scalar-forced";
-    if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_avx2_kernel_compiled())
+    if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_cpu_avx2_kernel_compiled())
         return "avx2-fma-f16c-forced";
-    if (cpu->forced_mode == 3 && cpu->has_vnni && qwn_avx2_kernel_compiled())
+    if (cpu->forced_mode == 3 && cpu->has_vnni && qwn_cpu_vnni_kernel_compiled())
         return "vnni-forced";
-    if (cpu->has_vnni && qwn_avx2_kernel_compiled()) return "vnni";
-    if (cpu->has_avx2 && qwn_avx2_kernel_compiled() && cpu->has_fma && cpu->has_f16c)
+    if (cpu->has_vnni && qwn_cpu_vnni_kernel_compiled()) return "vnni";
+    if (cpu->has_avx2 && qwn_cpu_avx2_kernel_compiled() && cpu->has_fma && cpu->has_f16c)
         return "avx2-fma-f16c";
-    if (cpu->has_avx2 && qwn_avx2_kernel_compiled()) return "avx2";
+    if (cpu->has_avx2 && qwn_cpu_avx2_kernel_compiled()) return "avx2";
     return "scalar";
 }
 
@@ -162,7 +170,7 @@ int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size) {
         return 0;
     }
     if (strcmp(kernel, "avx2") == 0) {
-        if (!cpu->has_avx2 || !qwn_avx2_kernel_compiled()) {
+        if (!cpu->has_avx2 || !qwn_cpu_avx2_kernel_compiled()) {
             if (error && error_size) snprintf(error, error_size,
                 "AVX2 kernel requested but CPU support or compiled AVX2 code is unavailable");
             return -1;
@@ -171,7 +179,7 @@ int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size) {
         return 0;
     }
     if (strcmp(kernel, "vnni") == 0) {
-        if (!cpu->has_vnni || !qwn_avx2_kernel_compiled()) {
+        if (!cpu->has_vnni || !qwn_cpu_vnni_kernel_compiled()) {
             if (error && error_size) snprintf(error, error_size,
                 "VNNI kernel requested but CPU support or compiled AVX2/VNNI code is unavailable");
             return -1;
@@ -775,19 +783,40 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
     gemv_fn_t gemv_fn = qwn_gemv_hypervsq2_scalar;
     if (cpu->forced_mode == 1) {
         gemv_fn = qwn_gemv_hypervsq2_scalar;
-    } else if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_avx2_kernel_compiled()) {
+    } else if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_cpu_avx2_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_avx2;
-    } else if (cpu->forced_mode == 3 && cpu->has_vnni && qwn_avx2_kernel_compiled()) {
+    } else if (cpu->forced_mode == 3 && cpu->has_vnni && qwn_cpu_vnni_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_vnni;
-    } else if (cpu->has_vnni && qwn_avx2_kernel_compiled()) {
+    } else if (cpu->has_vnni && qwn_cpu_vnni_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_vnni;
-    } else if (cpu->has_avx2 && qwn_avx2_kernel_compiled()) {
+    } else if (cpu->has_avx2 && qwn_cpu_avx2_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_avx2;
     }
 
     if (scratch->hypervsq2_matmul_calls == 0) {
         snprintf(scratch->hypervsq2_kernel, sizeof(scratch->hypervsq2_kernel),
                  "%s", qwn_cpu_kernel_name());
+        if (gemv_fn == qwn_gemv_hypervsq2_vnni) {
+            snprintf(scratch->hypervsq2_dispatch_reason,
+                     sizeof(scratch->hypervsq2_dispatch_reason),
+                     "cpu_vnni=yes;binary_vnni=yes;dtype=hypervsq2-74;selected=vnni");
+        } else if (gemv_fn == qwn_gemv_hypervsq2_avx2) {
+            snprintf(scratch->hypervsq2_dispatch_reason,
+                     sizeof(scratch->hypervsq2_dispatch_reason),
+                     "cpu_avx2=yes;binary_avx2=yes;dtype=hypervsq2-74;selected=avx2");
+        } else if (cpu->forced_mode == 1) {
+            snprintf(scratch->hypervsq2_dispatch_reason,
+                     sizeof(scratch->hypervsq2_dispatch_reason),
+                     "requested=scalar;selected=scalar");
+        } else {
+            snprintf(scratch->hypervsq2_dispatch_reason,
+                     sizeof(scratch->hypervsq2_dispatch_reason),
+                     "cpu_avx2=%s;binary_avx2=%s;cpu_vnni=%s;binary_vnni=%s;selected=scalar",
+                     cpu->has_avx2 ? "yes" : "no",
+                     qwn_cpu_avx2_kernel_compiled() ? "yes" : "no",
+                     cpu->has_vnni ? "yes" : "no",
+                     qwn_cpu_vnni_kernel_compiled() ? "yes" : "no");
+        }
     }
 
     for (int t = 0; t < M; t++) {
