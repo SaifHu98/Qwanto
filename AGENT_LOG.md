@@ -382,6 +382,16 @@
   redist directories and retained strict recursive lookup for the x64 DLL.
 - **Validation:** YAML and release-policy checks pass locally; no failure is
   masked and no tag/release was created.
+
+## 2026-08-17 — Windows Clang path resolution
+
+- **Evidence:** Hosted run `32024033798` failed the Windows native job in 22
+  seconds, still before a native artifact; the public job page exposes only a
+  generic exit annotation.
+- **Change:** CI and package builds now resolve Clang from PATH or standard
+  LLVM install locations and pass the resolved path to Clang/sccache, while
+  retaining strict OpenMP import/runtime validation.
+- **Validation:** Workflow YAML and release-policy checks pass locally.
 - **Decision:** The first hardened commit remains pushed; this follow-up is
   required before treating hosted Windows validation as representative.
 
