@@ -482,16 +482,20 @@ extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_release_tensor(
 extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_hypervsq2_gemv(
     QwnCudaContextHandle *context, const QwnCudaGemmRequest *request,
     QwnCudaTelemetry *telemetry) {
-    if (!request || request->batch != 1) return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    RuntimeContext *runtime = context_from(context);
+    if (!runtime || !request || request->batch != 1)
+        return QWN_CUDA_STATUS_INVALID_ARGUMENT;
     std::lock_guard<std::mutex> lock(g_mutex);
-    return execute(context, request, telemetry);
+    return execute(runtime, request, telemetry);
 }
 
 extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_hypervsq2_gemm(
     QwnCudaContextHandle *context, const QwnCudaGemmRequest *request,
     QwnCudaTelemetry *telemetry) {
+    RuntimeContext *runtime = context_from(context);
+    if (!runtime) return QWN_CUDA_STATUS_INVALID_ARGUMENT;
     std::lock_guard<std::mutex> lock(g_mutex);
-    return execute(context, request, telemetry);
+    return execute(runtime, request, telemetry);
 }
 
 extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_synchronize(QwnCudaContextHandle *handle) {

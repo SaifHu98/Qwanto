@@ -13,6 +13,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ABI = ROOT / "cuda" / "qwn_cuda_abi.h"
+MAKEFILE = ROOT / "Makefile"
+QWNRUN = ROOT / "qwnrun.c"
 
 
 def test_versioned_abi_declares_exact_hypervsq2_contract():
@@ -45,6 +47,24 @@ def test_windows_loader_does_not_accept_arbitrary_dll_path():
     assert "LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR" in loader
     assert "qwn_cuda_abi_query" in loader
     assert "legacy CUDA DLLs are rejected" in loader
+
+
+def test_decoder_comparison_is_an_explicit_cuda_build_target():
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    decoder_test = (ROOT / "tests" / "test_qwn_hypervsq2_cuda_decoder.c").read_text(
+        encoding="utf-8"
+    )
+    assert "cuda-hypervsq2-decoder-test" in makefile
+    assert "test_qwn_hypervsq2_cuda_decoder.c" in makefile
+    assert "gpu_matmuls" in decoder_test
+    assert "cpu_fallbacks" in decoder_test
+
+
+def test_runtime_info_reports_versioned_cuda_state_after_loader_changes():
+    source = QWNRUN.read_text(encoding="utf-8")
+    assert "cuda_compiled=versioned-abi-source" in source
+    assert "gpu_kernel_coverage=versioned-qwn-cuda-abi-source-runtime-dll-check-required" in source
+    assert "qwnrun runtime: backend=CPU cuda_compiled=false" not in source
 
 
 def test_host_can_parse_the_abi_header_when_clang_is_available():

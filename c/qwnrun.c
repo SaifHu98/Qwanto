@@ -89,7 +89,7 @@ static void print_build_info(const QwnRuntimeConfig *config) {
             "detected_cpu_features=avx2:%s,f16c:%s,fma:%s,vnni:%s,avx512f:%s "
             "binary_sha256=%s "
             "model_dtype=Unavailable backend_requested=%s backend_actual=Unavailable "
-            "gpu_kernel_coverage=Unavailable-until-versioned-qwn-cuda-ABI gpu_matmul_count=0 "
+             "gpu_kernel_coverage=versioned-qwn-cuda-abi-source-runtime-dll-check-required gpu_matmul_count=0 "
             "cpu_fallback_count=0 pid=%lu\n",
             compiler, compiler_version, QWN_BUILD_OPT_FLAGS,
 #if defined(_OPENMP)
@@ -147,7 +147,7 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
            "\"selected_isa_kernel\":\"Unavailable\",\"binary_sha256\":\"%s\","
            "\"backend_requested\":\"%s\",\"backend_actual\":\"Unavailable\","
            "\"gpu_matmul_count\":0,\"cpu_fallback_count\":0,"
-           "\"gpu_kernel_coverage\":\"Unavailable-until-versioned-qwn-cuda-ABI\","
+           "\"gpu_kernel_coverage\":\"versioned-qwn-cuda-abi-source-runtime-dll-check-required\","
            "\"model_dtype\":\"Unavailable\",\"thinking_mode\":\"%s\","
            "\"kv_cache_mode\":\"%s\",\"quantization\":\"%s\",\"kernel_requested\":\"%s\","
            "\"pid\":%lu}\n",
@@ -269,37 +269,20 @@ static void print_runtime_info(const QwnDecoder *decoder) {
                 startup->kv_cache_alloc_ms, startup->advisory_preload_ms,
                 startup->first_tensor_touch_ms, startup->first_real_forward_ms);
     }
-#ifdef COLI_CUDA
-    if (decoder->cuda_enabled) {
-        fprintf(stderr, "qwnrun runtime: backend=CUDA cuda_compiled=true "
-                "cuda_dll_loaded=true cuda_devices=%d memory_backend=mmap "
-                "prefetch_enabled=true planned_gpu_bytes=%llu "
-                "planned_ram_bytes=%llu planned_nvme_bytes=%llu "
-                "prefetch_calls=%llu\n", decoder->cuda_device_count,
-                (unsigned long long)decoder->residency.gpu_bytes,
-                (unsigned long long)decoder->residency.ram_bytes,
-                (unsigned long long)decoder->residency.nvme_bytes,
-                (unsigned long long)decoder->prefetch_calls);
-        return;
-    }
-    fprintf(stderr, "qwnrun runtime: backend=CPU cuda_compiled=true "
-            "cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true "
+    fprintf(stderr, "qwnrun runtime: backend=%s cuda_compiled=versioned-abi-source "
+            "cuda_dll_loaded=%s memory_backend=mmap prefetch_enabled=true "
             "planned_gpu_bytes=%llu planned_ram_bytes=%llu "
-            "planned_nvme_bytes=%llu prefetch_calls=%llu\n",
+            "planned_nvme_bytes=%llu prefetch_calls=%llu gpu_matmul_count=%llu "
+            "cpu_fallback_count=%llu gpu_resident_bytes=%llu\n",
+            metrics && metrics->backend[0] ? metrics->backend : "CPU",
+            decoder->qwn_cuda.available ? "true" : "false",
             (unsigned long long)decoder->residency.gpu_bytes,
             (unsigned long long)decoder->residency.ram_bytes,
             (unsigned long long)decoder->residency.nvme_bytes,
-            (unsigned long long)decoder->prefetch_calls);
-#else
-    fprintf(stderr, "qwnrun runtime: backend=CPU cuda_compiled=false "
-            "cuda_dll_loaded=false memory_backend=mmap prefetch_enabled=true "
-            "planned_gpu_bytes=%llu planned_ram_bytes=%llu "
-            "planned_nvme_bytes=%llu prefetch_calls=%llu\n",
-            (unsigned long long)decoder->residency.gpu_bytes,
-            (unsigned long long)decoder->residency.ram_bytes,
-            (unsigned long long)decoder->residency.nvme_bytes,
-            (unsigned long long)decoder->prefetch_calls);
-#endif
+            (unsigned long long)decoder->prefetch_calls,
+            (unsigned long long)(metrics ? metrics->cuda_matmul_count : 0),
+            (unsigned long long)(metrics ? metrics->cpu_fallback_count : 0),
+            (unsigned long long)(metrics ? metrics->cuda_resident_bytes : 0));
 }
 
 typedef struct { const char *id; } ServeOut;

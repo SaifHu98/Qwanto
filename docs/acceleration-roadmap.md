@@ -39,7 +39,7 @@ commit passes the complete hosted workflow.
 | Alternative 2-bit unpacking | `VALIDATED_CURRENT_IMPLEMENTATION` | Keep current shift/mask path | `9a68691` | 10,000 random unpack equalities plus 140/140 differential | `phaseA-clean-9a68691/phaseA-ablation-final.json`; native test output | Yes, current implementation | LUT is slower in the diagnostic and not used end-to-end |
 | SIMD SwiGLU | `VALIDATED_NOT_BENEFICIAL` | Retain exact scalar behavior | `9a68691` | Exact scalar path; measured contribution approximately 0.14% of HyperVSQ kernel time | `phaseA-clean-9a68691/final-delayed-8t-64.json` | No fast approximation | No material end-to-end target justifies approximation risk |
 | CPU affinity/autotuning | `VALIDATED_NOT_BENEFICIAL` for affinity; opt-in tuner measured | OS-default scheduling; cache opt-in measurements | `9a68691` | Repeated 64/128 policy matrices; cache-keyed autotune selected 8 | `phaseA-clean-9a68691/affinity-final/`, `affinity-final-128/`, `autotune-final.json` | OS default only | Do not run long autotune at startup |
-| HyperVSQ-2 CUDA | `UNAVAILABLE` locally; ABI/reference source prepared, not compiled | `COMPILED` → `KERNEL_CORRECT` → `END_TO_END_VALIDATED` → `MEASURED` | CUDA ABI contract/static loader tests; NVCC tests pending | None | None | No | `nvcc`/CUDA Toolkit is unavailable locally; exact 74-byte device correctness and real model dispatch remain pending |
+| HyperVSQ-2 CUDA | `END_TO_END_VALIDATED` locally; hosted validation pending | `COMPILED` → `KERNEL_CORRECT` → `END_TO_END_VALIDATED` → `MEASURED` | ABI v1 synthetic test; scalar/VNNI real-model decoder comparison; zero required-layer CPU fallbacks | Short CUDA diagnostic only; `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION` | No | Release-quality CUDA repetitions, hosted gates, and a clean evidence commit remain required |
 | Typed quantized KV cache | FP16/auto only; TurboQuant env scaffold | Typed validated fp16/q8/q4 modes as implemented | — | No quantized KV runtime contract | None | FP16 only | Long-context error, memory, and quality validation |
 | Speculative decoding | Prototype scaffold; CLI rejects it | `IMPLEMENTED_REQUIRES_DRAFT_MODEL` or measured | — | No complete distribution/KV rollback evidence | None | No | Draft QWN compatibility and probability correction |
 | JetSpec | Reference-only scaffold with placeholders | Real speculative algorithm or disabled reference-only | — | None | None | No | Synthetic token generation and placeholder telemetry must remain absent |
@@ -49,8 +49,11 @@ commit passes the complete hosted workflow.
 ## Execution policy
 
 Phase A completes the CPU candidates and either promotes or rejects them.
-Phase B starts only after Phase A has a committed decision and hosted checks.
-Phases C–F remain independently committed. README performance tables are not
+Phase B has started with the correctness-first versioned ABI and exact
+HyperVSQ-2 reference path. It must remain independently validated; no CUDA
+performance claim is promoted until the clean evidence commit passes hosted
+checks. Phases C–F remain independently committed.
+README performance tables are not
 updated until accepted evidence is regenerated from a clean final commit and
 the complete hosted workflow is green. No release or tag is created by this
 roadmap work.

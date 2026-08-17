@@ -238,6 +238,7 @@ glm$(EXE): glm.c st.h uring.h json.h tok.h tok_unicode.h compat.h grammar.h $(CU
 	$(CC) $(CFLAGS) glm.c $(CUDA_OBJ) $(METAL_OBJ) -o glm$(EXE) $(LDFLAGS)
 
 QWNRUN_SRCS = qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c
+QWNRUN_LIB_SRCS = $(filter-out qwnrun.c,$(QWNRUN_SRCS))
 
 qwnrun$(EXE): $(QWNRUN_SRCS) $(CUDA_OBJ)
 	$(CC) $(CFLAGS) $(QWNRUN_SRCS) $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
@@ -290,6 +291,11 @@ cuda-hypervsq2-test: cuda/qwn_hypervsq2_cuda_abi.cu cuda/qwn_cuda_abi.h tests/te
 		cuda/qwn_hypervsq2_cuda_abi.cu tests/test_qwn_hypervsq2_cuda_abi.cu \
 		-L"$(CUDA_LIBDIR)" -lcudart -o tests/test_qwn_hypervsq2_cuda$(EXE)
 	./tests/test_qwn_hypervsq2_cuda$(EXE)
+
+cuda-hypervsq2-decoder-test: tests/test_qwn_hypervsq2_cuda_decoder.c $(QWNRUN_LIB_SRCS) cuda/qwn_cuda_abi.h
+	$(CC) $(CFLAGS) $< $(QWNRUN_LIB_SRCS) -o test_qwn_hypervsq2_cuda_decoder$(EXE) $(LDFLAGS)
+	./test_qwn_hypervsq2_cuda_decoder$(EXE) experiments/results/4B_hyper_vsq2.qwn scalar
+	./test_qwn_hypervsq2_cuda_decoder$(EXE) experiments/results/4B_hyper_vsq2.qwn vnni
 
 olmoe$(EXE): olmoe.c st.h json.h compat.h
 	$(CC) $(CFLAGS) olmoe.c -o olmoe$(EXE) $(LDFLAGS)
@@ -394,4 +400,4 @@ clean:
 
 bench: iobench$(EXE)
 	@if [ -n "$(ARGS)" ]; then ./iobench$(EXE) $(ARGS); else echo "built iobench$(EXE) — run: ./iobench$(EXE) <file> <MB> <iters> <threads> <direct 0|1>"; fi
-.PHONY: all glm qwnrun cuda-test cuda-bench cuda-hypervsq2-test cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench
+.PHONY: all glm qwnrun cuda-test cuda-bench cuda-hypervsq2-test cuda-hypervsq2-decoder-test cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench

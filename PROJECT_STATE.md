@@ -28,7 +28,7 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `240 passed, 4 skipped` in `c/tests/`; safe
+- Native/Python validation: `242 passed, 4 skipped` in `c/tests/`; safe
   model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
@@ -65,8 +65,10 @@ and NVMe mmap.
   remains unchanged.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
-  native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
-  device/toolkit is unavailable.
+  native C syntax check and a Windows clang/OpenMP link test passed. CUDA 13.3,
+  MSVC 19.44, CMake 4.4.2, and Ninja 1.13.2 are now installed and the local
+  HyperVSQ-2 CUDA reference path has compiled and passed synthetic and real-model
+  decoder comparisons.
 - Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, `v0.1.0-beta.3`, and the
   explicitly unsigned `v0.1.0-beta.4` are published GitHub prereleases. Beta.4
   package/publish run `31974921398` passed and its assets contain only installers
@@ -90,11 +92,11 @@ and NVMe mmap.
 - CUDA Phase B has a versioned host/DLL ABI and an exact 74-byte HyperVSQ-2
   reference GEMV/GEMM source under `c/cuda/`, with secure runtime-directory
   loading, ABI checks, residency accounting, and fail-closed explicit CUDA.
-  Local preflight found an RTX 5070 Ti Laptop GPU but no `nvcc`, CUDA Toolkit,
-  `cl.exe`, CMake, or Ninja. CUDA is therefore `UNAVAILABLE`, not compiled or
-  GPU-tested; no CUDA performance claim exists. The gateway telemetry and
-  Qwanto Code Runtime settings now expose only observed native DONE STAT
-  counters.
+  On the RTX 5070 Ti Laptop GPU, the ABI DLL compiled for detected `sm_120`,
+  synthetic correctness passed, and scalar/VNNI real-model decoder comparisons
+  passed with zero required-layer CPU fallbacks. A short persistent run reached
+  `backend_actual=cuda` with 9,856 GPU matmuls. CUDA performance remains local
+  diagnostic evidence pending hosted validation; README has not changed.
 
 ## Active limitations
 
@@ -113,13 +115,16 @@ and NVMe mmap.
 - Gateway/client sensor metrics remain unavailable unless the runtime protocol
   or local sensor query supplies them; qwnrun's current phase evidence reports
   measured first-token latency and decode timing.
-- CUDA is still `UNAVAILABLE` on this workstation: explicit `--backend cuda`
-  fails closed because `qwn_cuda.dll`/device support is absent. GPU detection
-  alone is never classified as CUDA inference.
-- Local validation of the follow-up passed Python `240/240` executed tests with
+- CUDA full release-quality performance is not yet established. Explicit
+  `--backend cuda` now fails closed when the versioned DLL/device is unavailable;
+  on the local RTX host it reports actual CUDA only after a successful model
+  matmul. GPU detection or DLL loading alone is never classified as CUDA
+  inference.
+- Local validation of the follow-up passed Python `242/242` executed tests with
   4 skips, focused ABI/evidence tests `21 passed`, Web build and `56` Vitest
-  tests, and C/OpenMP syntax/link checks. `cargo`, `make`, and `nvcc` remain
-  `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED`.
+  tests, and C/OpenMP syntax/link checks. `cargo` and `make` remain
+  `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED`; CUDA NVCC synthetic and
+  real-model decoder checks are now locally available and passing.
 - CPU Phase 3 roofline counters for process reads, memory-controller bandwidth,
   cache misses, cycles, instructions, vector instructions, and OpenMP barrier
   time are `UNAVAILABLE` locally. The corrected selected 8-worker read-only

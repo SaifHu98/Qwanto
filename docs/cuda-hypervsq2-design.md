@@ -2,21 +2,27 @@
 
 ## Current status
 
-`UNAVAILABLE` locally. The host has an NVIDIA GeForce RTX 5070 Ti Laptop GPU
-(device 0, compute capability 12.0, driver 592.02, 12,227 MiB total and
-11,944 MiB free at preflight), but no CUDA Toolkit compiler is installed:
+`END_TO_END_VALIDATED` locally, pending hosted validation. The host has an
+NVIDIA GeForce RTX 5070 Ti Laptop GPU (device 0, compute capability 12.0,
+driver 592.02, 12,227 MiB total and 11,944 MiB free at preflight). CUDA 13.3,
+MSVC 19.44, CMake 4.4.2, and Ninja 1.13.2 are installed and the exact
+HyperVSQ-2 reference path has been compiled and exercised.
 
 ```text
-nvcc: NOT FOUND
-cl.exe: NOT FOUND
-cmake: NOT FOUND
-ninja: NOT FOUND
-CUDA_PATH/CUDA_HOME: unset
+nvcc: 13.3.73
+cl.exe: 19.44.35228
+cmake: 4.4.2
+ninja: 1.13.2
+CUDA architecture: sm_120 (detected from the installed device)
 ```
 
-`nvidia-smi` and driver detection are hardware inventory only. No CUDA DLL was
-built, no CUDA kernel was launched, no GPU matmul was observed, and no CUDA
-performance result is reported.
+The source-level CMake/Ninja tools are available, although this repository's
+current Windows CUDA target is a direct NVCC/MSVC command rather than a
+CMake-generated build. The DLL was built beside the host executable, and both
+the synthetic ABI test and the real-model CPU-vs-CUDA decoder comparison passed.
+The short persistent CUDA run is diagnostic local evidence only; it is not a
+release-quality performance claim and is not copied into README performance
+tables.
 
 ## ABI boundary
 
@@ -62,6 +68,13 @@ quantized CPU result. It applies each octant's scale independently, preserves
 the offset term, handles partial final blocks, and accumulates in FP32 after
 the integer dot products.
 
+The real-model decoder comparison uses a documented FP32 logit absolute
+tolerance of `0.1` (the GPU warp reduction and CPU reduction can accumulate
+the same integer terms in a different floating-point order) plus greedy token
+ID agreement across the initial token and eight subsequent forwards. Scalar
+and VNNI CPU comparisons are separate invocations; tolerance alone never
+proves correctness when token IDs diverge.
+
 `c/tests/test_qwn_hypervsq2_cuda_abi.cu` covers all packed two-bit patterns,
 multiple scales, reserved bytes, random signed int8 activations, a non-aligned
 513-column tail, batched GEMM, residency counters, and CPU-equivalent reference
@@ -77,17 +90,19 @@ evidence for the new ABI or for full-model CUDA execution.
 ## Evidence ladder
 
 The intended states are `UNAVAILABLE`, `COMPILED`, `KERNEL_CORRECT`,
-`END_TO_END_VALIDATED`, and `MEASURED`. The current state is `UNAVAILABLE`:
+`END_TO_END_VALIDATED`, and `MEASURED`. The current local state is
+`END_TO_END_VALIDATED`, with performance evidence still
+`MEASURED_LOCAL_PENDING_HOSTED_VALIDATION`:
 
 | Gate | Current result |
 |---|---|
 | Versioned ABI header/host loader | Implemented; host syntax/link checked |
-| NVCC DLL build | `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED` |
-| Synthetic CUDA correctness | `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED` |
-| Real tensor CPU-vs-CUDA correctness | `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED` |
-| Model upload/residency | `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED` |
-| Persistent prefill/decode | `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED` |
-| GPU matmul count / VRAM telemetry | `0` observed; no CUDA runtime execution |
+| NVCC DLL build | `COMPILED` — `qwn_cuda.dll`, ABI v1, `sm_120` |
+| Synthetic CUDA correctness | `KERNEL_CORRECT` — packed patterns, scales, tails, GEMM, telemetry |
+| Real tensor CPU-vs-CUDA correctness | `END_TO_END_VALIDATED` locally — scalar and VNNI, 9 greedy forwards |
+| Model upload/residency | `VALIDATED` locally — 64 resident tensors, 463,370,240 uploaded bytes |
+| Persistent prefill/decode | `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION` — short diagnostic only |
+| GPU matmul count / VRAM telemetry | `9,856` matmuls, `0` CPU fallbacks in the short diagnostic |
 
 Only a real NVCC build followed by the CUDA ABI test and full decoder
 validation may promote these states. A loaded DLL alone is not sufficient;
@@ -101,6 +116,7 @@ From `c/` in a CUDA/MSVC x64 environment:
 ```text
 make qwn-cuda-dll
 make cuda-hypervsq2-test
+make cuda-hypervsq2-decoder-test
 ```
 
 The build must use a detected device-supported architecture; `CUDA_ARCH=native`
