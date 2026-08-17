@@ -66,6 +66,15 @@ def _number(value: object) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def _kernel_invocation_count(backend: str, runtime_fields: dict) -> object:
+    """Select the executed-kernel counter for the requested backend."""
+    if backend == "cuda":
+        return runtime_fields.get(
+            "gpu_kernel_launch_count", runtime_fields.get("gpu_matmul_count", 0)
+        )
+    return runtime_fields.get("hypervsq2_matmul_count", 0)
+
+
 def _median(values: list[float]) -> float | None:
     return statistics.median(values) if values else None
 
@@ -226,8 +235,10 @@ def run_release_quality(
             report["runtime_metadata"].update({
                 "model_dtype": runtime_fields.get("model_dtype", "Unavailable"),
                 "actual_executed_kernel": runtime_fields.get("hot_path_isa_kernel", runtime_fields.get("kernel", "Unavailable")),
-                "kernel_invocation_count": runtime_fields.get("hypervsq2_matmul_count", 0),
+                "kernel_invocation_count": _kernel_invocation_count(backend, runtime_fields),
                 "gpu_matmul_count": runtime_fields.get("gpu_matmul_count", 0),
+                "gpu_kernel_launch_count": runtime_fields.get("gpu_kernel_launch_count", 0),
+                "gpu_projection_count": runtime_fields.get("gpu_projection_count", 0),
                 "cpu_fallback_count": runtime_fields.get("cpu_fallback_count", 0),
                 "active_cpu_threads": runtime_fields.get("active_threads", "Unavailable"),
                 "activation_sum_mode": runtime_fields.get("activation_sum_mode", "Unavailable"),

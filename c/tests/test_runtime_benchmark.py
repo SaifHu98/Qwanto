@@ -185,6 +185,19 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
             "backend_actual": "cuda", "gpu_matmul_count": 1, "cpu_fallback_count": 0,
         }))
 
+    def test_release_quality_uses_gpu_kernel_counter_for_cuda(self):
+        fields = {
+            "gpu_kernel_launch_count": 12,
+            "gpu_matmul_count": 12,
+            "hypervsq2_matmul_count": 0,
+        }
+        self.assertEqual(
+            benchmark_release_quality._kernel_invocation_count("cuda", fields), 12
+        )
+        self.assertEqual(
+            benchmark_release_quality._kernel_invocation_count("cpu", fields), 0
+        )
+
     def test_missing_local_model_is_unavailable(self):
         report = benchmark_runtime_phases.run_phase_benchmark(
             str(ROOT / "missing-model.qwn"), "cold-start", "Hello", 4
