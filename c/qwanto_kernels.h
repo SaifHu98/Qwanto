@@ -31,6 +31,9 @@ typedef struct {
     uint64_t activation_sum_precompute_calls;
     uint64_t activation_sum_reuse_count;
     uint64_t activation_sum_recompute_count;
+    uint64_t hypervsq2_logical_weight_bytes;
+    uint64_t hypervsq2_logical_flops;
+    double hypervsq2_kernel_ms;
 } QwnScratch;
 
 /* Allocate once per session. No malloc/free occurs in the token hot path. */

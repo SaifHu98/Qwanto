@@ -1098,6 +1098,12 @@ void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d) {
         d->scratch.hypervsq2_last_active_threads;
     d->runtime_metrics.hypervsq2_max_active_threads =
         d->scratch.hypervsq2_max_active_threads;
+    d->runtime_metrics.hypervsq2_logical_weight_bytes =
+        d->scratch.hypervsq2_logical_weight_bytes;
+    d->runtime_metrics.hypervsq2_logical_flops =
+        d->scratch.hypervsq2_logical_flops;
+    d->runtime_metrics.hypervsq2_kernel_ms =
+        d->scratch.hypervsq2_kernel_ms;
     snprintf(d->runtime_metrics.dispatch_reason,
              sizeof(d->runtime_metrics.dispatch_reason), "%s",
              d->scratch.hypervsq2_dispatch_reason[0] ?
@@ -1133,6 +1139,9 @@ void qwn_decoder_reset(QwnDecoder *d){
     d->runtime_metrics.early_exit_decisions = 0;
     d->runtime_metrics.layers_skipped = 0;
     d->runtime_metrics.tokens_saved = 0;
+    d->runtime_metrics.swiglu_calls = 0;
+    d->runtime_metrics.swiglu_elements = 0;
+    d->runtime_metrics.swiglu_ms = 0.0;
     if (d->use_paged_kv) {
         qwn_block_table_free(&d->paged_kv, &d->paged_table);
         qwn_block_table_init(&d->paged_table, 0,
@@ -1401,10 +1410,15 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         if(lt->gate_proj && lt->up_proj && lt->down_proj && I) {
             if(matmul(d,lt->gate_proj,d->xb,D,I,d->gate)||
                matmul(d,lt->up_proj,d->xb,D,I,d->up))return -1;
+            double swiglu_started = qwn_decode_wall_seconds();
             for(int i=0;i<I;i++) {
                 float g = d->gate[i];
                 d->hidden[i] = (g / (1.0f + expf(-g))) * d->up[i];
             }
+            d->runtime_metrics.swiglu_calls++;
+            d->runtime_metrics.swiglu_elements += (uint64_t)I;
+            d->runtime_metrics.swiglu_ms +=
+                (qwn_decode_wall_seconds() - swiglu_started) * 1000.0;
             if(matmul(d,lt->down_proj,d->hidden,I,D,d->xb))return -1;
             vec_add(d->x, d->xb, D);
         }

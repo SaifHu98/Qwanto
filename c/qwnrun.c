@@ -190,6 +190,8 @@ static void print_runtime_info(const QwnDecoder *decoder) {
             "hypervsq2_last_active_threads=%d hypervsq2_max_active_threads=%d "
             "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
             "activation_sum_recompute_count=%llu activation_sum_mode=%s "
+            "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
+            "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
             "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
             "final_lm_head_ms=%.3f intermediate_lm_head_ms=%.3f "
             "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu\n",
@@ -215,6 +217,12 @@ static void print_runtime_info(const QwnDecoder *decoder) {
             (unsigned long long)(decoder->scratch.activation_sum_reuse_count),
             (unsigned long long)(decoder->scratch.activation_sum_recompute_count),
             decoder->scratch.activation_sum_enabled ? "precomputed" : "recomputed",
+            (unsigned long long)(metrics ? metrics->hypervsq2_logical_weight_bytes : 0),
+            (unsigned long long)(metrics ? metrics->hypervsq2_logical_flops : 0),
+            metrics ? metrics->hypervsq2_kernel_ms : 0.0,
+            (unsigned long long)(metrics ? metrics->swiglu_calls : 0),
+            (unsigned long long)(metrics ? metrics->swiglu_elements : 0),
+            metrics ? metrics->swiglu_ms : 0.0,
             (unsigned long long)(metrics ? metrics->final_lm_head_calls : 0),
             (unsigned long long)(metrics ? metrics->intermediate_lm_head_calls : 0),
             metrics ? metrics->final_lm_head_ms : 0.0,
@@ -382,6 +390,8 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu "
                    "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
                    "activation_sum_recompute_count=%llu activation_sum_mode=%s "
+                   "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
+                   "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
                    "thinking_mode=%s decode_function=%s config_backend=%s context_size=%d "
                    "max_tokens=%d seed=%d kv_cache_mode=%s quantization=%s kernel_requested=%s "
                    "temperature=%.8g top_p=%.8g first_real_forward_ms=%.3f "
@@ -410,6 +420,12 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    (unsigned long long)d.scratch.activation_sum_reuse_count,
                    (unsigned long long)d.scratch.activation_sum_recompute_count,
                    d.scratch.activation_sum_enabled ? "precomputed" : "recomputed",
+                   (unsigned long long)d.runtime_metrics.hypervsq2_logical_weight_bytes,
+                   (unsigned long long)d.runtime_metrics.hypervsq2_logical_flops,
+                   d.runtime_metrics.hypervsq2_kernel_ms,
+                   (unsigned long long)d.runtime_metrics.swiglu_calls,
+                   (unsigned long long)d.runtime_metrics.swiglu_elements,
+                   d.runtime_metrics.swiglu_ms,
                    config.thinking_mode,
                    strcmp(config.thinking_mode, "none") == 0 ? "qwn_decoder_generate" : "qwn_decoder_generate_thinking",
                    qwn_runtime_backend_name(config.backend), config.context_size, config.max_tokens,
@@ -593,6 +609,8 @@ int main(int argc,char **argv){
                 "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu "
                 "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
                 "activation_sum_recompute_count=%llu activation_sum_mode=%s "
+                "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
+                "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
                 "config_backend=%s context_size=%d max_tokens=%d seed=%d "
                 "kv_cache_mode=%s quantization=%s kernel_requested=%s temperature=%.8g top_p=%.8g\n",
                 metrics ? metrics->backend : "unknown",
@@ -626,6 +644,12 @@ int main(int argc,char **argv){
                 (unsigned long long)decoder.scratch.activation_sum_reuse_count,
                 (unsigned long long)decoder.scratch.activation_sum_recompute_count,
                 decoder.scratch.activation_sum_enabled ? "precomputed" : "recomputed",
+                (unsigned long long)(metrics ? metrics->hypervsq2_logical_weight_bytes : 0),
+                (unsigned long long)(metrics ? metrics->hypervsq2_logical_flops : 0),
+                metrics ? metrics->hypervsq2_kernel_ms : 0.0,
+                (unsigned long long)(metrics ? metrics->swiglu_calls : 0),
+                (unsigned long long)(metrics ? metrics->swiglu_elements : 0),
+                metrics ? metrics->swiglu_ms : 0.0,
                 qwn_runtime_backend_name(runtime_config.backend), runtime_config.context_size,
                 runtime_config.max_tokens, runtime_config.seed, runtime_config.kv_cache_mode,
                 runtime_config.quantization, runtime_config.kernel, temperature, top_p);

@@ -6,7 +6,7 @@
   "properties": {
     "schema_version": {"const": "1.0.0"},
     "benchmark_class": {"const": "RELEASE_QUALITY"},
-    "evidence_classification": {"enum": ["MEASURED", "UNAVAILABLE", "INVALID"]},
+    "evidence_classification": {"enum": ["MEASURED", "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION", "UNAVAILABLE", "INVALID"]},
     "model": {"type": "object", "required": ["repository_relative_path", "sha256"]},
     "executable": {"type": "object", "required": ["repository_relative_path", "sha256"]},
     "configuration": {"type": "object", "required": ["backend_requested", "context_size", "max_tokens", "seed", "repeats_requested", "sampler"]},

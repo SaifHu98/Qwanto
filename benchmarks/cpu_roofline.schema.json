@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qwanto Native local CPU roofline evidence",
+  "type": "object",
+  "required": ["schema_version", "benchmark_class", "benchmark_id", "timestamp_utc", "evidence_classification", "source_identity", "model", "runtime", "independent_bandwidth", "counters", "arithmetic_intensity", "roofline_estimate", "actual_throughput"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "benchmark_class": {"const": "CPU_ROOFLINE"},
+    "evidence_classification": {"const": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION"},
+    "source_identity": {"type": "object", "required": ["git_commit", "git_worktree_dirty", "executable_sha256", "model_sha256"]},
+    "model": {"type": "object", "required": ["file_size_bytes", "mapped_tensor_bytes", "source"]},
+    "runtime": {"type": "object", "required": ["evidence_classification", "benchmark_class"]},
+    "independent_bandwidth": {"type": "object", "required": ["results", "source"]},
+    "counters": {"type": "object"},
+    "arithmetic_intensity": {"type": "object", "required": ["flops_per_token", "bytes_per_token", "flops_per_byte"]},
+    "roofline_estimate": {"type": "object", "required": ["predicted_tok_per_sec", "source"]},
+    "actual_throughput": {"type": "object", "required": ["median_tok_per_sec", "source"]}
+  }
+}

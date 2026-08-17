@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -20,6 +21,14 @@
 #endif
 
 static size_t round_up(size_t n, size_t a) { return (n + a - 1) & ~(a - 1); }
+
+static double qwn_kernel_wall_seconds(void) {
+#if defined(_OPENMP)
+    return omp_get_wtime();
+#else
+    return (double)clock() / (double)CLOCKS_PER_SEC;
+#endif
+}
 
 static void *aligned_malloc64(size_t bytes) {
     bytes = round_up(bytes, 64);
@@ -788,6 +797,13 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         raw_bytes > weights->byte_size)
         return -1;
 
+    /* Descriptor-derived work accounting.  This is logical tensor traffic,
+     * not a hardware memory-read counter; the roofline report labels it as
+     * such and keeps it separate from OS/hardware measurements. */
+    scratch->hypervsq2_logical_weight_bytes += raw_bytes * (uint64_t)M;
+    scratch->hypervsq2_logical_flops += 2ULL * (uint64_t)M *
+                                        (uint64_t)K * (uint64_t)N;
+
     quantize_tokens(x, M, K, scratch);
     const uint8_t *raw = m->base + weights->byte_offset;
 
@@ -845,6 +861,7 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         }
     }
 
+    double kernel_started = qwn_kernel_wall_seconds();
     for (int t = 0; t < M; t++) {
         const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
         const int32_t *activation_sums = scratch->activation_sum_enabled ?
@@ -890,6 +907,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         if (activation_sums) scratch->activation_sum_reuse_count += (uint64_t)N;
         else scratch->activation_sum_recompute_count += (uint64_t)N;
     }
+    scratch->hypervsq2_kernel_ms +=
+        (qwn_kernel_wall_seconds() - kernel_started) * 1000.0;
     return 0;
 }
 

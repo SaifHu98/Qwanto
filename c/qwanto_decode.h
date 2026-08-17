@@ -90,6 +90,12 @@ typedef struct {
     uint64_t early_exit_decisions;
     uint64_t layers_skipped;
     uint64_t tokens_saved;
+    uint64_t hypervsq2_logical_weight_bytes;
+    uint64_t hypervsq2_logical_flops;
+    double hypervsq2_kernel_ms;
+    uint64_t swiglu_calls;
+    uint64_t swiglu_elements;
+    double swiglu_ms;
     char dispatch_reason[128];
     char backend[16];
     char kernel[32];

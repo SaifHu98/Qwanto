@@ -11,6 +11,7 @@ import benchmark_runtime_phases
 import benchmark_release_quality
 import thread_autotuner
 import benchmark_warm_repeats
+import benchmark_cpu_roofline
 from runtime_config_snapshot import comparable_runtime_config, make_runtime_config_snapshot
 
 
@@ -95,6 +96,24 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
         self.assertEqual(report["benchmark_class"], "RELEASE_QUALITY")
         self.assertEqual(report["evidence_classification"], "INVALID")
         self.assertIn("at least seven", report["invalid_reasons"][0])
+
+    def test_release_quality_has_explicit_local_pending_classification(self):
+        report = benchmark_release_quality.run_release_quality(
+            model=str(ROOT / "missing-model.qwn"), executable=str(ROOT / "missing-qwnrun.exe"),
+            pending_hosted_validation=True,
+        )
+        self.assertEqual(report["evidence_classification"], "UNAVAILABLE")
+        self.assertNotEqual(report["evidence_classification"], "MEASURED")
+
+    def test_roofline_header_parser_uses_descriptor_byte_size(self):
+        self.assertEqual(benchmark_cpu_roofline.QWN_DESC.size, 136)
+        self.assertEqual(benchmark_cpu_roofline.QWN_HEADER_PREFIX.size, 112)
+
+    def test_roofline_classification_is_pending_until_hosted(self):
+        self.assertEqual(
+            benchmark_cpu_roofline.EVIDENCE_CLASSIFICATION,
+            "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION",
+        )
 
     def test_thread_autotune_candidates_are_bounded_and_deduplicated(self):
         candidates = thread_autotuner.candidate_threads()

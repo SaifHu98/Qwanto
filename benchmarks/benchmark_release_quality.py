@@ -138,6 +138,7 @@ def run_release_quality(
     max_tokens: int = 64, seed: int = 0, warmup_tokens: int = 8, repeats: int = 7,
     timeout: float = 300.0, variance_limit: float = DEFAULT_VARIANCE_LIMIT,
     variant: str = "final", env_overrides: dict[str, str] | None = None,
+    pending_hosted_validation: bool = False,
 ) -> dict:
     model_path = Path(model).expanduser().resolve()
     executable_path = Path(executable).expanduser().resolve()
@@ -226,6 +227,12 @@ def run_release_quality(
                 "early_exit_decisions": runtime_fields.get("early_exit_decisions", 0),
                 "layers_skipped": runtime_fields.get("layers_skipped", 0),
                 "tokens_saved": runtime_fields.get("tokens_saved", 0),
+                "hypervsq2_logical_weight_bytes": runtime_fields.get("hypervsq2_logical_weight_bytes", 0),
+                "hypervsq2_logical_flops": runtime_fields.get("hypervsq2_logical_flops", 0),
+                "hypervsq2_kernel_ms": runtime_fields.get("hypervsq2_kernel_ms", 0),
+                "swiglu_calls": runtime_fields.get("swiglu_calls", 0),
+                "swiglu_elements": runtime_fields.get("swiglu_elements", 0),
+                "swiglu_ms": runtime_fields.get("swiglu_ms", 0),
             })
             update_runtime_config_snapshot(report["runtime_config_snapshot"], runtime_fields)
 
@@ -262,7 +269,10 @@ def run_release_quality(
         invocation_count=_number(report["runtime_metadata"].get("kernel_invocation_count")),
         worktree_dirty=bool(report["runtime_metadata"].get("git_worktree_dirty")),
     )
-    report["evidence_classification"] = "MEASURED" if not report["invalid_reasons"] else "INVALID"
+    report["evidence_classification"] = (
+        "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION" if pending_hosted_validation
+        else "MEASURED"
+    ) if not report["invalid_reasons"] else "INVALID"
     return report
 
 
@@ -280,6 +290,10 @@ def main() -> None:
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--variance-limit", type=float, default=DEFAULT_VARIANCE_LIMIT)
     parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--pending-hosted-validation", action="store_true",
+        help="classify valid local evidence pending the required hosted CI gate",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     report = run_release_quality(
@@ -287,6 +301,7 @@ def main() -> None:
         threads=args.threads, prompt=args.prompt, context_size=args.context_size,
         max_tokens=args.max_tokens, seed=args.seed, warmup_tokens=args.warmup_tokens,
         repeats=args.repeats, timeout=args.timeout, variance_limit=args.variance_limit,
+        pending_hosted_validation=args.pending_hosted_validation,
     )
     output = Path(args.output)
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
