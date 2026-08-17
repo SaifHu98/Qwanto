@@ -460,6 +460,24 @@
 - **Decision:** README performance claims were intentionally not changed; no
   tag or release was created.
 
+## 2026-08-17 — CPU optimization phase 2 infrastructure
+
+- **Change:** Added release-quality persistent CPU evidence with one excluded
+  warmup and seven same-PID measured requests, corrected build-info semantics,
+  added bounded explicit thread-autotune evidence, instrumented final and
+  intermediate LM-head timing, and added exact HyperVSQ-2 activation-sum
+  precompute/recompute counters with scalar/AVX2/VNNI differential coverage.
+- **Serve fix:** The benchmark harness now drains qwnrun stderr concurrently;
+  the previous long-run hang was proven to be a filled stderr pipe caused by
+  per-request runtime diagnostics, not decoder throughput.
+- **UI/API:** Runtime worker Auto/Manual settings now flow through the typed
+  `runtime_config.threads` gateway load contract; unsupported controls remain
+  explicitly unavailable.
+- **Validation:** Clang syntax checks, local Clang/OpenMP link, 140/140
+  HyperVSQ-2 differential tests, focused Python tests, web build, and 56 web
+  tests passed. Release evidence is not valid until generated from a clean
+  committed tree; README, tag, and release remain unchanged.
+
 ## 2026-08-17 — CPU performance discrepancy investigation
 
 - **Change:** Rebuilt and re-ran clean cold-start, persistent prefill, warm

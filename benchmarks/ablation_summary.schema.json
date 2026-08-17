@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qwanto Native CPU optimization ablation summary",
+  "type": "object",
+  "required": ["schema_version", "benchmark_class", "identity", "variants", "accepted_variants", "rejected_variants", "final_variant", "final_selection_reason"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "benchmark_class": {"const": "ABLATION_SUMMARY"},
+    "identity": {"type": "object", "required": ["executable_sha256", "model_sha256", "requested_threads", "generated_tokens"]},
+    "variants": {"type": "array"},
+    "accepted_variants": {"type": "array", "items": {"type": "string"}},
+    "rejected_variants": {"type": "array", "items": {"type": "string"}},
+    "final_variant": {"type": "string"},
+    "final_selection_reason": {"type": "string"}
+  }
+}

@@ -83,6 +83,13 @@ typedef struct {
     uint64_t hypervsq2_worker_participations;
     int hypervsq2_last_active_threads;
     int hypervsq2_max_active_threads;
+    uint64_t final_lm_head_calls;
+    uint64_t intermediate_lm_head_calls;
+    double final_lm_head_ms;
+    double intermediate_lm_head_ms;
+    uint64_t early_exit_decisions;
+    uint64_t layers_skipped;
+    uint64_t tokens_saved;
     char dispatch_reason[128];
     char backend[16];
     char kernel[32];

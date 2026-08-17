@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -7,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "benchmarks"))
 
 import benchmark_runtime_phases
+import benchmark_release_quality
+import thread_autotuner
 import benchmark_warm_repeats
 from runtime_config_snapshot import comparable_runtime_config, make_runtime_config_snapshot
 
@@ -50,6 +53,19 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
         self.assertEqual(one_shot["decode_function"], "qwn_decoder_generate")
         self.assertEqual(one_shot["thinking_mode"], "none")
 
+    def test_build_info_semantics_keep_candidate_separate_from_execution(self):
+        build_info = {
+            "compiled_kernels": {"avx2": True, "vnni": True},
+            "detected_cpu_features": {"avx2": True, "vnni": True},
+            "preferred_kernel_candidate": "vnni",
+            "actual_executed_kernel": "Unavailable",
+            "model_dtype": "Unavailable",
+        }
+        self.assertEqual(build_info["preferred_kernel_candidate"], "vnni")
+        self.assertEqual(build_info["actual_executed_kernel"], "Unavailable")
+        self.assertEqual(build_info["model_dtype"], "Unavailable")
+        self.assertEqual(build_info.get("active_threads", "Unavailable"), "Unavailable")
+
     def test_phase_reports_always_reserve_startup_breakdown(self):
         report = benchmark_runtime_phases.run_phase_benchmark(
             str(ROOT / "missing-model.qwn"), "cold-start", "Hello", 4
@@ -65,6 +81,26 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
     def test_repeat_percentile_is_deterministic(self):
         self.assertEqual(benchmark_warm_repeats.percentile95([1.0, 2.0, 3.0, 4.0, 5.0]), 5.0)
         self.assertIsNone(benchmark_warm_repeats.percentile95([]))
+
+    def test_short_diagnostic_is_not_release_quality(self):
+        report = benchmark_warm_repeats.run_repeated_warm_decode
+        self.assertTrue(callable(report))
+        self.assertEqual(benchmark_release_quality.DEFAULT_VARIANCE_LIMIT, 0.20)
+
+    def test_release_quality_rejects_short_request_count(self):
+        report = benchmark_release_quality.run_release_quality(
+            model=str(ROOT / "missing-model.qwn"), executable=str(ROOT / "missing-qwnrun.exe"),
+            repeats=5,
+        )
+        self.assertEqual(report["benchmark_class"], "RELEASE_QUALITY")
+        self.assertEqual(report["evidence_classification"], "INVALID")
+        self.assertIn("at least seven", report["invalid_reasons"][0])
+
+    def test_thread_autotune_candidates_are_bounded_and_deduplicated(self):
+        candidates = thread_autotuner.candidate_threads()
+        self.assertEqual(candidates, sorted(set(candidates)))
+        self.assertIn(1, candidates)
+        self.assertLessEqual(max(candidates),  os.cpu_count() or 1)
 
     def test_warm_decode_requires_two_requests_under_one_pid(self):
         self.assertTrue(benchmark_runtime_phases.persistent_pid_proven([42, 42], 42, 2))

@@ -18,6 +18,10 @@ const settingsProps = {
   loadingModel: false,
   profile: "balanced" as const,
   onProfileChange: () => undefined,
+  threadMode: "auto" as const,
+  manualThreads: 4,
+  onThreadModeChange: () => undefined,
+  onManualThreadsChange: () => undefined,
   usage: { promptTokens: null, completionTokens: null, totalTokens: null, elapsedMs: null, ttftMs: null, tokensPerSecond: null, contextUse: null, toolCalls: 0, queueState: "idle" },
 }
 

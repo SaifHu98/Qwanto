@@ -1126,6 +1126,13 @@ void qwn_decoder_reset(QwnDecoder *d){
     if (!d) return;
     d->position = 0;
     memset(&d->generation_metrics, 0, sizeof(d->generation_metrics));
+    d->runtime_metrics.final_lm_head_calls = 0;
+    d->runtime_metrics.intermediate_lm_head_calls = 0;
+    d->runtime_metrics.final_lm_head_ms = 0.0;
+    d->runtime_metrics.intermediate_lm_head_ms = 0.0;
+    d->runtime_metrics.early_exit_decisions = 0;
+    d->runtime_metrics.layers_skipped = 0;
+    d->runtime_metrics.tokens_saved = 0;
     if (d->use_paged_kv) {
         qwn_block_table_free(&d->paged_kv, &d->paged_table);
         qwn_block_table_init(&d->paged_table, 0,
@@ -1406,6 +1413,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         if (config) {
             if (config->level == QWN_THINK_LOW && (l + 1) >= config->n_layers_max) {
                 config->last_exit_layer = l;
+                d->runtime_metrics.layers_skipped += (uint64_t)(c->layers - (l + 1));
                 break;
             }
             if (config->level == QWN_THINK_MEDIUM && (l == c->layers / 2 || l == (c->layers * 3) / 4) && (l + 1 < c->layers)) {
@@ -1414,7 +1422,14 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                 } else {
                     rmsnorm(d->xb, d->x, d->norm_weights + (size_t)(2 * c->layers) * D, D, c->rms_eps);
                 }
-                if (matmul(d, d->lm_head_weight, d->xb, D, c->vocab, d->logits) == 0) {
+                double intermediate_lm_head_started = qwn_decode_wall_seconds();
+                int intermediate_lm_head_rc = matmul(d, d->lm_head_weight, d->xb,
+                                                      D, c->vocab, d->logits);
+                d->runtime_metrics.intermediate_lm_head_calls++;
+                d->runtime_metrics.intermediate_lm_head_ms +=
+                    (qwn_decode_wall_seconds() - intermediate_lm_head_started) * 1000.0;
+                d->runtime_metrics.early_exit_decisions++;
+                if (intermediate_lm_head_rc == 0) {
                     float conf = qwn_thinking_compute_confidence(d->logits, c->vocab, config->temp_threshold);
                     if (config->confidence_buffer) {
                         config->confidence_buffer[l] = conf;
@@ -1422,6 +1437,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                     config->last_confidence = conf;
                     if (conf >= (float)config->early_exit_threshold / 100.0f) {
                         config->last_exit_layer = l;
+                        d->runtime_metrics.layers_skipped += (uint64_t)(c->layers - (l + 1));
                         d->position++;
                         if (out_logits) *out_logits = d->logits;
                         if (d->startup_metrics.first_real_forward_ms <= 0.0 &&
@@ -1441,7 +1457,12 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
     } else {
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*c->layers)*D,D,c->rms_eps);
     }
-    if(matmul(d,d->lm_head_weight,d->xb,D,c->vocab,d->logits)) {
+    double final_lm_head_started = qwn_decode_wall_seconds();
+    int final_lm_head_rc = matmul(d,d->lm_head_weight,d->xb,D,c->vocab,d->logits);
+    d->runtime_metrics.final_lm_head_calls++;
+    d->runtime_metrics.final_lm_head_ms +=
+        (qwn_decode_wall_seconds() - final_lm_head_started) * 1000.0;
+    if(final_lm_head_rc) {
         fprintf(stderr, "lm_head matmul failed: D=%d vocab=%d lm_head=%p shape=(%llu,%llu)\n",
                 D, c->vocab, (void*)d->lm_head_weight,
                 (unsigned long long)(d->lm_head_weight?d->lm_head_weight->shape[0]:0),

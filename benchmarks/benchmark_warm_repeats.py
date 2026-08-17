@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repeat persistent warm-decode runs and report median/p95 evidence."""
+"""Repeat persistent warm-decode runs and report short diagnostic evidence."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ def run_repeated_warm_decode(
                and isinstance(r["measurements"].get("prefill_tok_per_sec"), (int, float))]
     return {
         "schema_version": "1.0.0",
+        "benchmark_class": "SHORT_DIAGNOSTIC",
         "mode": "persistent-warm-decode-repeats",
         "repeats_requested": repeats,
         "reports": reports,

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { BrowserChatView } from "@/components/BrowserChatView"
 import { DesktopAgentView } from "@/components/DesktopAgentView"
 import { DesktopSettingsView } from "@/components/DesktopSettingsView"
-import type { ChatAttachment, ChatMessage, DiscoveredModel, HealthResponse } from "@/lib/api"
+import type { ChatAttachment, ChatMessage, DiscoveredModel, HealthResponse, RuntimeConfig } from "@/lib/api"
 import { getHealth, listDiscoveredModels, listModels, loadModel, streamChat, unloadModel } from "@/lib/api"
 import { chooseRecommendedModel, classifyGatewayFailure, gatewayStateFromHealth, type GatewayConnectionState } from "@/lib/gateway"
 import { desktopInvoke, type AgentSession, type DesktopGatewayStatus } from "@/lib/desktop"
@@ -41,6 +41,8 @@ export default function App() {
   const [desktopGateway, setDesktopGateway] = useState<DesktopGatewayStatus | null>(null)
   const [agentMode, setAgentMode] = useState<"plan" | "agent">("plan")
   const [agentProfile, setAgentProfile] = useState<AgentProfile>("balanced")
+  const [threadMode, setThreadMode] = useState<"auto" | "manual">("auto")
+  const [manualThreads, setManualThreads] = useState(4)
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(512)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -154,7 +156,17 @@ export default function App() {
     const startedAt = performance.now()
     try {
       const profile = profileConfig(agentProfile)
-      const result = await loadModel(baseUrl, path, "auto", undefined, apiKey, profile.contextSize)
+      const runtimeConfig: RuntimeConfig = {
+        backend: "auto",
+        context_size: profile.contextSize,
+        max_tokens: profile.maxTokens,
+        kv_cache_mode: "fp16",
+        quantization: "auto",
+        kernel: "auto",
+        seed: 0,
+        ...(threadMode === "manual" ? { threads: manualThreads } : {}),
+      }
+      const result = await loadModel(baseUrl, path, "auto", undefined, apiKey, profile.contextSize, undefined, runtimeConfig)
       setModel(result.model_id)
       await connect()
       setModelReadyElapsedMs(Math.round(performance.now() - startedAt))
@@ -278,7 +290,7 @@ export default function App() {
       try { await desktopInvoke("restart_gateway"); await connect(false) }
       catch (cause) { setError(cause instanceof Error ? cause.message : "Gateway restart failed."); addLog("error", `Gateway restart: ${cause instanceof Error ? cause.message : cause}`) }
     }}
-    settingsContent={<DesktopSettingsView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} gatewayReadyElapsedMs={desktopGateway?.ready_elapsed_ms} logs={logs} model={model} models={discoveredModels} onInventoryLoaded={(inventory) => { setDiscoveredModels(inventory); setModels(inventory.map((candidate) => candidate.path)) }} onSelectModel={setModel} onActivateModel={(path) => void handleLoadModel(path)} loadingModel={loadingModel} profile={agentProfile} onProfileChange={setAgentProfile} usage={sessionUsage} onIncludeSearchContext={(sources) => setSearchContext(sources.map((source) => `${source.title}\n${source.url}\n${source.snippet}`).join("\n\n"))} />}
+    settingsContent={<DesktopSettingsView baseUrl={baseUrl} apiKey={apiKey} gatewayReady={connected} gatewayReadyElapsedMs={desktopGateway?.ready_elapsed_ms} logs={logs} model={model} models={discoveredModels} onInventoryLoaded={(inventory) => { setDiscoveredModels(inventory); setModels(inventory.map((candidate) => candidate.path)) }} onSelectModel={setModel} onActivateModel={(path) => void handleLoadModel(path)} loadingModel={loadingModel} profile={agentProfile} onProfileChange={setAgentProfile} threadMode={threadMode} manualThreads={manualThreads} onThreadModeChange={setThreadMode} onManualThreadsChange={setManualThreads} usage={sessionUsage} onIncludeSearchContext={(sources) => setSearchContext(sources.map((source) => `${source.title}\n${source.url}\n${source.snippet}`).join("\n\n"))} />}
   />
 
   return <BrowserChatView

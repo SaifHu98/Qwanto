@@ -130,6 +130,13 @@ and NVMe mmap.
 - Windows qwnrun builds use real LLVM OpenMP and package `libomp140.x86_64.dll`
   beside the executable. The runtime reports actual ISA, OpenMP, CUDA counters,
   and a load-time CUDA DLL SHA-256 without hashing the hot path.
+- Phase 2 CPU evidence work adds a release-quality persistent benchmark (one
+  warmup plus seven measured requests), stderr draining for the serve harness,
+  explicit build-info candidate-versus-executed semantics, bounded thread
+  autotune evidence, activation-sum ablation counters, and a typed Auto/Manual
+  worker policy in Qwanto Code. Activation-sum precompute is retained only
+  when same-config measured evidence beats recomputation; CUDA remains out of
+  scope and README performance claims remain unchanged.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
 
 ## 2026-08-17 — Desktop agent UX and evidence matrix

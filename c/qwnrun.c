@@ -55,20 +55,6 @@ static double wall_seconds(void) {
 #endif
 }
 
-static int runtime_active_threads(void) {
-#if defined(_OPENMP)
-    int active = 1;
-    #pragma omp parallel
-    {
-        #pragma omp single
-        active = omp_get_num_threads();
-    }
-    return active;
-#else
-    return 1;
-#endif
-}
-
 static void print_build_info(const QwnRuntimeConfig *config) {
     const char *compiler = "unknown";
     const char *compiler_version = "Unavailable";
@@ -88,19 +74,18 @@ static void print_build_info(const QwnRuntimeConfig *config) {
     char binary_sha256[65] = "Unavailable";
     if (!g_executable_path || qwn_sha256_file_hex(g_executable_path, binary_sha256) != 0)
         snprintf(binary_sha256, sizeof(binary_sha256), "Unavailable");
-    int active_threads = 1;
     int runtime_loaded = 0;
 #if defined(_OPENMP)
     if (config->cpu_threads > 0) omp_set_num_threads(config->cpu_threads);
-    active_threads = runtime_active_threads();
     runtime_loaded = omp_get_max_threads() > 0;
 #endif
     fprintf(stderr, "qwnrun build: compiler=%s compiler_version=%s "
             "optimization_flags=%s openmp_enabled=%s openmp_runtime_loaded=%s "
             "openmp_version=%s omp_max_threads=%d requested_threads=%d "
-            "active_threads=%d hot_path_active_threads=Unavailable "
-            "selected_isa_kernel=%s hot_path_isa_kernel=Unavailable "
-            "cpu_avx2=%s cpu_f16c=%s cpu_fma=%s cpu_vnni=%s "
+            "active_threads=Unavailable actual_executed_kernel=Unavailable "
+            "preferred_kernel_candidate=%s "
+            "compiled_kernels=avx2:%s,vnni:%s "
+            "detected_cpu_features=avx2:%s,f16c:%s,fma:%s,vnni:%s,avx512f:%s "
             "binary_sha256=%s "
             "model_dtype=Unavailable backend_requested=%s backend_actual=Unavailable "
             "gpu_kernel_coverage=hypervsq2-74,q4_0 gpu_matmul_count=0 "
@@ -112,9 +97,12 @@ static void print_build_info(const QwnRuntimeConfig *config) {
 #else
             "false", "false", "Unavailable", 1,
 #endif
-            config->cpu_threads, active_threads, qwn_cpu_kernel_name(),
+            config->cpu_threads, qwn_cpu_kernel_name(),
+            qwn_cpu_avx2_kernel_compiled() ? "true" : "false",
+            qwn_cpu_vnni_kernel_compiled() ? "true" : "false",
             cpu->has_avx2 ? "true" : "false", cpu->has_f16c ? "true" : "false",
             cpu->has_fma ? "true" : "false", cpu->has_vnni ? "true" : "false",
+            cpu->has_avx512f ? "true" : "false",
             binary_sha256,
             qwn_runtime_backend_name(config->backend), qwn_process_id());
 }
@@ -136,11 +124,9 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
     char binary_sha256[65] = "Unavailable";
     if (!g_executable_path || qwn_sha256_file_hex(g_executable_path, binary_sha256) != 0)
         snprintf(binary_sha256, sizeof(binary_sha256), "Unavailable");
-    int active_threads = 1;
     int runtime_loaded = 0;
 #if defined(_OPENMP)
     if (config && config->cpu_threads > 0) omp_set_num_threads(config->cpu_threads);
-    active_threads = runtime_active_threads();
     runtime_loaded = omp_get_max_threads() > 0;
 #endif
     const QwnRuntimeConfig *cfg = config;
@@ -149,10 +135,14 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
     printf("{\"compiler\":\"%s\",\"compiler_version\":\"%s\","
            "\"optimization_flags\":\"%s\",\"openmp_compiled\":%s,"
            "\"openmp_runtime_loaded\":%s,\"openmp_version\":\"%s\","
-           "\"requested_threads\":%d,\"active_threads\":%d,"
+           "\"requested_threads\":%d,\"active_threads\":\"Unavailable\","
            "\"cpu_features\":{\"avx2\":%s,\"f16c\":%s,\"fma\":%s,\"vnni\":%s,\"avx512f\":%s},"
            "\"binary_avx2_kernel\":%s,\"binary_vnni_kernel\":%s,"
-           "\"selected_isa_kernel\":\"%s\",\"binary_sha256\":\"%s\","
+           "\"compiled_kernels\":{\"avx2\":%s,\"vnni\":%s},"
+           "\"detected_cpu_features\":{\"avx2\":%s,\"f16c\":%s,\"fma\":%s,\"vnni\":%s,\"avx512f\":%s},"
+           "\"preferred_kernel_candidate\":\"%s\","
+           "\"actual_executed_kernel\":\"Unavailable\","
+           "\"selected_isa_kernel\":\"Unavailable\",\"binary_sha256\":\"%s\","
            "\"backend_requested\":\"%s\",\"backend_actual\":\"Unavailable\","
            "\"gpu_matmul_count\":0,\"cpu_fallback_count\":0,"
            "\"model_dtype\":\"Unavailable\",\"thinking_mode\":\"%s\","
@@ -164,12 +154,17 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
 #else
            "false", "false", "Unavailable",
 #endif
-           cfg->cpu_threads, active_threads,
+           cfg->cpu_threads,
            cpu->has_avx2 ? "true" : "false", cpu->has_f16c ? "true" : "false",
            cpu->has_fma ? "true" : "false", cpu->has_vnni ? "true" : "false",
            cpu->has_avx512f ? "true" : "false",
            qwn_cpu_avx2_kernel_compiled() ? "true" : "false",
            qwn_cpu_vnni_kernel_compiled() ? "true" : "false",
+           qwn_cpu_avx2_kernel_compiled() ? "true" : "false",
+           qwn_cpu_vnni_kernel_compiled() ? "true" : "false",
+           cpu->has_avx2 ? "true" : "false", cpu->has_f16c ? "true" : "false",
+           cpu->has_fma ? "true" : "false", cpu->has_vnni ? "true" : "false",
+           cpu->has_avx512f ? "true" : "false",
            qwn_cpu_kernel_name(), binary_sha256,
            qwn_runtime_backend_name(cfg->backend), cfg->thinking_mode,
            cfg->kv_cache_mode, cfg->quantization, cfg->kernel, qwn_process_id());
@@ -185,15 +180,21 @@ static void print_runtime_info(const QwnDecoder *decoder) {
     const char *backend_actual = metrics && strcmp(metrics->backend, "cuda-pending") == 0 ?
                                  "Unavailable" : (metrics ? metrics->backend : "Unavailable");
     fprintf(stderr, "qwnrun runtime detail: qwn_cuda_dll_loaded=%s model_dtype=%s "
-            "selected_isa_kernel=%s hot_path_isa_kernel=%s "
+            "preferred_kernel_candidate=%s actual_executed_kernel=%s "
+            "hot_path_isa_kernel=%s "
             "backend_requested=%s backend_actual=%s backend=%s kernel=%s "
             "gpu_matmul_count=%llu cpu_fallback_count=%llu gpu_device=%d "
             "cuda_upload_bytes=%llu cuda_resident_bytes=%llu cuda_dll_sha256=%s "
             "requested_threads=%d active_threads=%d openmp_runtime_loaded=%s "
             "hypervsq2_matmul_count=%llu hypervsq2_worker_participations=%llu "
-            "hypervsq2_last_active_threads=%d hypervsq2_max_active_threads=%d\n",
+            "hypervsq2_last_active_threads=%d hypervsq2_max_active_threads=%d "
+            "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
+            "activation_sum_recompute_count=%llu activation_sum_mode=%s "
+            "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
+            "final_lm_head_ms=%.3f intermediate_lm_head_ms=%.3f "
+            "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu\n",
             decoder->qwn_cuda.available ? "true" : "false", dtype,
-            qwn_cpu_kernel_name(), hot_kernel,
+            qwn_cpu_kernel_name(), hot_kernel, hot_kernel,
             qwn_runtime_backend_name(decoder->runtime_config.backend), backend_actual,
             backend_actual,
             metrics ? metrics->kernel : "unknown",
@@ -209,7 +210,18 @@ static void print_runtime_info(const QwnDecoder *decoder) {
             (unsigned long long)(metrics ? metrics->hypervsq2_matmul_count : 0),
             (unsigned long long)(metrics ? metrics->hypervsq2_worker_participations : 0),
             metrics ? metrics->hypervsq2_last_active_threads : 0,
-            metrics ? metrics->hypervsq2_max_active_threads : 0);
+            metrics ? metrics->hypervsq2_max_active_threads : 0,
+            (unsigned long long)(decoder->scratch.activation_sum_precompute_calls),
+            (unsigned long long)(decoder->scratch.activation_sum_reuse_count),
+            (unsigned long long)(decoder->scratch.activation_sum_recompute_count),
+            decoder->scratch.activation_sum_enabled ? "precomputed" : "recomputed",
+            (unsigned long long)(metrics ? metrics->final_lm_head_calls : 0),
+            (unsigned long long)(metrics ? metrics->intermediate_lm_head_calls : 0),
+            metrics ? metrics->final_lm_head_ms : 0.0,
+            metrics ? metrics->intermediate_lm_head_ms : 0.0,
+            (unsigned long long)(metrics ? metrics->early_exit_decisions : 0),
+            (unsigned long long)(metrics ? metrics->layers_skipped : 0),
+            (unsigned long long)(metrics ? metrics->tokens_saved : 0));
     fprintf(stderr, "qwnrun dispatch detail: reason=%s\n",
             metrics && metrics->dispatch_reason[0] ? metrics->dispatch_reason : "Unavailable");
     const QwnStartupMetrics *startup = qwn_decoder_startup_metrics(decoder);
@@ -365,6 +377,11 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    "decode_tok_per_sec=%.6f sampling_ms=%.3f kv_reset_ms=%.3f pid=%lu backend_actual=%s "
                    "kernel=%s gpu_matmul_count=%llu cpu_fallback_count=%llu "
                    "active_threads=%d dispatch_reason=%s model_dtype=%s "
+                   "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
+                   "final_lm_head_ms=%.3f intermediate_lm_head_ms=%.3f "
+                   "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu "
+                   "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
+                   "activation_sum_recompute_count=%llu activation_sum_mode=%s "
                    "thinking_mode=%s decode_function=%s config_backend=%s context_size=%d "
                    "max_tokens=%d seed=%d kv_cache_mode=%s quantization=%s kernel_requested=%s "
                    "temperature=%.8g top_p=%.8g first_real_forward_ms=%.3f "
@@ -382,6 +399,17 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    d.runtime_metrics.active_cpu_threads,
                    d.runtime_metrics.dispatch_reason[0] ? d.runtime_metrics.dispatch_reason : "Unavailable",
                    d.embed_weight ? qwn_dtype_name(d.embed_weight->dtype) : "Unavailable",
+                   (unsigned long long)d.runtime_metrics.final_lm_head_calls,
+                   (unsigned long long)d.runtime_metrics.intermediate_lm_head_calls,
+                   d.runtime_metrics.final_lm_head_ms,
+                   d.runtime_metrics.intermediate_lm_head_ms,
+                   (unsigned long long)d.runtime_metrics.early_exit_decisions,
+                   (unsigned long long)d.runtime_metrics.layers_skipped,
+                   (unsigned long long)d.runtime_metrics.tokens_saved,
+                   (unsigned long long)d.scratch.activation_sum_precompute_calls,
+                   (unsigned long long)d.scratch.activation_sum_reuse_count,
+                   (unsigned long long)d.scratch.activation_sum_recompute_count,
+                   d.scratch.activation_sum_enabled ? "precomputed" : "recomputed",
                    config.thinking_mode,
                    strcmp(config.thinking_mode, "none") == 0 ? "qwn_decoder_generate" : "qwn_decoder_generate_thinking",
                    qwn_runtime_backend_name(config.backend), config.context_size, config.max_tokens,
@@ -560,6 +588,11 @@ int main(int argc,char **argv){
                 "metadata_parse_ms=%.3f tokenizer_init_ms=%.3f kv_cache_alloc_ms=%.3f "
                 "advisory_preload_ms=%.3f first_tensor_touch_ms=%.3f "
                 "first_real_forward_ms=%.3f total_end_to_end_ms=%.3f "
+                "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
+                "final_lm_head_ms=%.3f intermediate_lm_head_ms=%.3f "
+                "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu "
+                "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
+                "activation_sum_recompute_count=%llu activation_sum_mode=%s "
                 "config_backend=%s context_size=%d max_tokens=%d seed=%d "
                 "kv_cache_mode=%s quantization=%s kernel_requested=%s temperature=%.8g top_p=%.8g\n",
                 metrics ? metrics->backend : "unknown",
@@ -582,6 +615,17 @@ int main(int argc,char **argv){
                 startup ? startup->kv_cache_alloc_ms : 0.0, startup ? startup->advisory_preload_ms : 0.0,
                 startup ? startup->first_tensor_touch_ms : 0.0,
                 startup ? startup->first_real_forward_ms : 0.0, total_end_to_end_ms,
+                (unsigned long long)(metrics ? metrics->final_lm_head_calls : 0),
+                (unsigned long long)(metrics ? metrics->intermediate_lm_head_calls : 0),
+                metrics ? metrics->final_lm_head_ms : 0.0,
+                metrics ? metrics->intermediate_lm_head_ms : 0.0,
+                (unsigned long long)(metrics ? metrics->early_exit_decisions : 0),
+                (unsigned long long)(metrics ? metrics->layers_skipped : 0),
+                (unsigned long long)(metrics ? metrics->tokens_saved : 0),
+                (unsigned long long)decoder.scratch.activation_sum_precompute_calls,
+                (unsigned long long)decoder.scratch.activation_sum_reuse_count,
+                (unsigned long long)decoder.scratch.activation_sum_recompute_count,
+                decoder.scratch.activation_sum_enabled ? "precomputed" : "recomputed",
                 qwn_runtime_backend_name(runtime_config.backend), runtime_config.context_size,
                 runtime_config.max_tokens, runtime_config.seed, runtime_config.kv_cache_mode,
                 runtime_config.quantization, runtime_config.kernel, temperature, top_p);

@@ -126,7 +126,8 @@ def _read_with_timeout(stream, size: int | None, timeout: float):
 
 class PersistentQwnrun:
     def __init__(self, executable: Path, model: Path, backend: str, context_size: int,
-                 max_tokens: int, threads: int | None, seed: int, timeout: float):
+                 max_tokens: int, threads: int | None, seed: int, timeout: float,
+                 env_overrides: dict[str, str] | None = None):
         command = [str(executable), str(model), "--serve", "--backend", backend,
                    "--ctx-size", str(context_size), "--max-tokens", str(max_tokens),
                    "--seed", str(seed), "--thinking", "none"]
@@ -134,12 +135,19 @@ class PersistentQwnrun:
             command += ["--threads", str(threads)]
         environment = os.environ.copy()
         environment["SERVE"] = "1"
+        if env_overrides:
+            environment.update(env_overrides)
         self.timeout = timeout
         self.started = time.perf_counter()
         self.process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, env=environment, bufsize=0,
         )
+        self._stderr_chunks: list[bytes] = []
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr, name=f"qwnrun-stderr-{self.process.pid}", daemon=True
+        )
+        self._stderr_thread.start()
         self.process_create_ms = (time.perf_counter() - self.started) * 1000.0
         self.pid = self.process.pid
         try:
@@ -155,6 +163,20 @@ class PersistentQwnrun:
             raise ValueError(
                 f"{error}; qwnrun_returncode={returncode}; qwnrun_stderr={detail}"
             ) from error
+
+    def _drain_stderr(self) -> None:
+        stream = self.process.stderr
+        if stream is None:
+            return
+        try:
+            while True:
+                line = stream.readline()
+                if not line:
+                    break
+                self._stderr_chunks.append(line)
+        except (OSError, ValueError):
+            # The process may be terminated while the drain thread is reading.
+            return
 
     def request(self, request_id: str, prompt: str, max_tokens: int,
                 temperature: float = 0.0, top_p: float = 1.0) -> dict:
@@ -192,13 +214,20 @@ class PersistentQwnrun:
                 self.process.stdin.close()
                 self.process.stdin = None
             try:
-                stdout, stderr = self.process.communicate(timeout=5)
+                self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.terminate()
-                self.process.kill()
-                stdout, stderr = self.process.communicate()
+                try:
+                    self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
         else:
-            stdout, stderr = self.process.communicate()
+            self.process.wait()
+        stdout = self.process.stdout.read() if self.process.stdout is not None else b""
+        if self._stderr_thread.is_alive():
+            self._stderr_thread.join(timeout=1)
+        stderr = b"".join(self._stderr_chunks)
         return (
             stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout or "",
             stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr or "",
@@ -409,7 +438,9 @@ def run_phase_benchmark(model_path: str, mode: str, prompt: str, max_tokens: int
         ("requested_threads", "requested_cpu_threads"),
         ("hot_path_active_threads", "active_cpu_threads"),
         ("hot_path_isa_kernel", "selected_cpu_isa_kernel"),
+        ("actual_executed_kernel", "selected_cpu_isa_kernel"),
         ("selected_isa_kernel", "selected_cpu_isa_kernel"),
+        ("preferred_kernel_candidate", "preferred_kernel_candidate"),
         ("binary_avx2_kernel", "binary_avx2_kernel"),
         ("binary_vnni_kernel", "binary_vnni_kernel"),
     ):

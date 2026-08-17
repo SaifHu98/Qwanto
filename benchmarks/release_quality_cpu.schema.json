@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qwanto Native release-quality CPU evidence",
+  "type": "object",
+  "required": ["schema_version", "benchmark_class", "benchmark_id", "timestamp_utc", "model", "executable", "configuration", "evidence_classification", "runtime_metadata", "requests", "summary"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "benchmark_class": {"const": "RELEASE_QUALITY"},
+    "evidence_classification": {"enum": ["MEASURED", "UNAVAILABLE", "INVALID"]},
+    "model": {"type": "object", "required": ["repository_relative_path", "sha256"]},
+    "executable": {"type": "object", "required": ["repository_relative_path", "sha256"]},
+    "configuration": {"type": "object", "required": ["backend_requested", "context_size", "max_tokens", "seed", "repeats_requested", "sampler"]},
+    "runtime_metadata": {"type": "object", "required": ["git_commit", "git_worktree_dirty", "model_dtype", "actual_executed_kernel"]},
+    "requests": {"type": "array", "items": {"type": "object", "required": ["request_id", "generated_tokens", "decode_tok_per_sec", "decode_wall_ms", "first_token_ms", "process_pid", "runtime_config_snapshot"]}},
+    "summary": {"type": "object", "required": ["generated_tokens_per_run", "decode_tok_per_sec_median", "decode_tok_per_sec_p5", "decode_latency_ms_median", "decode_latency_ms_p95", "ttft_ms_median", "ttft_ms_p95", "decode_tok_per_sec_cv", "pid_reuse_proven"]}
+  }
+}

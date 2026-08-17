@@ -55,6 +55,7 @@ def make_runtime_config_snapshot(
         },
         "speculative_decoding": speculative_decoding,
         "fused_kernel": fused_kernel,
+        "activation_sum_mode": "Unavailable",
     }
 
 
@@ -83,6 +84,7 @@ def update_runtime_config_snapshot(snapshot: dict[str, Any], fields: dict[str, A
         "kv_cache_mode": "kv_cache_mode",
         "quantization": "quantization",
         "kernel_requested": "kernel_requested",
+        "activation_sum_mode": "activation_sum_mode",
     }
     for source, target in mapping.items():
         if source in fields:

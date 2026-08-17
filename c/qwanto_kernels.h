@@ -14,6 +14,9 @@ typedef struct {
     int8_t *q8;              /* 64-byte aligned [max_tokens, padded_k] */
     float  *token_scales;    /* 64-byte aligned [max_tokens] */
     float  *row_f32;         /* 64-byte aligned [padded_k] */
+    int32_t *activation_sums; /* [max_tokens, ceil(padded_k / 32)] */
+    int     activation_sum_blocks;
+    int     activation_sum_enabled;
     size_t  bytes;
     int     max_tokens;
     int     padded_k;
@@ -25,6 +28,9 @@ typedef struct {
     int      hypervsq2_max_active_threads;
     char     hypervsq2_kernel[32];
     char     hypervsq2_dispatch_reason[128];
+    uint64_t activation_sum_precompute_calls;
+    uint64_t activation_sum_reuse_count;
+    uint64_t activation_sum_recompute_count;
 } QwnScratch;
 
 /* Allocate once per session. No malloc/free occurs in the token hot path. */
@@ -65,16 +71,19 @@ int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size);
 
 /* Scalar Golden Reference for HyperVSQ-2 GEMV */
 void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,
+                              const int32_t *activation_sums,
                               float x_scale, int K, int N,
                               size_t row_bytes, float *out);
 
 /* AVX2 Accelerated HyperVSQ-2 GEMV */
 void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
+                            const int32_t *activation_sums,
                             float x_scale, int K, int N,
                             size_t row_bytes, float *out);
 
 /* AVX-VNNI Accelerated HyperVSQ-2 GEMV */
 void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
+                            const int32_t *activation_sums,
                             float x_scale, int K, int N,
                             size_t row_bytes, float *out);
 

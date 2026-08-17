@@ -370,12 +370,27 @@ export interface AccelOptions {
   draftModelPath?: string
 }
 
-export async function loadModel(baseUrl: string, modelPath: string, backend = "auto", backendUrl?: string, apiKey = "", ctxSize?: number, accel?: AccelOptions) {
+export interface RuntimeConfig {
+  backend?: "cpu" | "cuda" | "auto"
+  gpu_device?: number
+  threads?: number
+  context_size?: number
+  max_tokens?: number
+  seed?: number
+  kv_cache_mode?: "fp16" | "auto"
+  quantization?: "auto" | "q4_0" | "hyper_vsq2" | "fp16" | "fp32"
+  kernel?: "auto" | "scalar" | "avx2" | "vnni"
+  speculative_decoding?: boolean
+  fused_kernel?: boolean
+}
+
+export async function loadModel(baseUrl: string, modelPath: string, backend = "auto", backendUrl?: string, apiKey = "", ctxSize?: number, accel?: AccelOptions, runtimeConfig?: RuntimeConfig) {
   const response = await fetch(endpoint(baseUrl, "qwanto/load"), {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({
       model_path: modelPath, backend, backend_url: backendUrl, ctx_size: ctxSize,
+      runtime_config: runtimeConfig || { backend, context_size: ctxSize },
       ...(accel ? {
         flash_attention: accel.flashAttention,
         kv_cache_quant: accel.kvCacheQuant,

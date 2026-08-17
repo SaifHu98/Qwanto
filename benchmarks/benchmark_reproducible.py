@@ -466,7 +466,9 @@ def execute_real_benchmark(
         "openmp_enabled": build_fields.get("openmp_enabled", "Unavailable"),
         "active_thread_count": build_fields.get("active_threads", "Unavailable"),
         "selected_cpu_isa_kernel": build_fields.get(
-            "selected_isa_kernel", build_fields.get("isa_backend", "Unavailable")),
+            "actual_executed_kernel", "Unavailable"),
+        "preferred_kernel_candidate": build_fields.get(
+            "preferred_kernel_candidate", "Unavailable"),
         "gpu_kernel_coverage": build_fields.get("gpu_kernel_coverage", "Unavailable"),
     })
 

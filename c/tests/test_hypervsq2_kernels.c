@@ -64,10 +64,13 @@ static int run_differential_test(int K, int N) {
     uint8_t *raw_blocks = (uint8_t *)malloc(total_weight_bytes);
     int8_t *q8 = (int8_t *)malloc((size_t)blocks * 256);
     float *out_scalar = (float *)malloc((size_t)N * sizeof(float));
+    float *out_precomputed = (float *)malloc((size_t)N * sizeof(float));
     float *out_avx2 = (float *)malloc((size_t)N * sizeof(float));
     float *out_vnni = (float *)malloc((size_t)N * sizeof(float));
+    int32_t *activation_sums = (int32_t *)calloc((size_t)blocks * 8, sizeof(int32_t));
 
-    if (!raw_blocks || !q8 || !out_scalar || !out_avx2 || !out_vnni) {
+    if (!raw_blocks || !q8 || !out_scalar || !out_precomputed || !out_avx2 ||
+        !out_vnni || !activation_sums) {
         fprintf(stderr, "Allocation failed in differential test\n");
         return -1;
     }
@@ -84,26 +87,44 @@ static int run_differential_test(int K, int N) {
             q8[i] = 0;
         }
     }
+    for (int b = 0; b < blocks; b++) {
+        int valid = K - b * 256;
+        if (valid > 256) valid = 256;
+        for (int oct = 0; oct < 8; oct++) {
+            int cap = valid - oct * 32;
+            if (cap > 32) cap = 32;
+            if (cap <= 0) continue;
+            for (int i = 0; i < cap; i++)
+                activation_sums[b * 8 + oct] += q8[b * 256 + oct * 32 + i];
+        }
+    }
 
     float x_scale = 0.0078125f;
 
     const QwnCpuFeatures *cpu = qwn_get_cpu_features();
-    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out_scalar);
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, NULL, x_scale, K, N, row_bytes, out_scalar);
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, activation_sums, x_scale, K, N,
+                               row_bytes, out_precomputed);
     if (cpu->has_avx2) {
-        qwn_gemv_hypervsq2_avx2(raw_blocks, q8, x_scale, K, N, row_bytes, out_avx2);
+        qwn_gemv_hypervsq2_avx2(raw_blocks, q8, activation_sums, x_scale, K, N,
+                                row_bytes, out_avx2);
     } else {
         memcpy(out_avx2, out_scalar, (size_t)N * sizeof(float));
     }
     if (cpu->has_vnni) {
-        qwn_gemv_hypervsq2_vnni(raw_blocks, q8, x_scale, K, N, row_bytes, out_vnni);
+        qwn_gemv_hypervsq2_vnni(raw_blocks, q8, activation_sums, x_scale, K, N,
+                                row_bytes, out_vnni);
     } else {
         memcpy(out_vnni, out_scalar, (size_t)N * sizeof(float));
     }
 
     float max_diff_avx2 = 0.0f;
     float max_diff_vnni = 0.0f;
+    float max_diff_precomputed = 0.0f;
 
     for (int n = 0; n < N; n++) {
+        float diff_precomputed = fabsf(out_scalar[n] - out_precomputed[n]);
+        if (diff_precomputed > max_diff_precomputed) max_diff_precomputed = diff_precomputed;
         float diff_a = fabsf(out_scalar[n] - out_avx2[n]);
         if (diff_a > max_diff_avx2) max_diff_avx2 = diff_a;
 
@@ -112,6 +133,11 @@ static int run_differential_test(int K, int N) {
     }
 
     int passed = 1;
+    if (max_diff_precomputed > 1e-3f) {
+        fprintf(stderr, "[FAIL] K=%d N=%d activation-sum max diff: %f\n",
+                K, N, max_diff_precomputed);
+        passed = 0;
+    }
     if (cpu->has_avx2 && max_diff_avx2 > 1e-3f) {
         fprintf(stderr, "[FAIL] K=%d N=%d AVX2 max diff: %f (scalar=%f, avx2=%f)\n",
                 K, N, max_diff_avx2, out_scalar[0], out_avx2[0]);
@@ -126,8 +152,10 @@ static int run_differential_test(int K, int N) {
     free(raw_blocks);
     free(q8);
     free(out_scalar);
+    free(out_precomputed);
     free(out_avx2);
     free(out_vnni);
+    free(activation_sums);
 
     return passed ? 0 : -1;
 }
@@ -154,7 +182,7 @@ static void benchmark_kernels(int K, int N, int iters) {
     /* Benchmark scalar */
     double t0 = get_time_sec();
     for (int it = 0; it < iters; it++) {
-        qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+        qwn_gemv_hypervsq2_scalar(raw_blocks, q8, NULL, x_scale, K, N, row_bytes, out);
     }
     double t1 = get_time_sec();
     double time_scalar = (t1 - t0) / iters;
@@ -166,7 +194,7 @@ static void benchmark_kernels(int K, int N, int iters) {
     if (cpu->has_avx2) {
         t0 = get_time_sec();
         for (int it = 0; it < iters; it++) {
-            qwn_gemv_hypervsq2_avx2(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+            qwn_gemv_hypervsq2_avx2(raw_blocks, q8, NULL, x_scale, K, N, row_bytes, out);
         }
         t1 = get_time_sec();
         time_avx2 = (t1 - t0) / iters;
@@ -179,7 +207,7 @@ static void benchmark_kernels(int K, int N, int iters) {
     if (cpu->has_vnni) {
         t0 = get_time_sec();
         for (int it = 0; it < iters; it++) {
-            qwn_gemv_hypervsq2_vnni(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+            qwn_gemv_hypervsq2_vnni(raw_blocks, q8, NULL, x_scale, K, N, row_bytes, out);
         }
         t1 = get_time_sec();
         time_vnni = (t1 - t0) / iters;

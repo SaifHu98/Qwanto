@@ -198,7 +198,10 @@ int qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k) {
     size_t q8_bytes = round_up((size_t)max_tokens * (size_t)padded_k, 64);
     size_t scale_bytes = round_up((size_t)max_tokens * sizeof(float), 64);
     size_t row_bytes = round_up((size_t)padded_k * sizeof(float), 64);
-    size_t total = q8_bytes + scale_bytes + row_bytes;
+    int activation_sum_blocks = (padded_k + 31) / 32;
+    size_t activation_sum_bytes = round_up(
+        (size_t)max_tokens * (size_t)activation_sum_blocks * sizeof(int32_t), 64);
+    size_t total = q8_bytes + scale_bytes + row_bytes + activation_sum_bytes;
     uint8_t *p = (uint8_t *)aligned_malloc64(total);
     if (!p) return -1;
     memset(p, 0, total);
@@ -206,6 +209,12 @@ int qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k) {
     s->q8 = (int8_t *)p;
     s->token_scales = (float *)(p + q8_bytes);
     s->row_f32 = (float *)(p + q8_bytes + scale_bytes);
+    s->activation_sums = (int32_t *)(p + q8_bytes + scale_bytes + row_bytes);
+    s->activation_sum_blocks = activation_sum_blocks;
+    const char *disable_activation_sums = getenv("QWN_DISABLE_ACTIVATION_SUMS");
+    s->activation_sum_enabled = !(disable_activation_sums &&
+                                  *disable_activation_sums &&
+                                  strcmp(disable_activation_sums, "0") != 0);
     s->bytes = total;
     s->max_tokens = max_tokens;
     s->padded_k = padded_k;
@@ -375,7 +384,18 @@ static void quantize_tokens(const float *x, int M, int K, QwnScratch *s) {
         }
 #endif
         memset(q + K, 0, (size_t)(s->padded_k - K));
+        if (s->activation_sum_enabled) {
+            for (int block = 0; block < s->activation_sum_blocks; block++) {
+                int start = block * 32;
+                int cap = K - start;
+                if (cap > 32) cap = 32;
+                int32_t sum = 0;
+                for (int i = 0; i < cap; i++) sum += (int32_t)q[start + i];
+                s->activation_sums[(size_t)t * s->activation_sum_blocks + block] = sum;
+            }
+        }
     }
+    if (s->activation_sum_enabled) s->activation_sum_precompute_calls += (uint64_t)M;
 }
 
 #if defined(__AVX2__)
@@ -530,6 +550,7 @@ static float dot_hyper_vsq_block(const uint8_t *blk, const int8_t *q8,
 
 /* Scalar Golden Reference GEMV for HyperVSQ-2 */
 void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,
+                              const int32_t *activation_sums,
                               float x_scale, int K, int N,
                               size_t row_bytes, float *out) {
     int blocks = (K + 255) / 256;
@@ -562,14 +583,14 @@ void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,
                 const uint8_t *q_oct = qs + oct * 8;
 
                 int32_t sum_q = 0;
-                int32_t sum_a = 0;
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] : 0;
                 for (int i = 0; i < cap; i++) {
                     uint8_t byte = q_oct[i >> 2];
                     int shift = (i & 3) * 2;
                     int q = (byte >> shift) & 3;
                     int8_t a = q8[base_idx + i];
                     sum_q += (q - 1) * (int32_t)a;
-                    sum_a += (int32_t)a;
+                    if (!activation_sums) sum_a += (int32_t)a;
                 }
                 row_sum += (float)sum_q * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
             }
@@ -580,6 +601,7 @@ void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,
 
 /* AVX2 Accelerated HyperVSQ-2 GEMV */
 void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
+                            const int32_t *activation_sums,
                             float x_scale, int K, int N,
                             size_t row_bytes, float *out) {
 #if defined(__AVX2__)
@@ -624,7 +646,8 @@ void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
                 __m256i diff32 = _mm256_sub_epi32(dot32, sum_a32);
 
                 int32_t dot_centered = hsum_epi32_avx2(diff32);
-                int32_t sum_a = hsum_epi32_avx2(sum_a32);
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] :
+                                 hsum_epi32_avx2(sum_a32);
 
                 row_sum += (float)dot_centered * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
             }
@@ -641,14 +664,14 @@ void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
                 const uint8_t *q_oct = qs + oct * 8;
 
                 int32_t sum_q = 0;
-                int32_t sum_a = 0;
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] : 0;
                 for (int i = 0; i < cap; i++) {
                     uint8_t byte = q_oct[i >> 2];
                     int shift = (i & 3) * 2;
                     int q = (byte >> shift) & 3;
                     int8_t a = q8[base_idx + i];
                     sum_q += (q - 1) * (int32_t)a;
-                    sum_a += (int32_t)a;
+                    if (!activation_sums) sum_a += (int32_t)a;
                 }
                 row_sum += (float)sum_q * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
             }
@@ -656,7 +679,7 @@ void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
         out[n] = row_sum;
     }
 #else
-    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, activation_sums, x_scale, K, N, row_bytes, out);
 #endif
 }
 
@@ -665,6 +688,7 @@ void qwn_gemv_hypervsq2_avx2(const uint8_t *raw_blocks, const int8_t *q8,
 __attribute__((target("avxvnni")))
 #endif
 void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
+                            const int32_t *activation_sums,
                             float x_scale, int K, int N,
                             size_t row_bytes, float *out) {
 #if defined(__AVX2__)
@@ -704,7 +728,8 @@ void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
                 __m256i diff32 = _mm256_sub_epi32(dot32, sum_a32);
 
                 int32_t dot_centered = hsum_epi32_avx2(diff32);
-                int32_t sum_a = hsum_epi32_avx2(sum_a32);
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] :
+                                 hsum_epi32_avx2(sum_a32);
 
                 row_sum += (float)dot_centered * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
             }
@@ -721,14 +746,14 @@ void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
                 const uint8_t *q_oct = qs + oct * 8;
 
                 int32_t sum_q = 0;
-                int32_t sum_a = 0;
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] : 0;
                 for (int i = 0; i < cap; i++) {
                     uint8_t byte = q_oct[i >> 2];
                     int shift = (i & 3) * 2;
                     int q = (byte >> shift) & 3;
                     int8_t a = q8[base_idx + i];
                     sum_q += (q - 1) * (int32_t)a;
-                    sum_a += (int32_t)a;
+                    if (!activation_sums) sum_a += (int32_t)a;
                 }
                 row_sum += (float)sum_q * (eff_scale * x_scale) + (float)sum_a * (offset * x_scale);
             }
@@ -736,7 +761,7 @@ void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
         out[n] = row_sum;
     }
 #else
-    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out);
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, activation_sums, x_scale, K, N, row_bytes, out);
 #endif
 }
 
@@ -779,7 +804,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         s_logged = 1;
     }
 
-    typedef void (*gemv_fn_t)(const uint8_t *, const int8_t *, float, int, int, size_t, float *);
+    typedef void (*gemv_fn_t)(const uint8_t *, const int8_t *, const int32_t *,
+                              float, int, int, size_t, float *);
     gemv_fn_t gemv_fn = qwn_gemv_hypervsq2_scalar;
     if (cpu->forced_mode == 1) {
         gemv_fn = qwn_gemv_hypervsq2_scalar;
@@ -821,6 +847,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
 
     for (int t = 0; t < M; t++) {
         const int8_t *q8 = scratch->q8 + (size_t)t * scratch->padded_k;
+        const int32_t *activation_sums = scratch->activation_sum_enabled ?
+            scratch->activation_sums + (size_t)t * scratch->activation_sum_blocks : NULL;
         float x_scale = scratch->token_scales[t];
         float *yt = y + (size_t)t * N;
 
@@ -837,7 +865,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
                 participated = 1;
                 int chunk = N - n;
                 if (chunk > 64) chunk = 64;
-                gemv_fn(raw + (size_t)n * row_bytes, q8, x_scale, K, chunk, row_bytes, yt + n);
+                gemv_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
+                        x_scale, K, chunk, row_bytes, yt + n);
             }
             if (participated) {
                 #pragma omp atomic
@@ -848,7 +877,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         for (int n = 0; n < N; n += 64) {
             int chunk = N - n;
             if (chunk > 64) chunk = 64;
-            gemv_fn(raw + (size_t)n * row_bytes, q8, x_scale, K, chunk, row_bytes, yt + n);
+            gemv_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
+                    x_scale, K, chunk, row_bytes, yt + n);
         }
         participating_threads = 1;
 #endif
@@ -857,6 +887,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         scratch->hypervsq2_last_active_threads = participating_threads;
         if (participating_threads > scratch->hypervsq2_max_active_threads)
             scratch->hypervsq2_max_active_threads = participating_threads;
+        if (activation_sums) scratch->activation_sum_reuse_count += (uint64_t)N;
+        else scratch->activation_sum_recompute_count += (uint64_t)N;
     }
     return 0;
 }
