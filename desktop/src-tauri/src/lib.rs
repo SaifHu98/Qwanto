@@ -89,34 +89,34 @@ fn selected_path(path: FilePath) -> Result<String, String> {
 
 #[tauri::command]
 fn pick_model_source(app: AppHandle) -> Result<Option<String>, String> {
-    Ok(app.dialog().file()
+    app.dialog().file()
         .add_filter("Qwanto model sources", &["qwn", "gguf", "safetensors", "pt", "pth", "bin"])
         .blocking_pick_file()
         .map(selected_path)
-        .transpose()?)
+        .transpose()
 }
 
 #[tauri::command]
 fn pick_qwn_model(app: AppHandle) -> Result<Option<String>, String> {
-    Ok(app.dialog().file()
+    app.dialog().file()
         .add_filter("Qwanto Native containers", &["qwn"])
         .blocking_pick_file()
         .map(selected_path)
-        .transpose()?)
+        .transpose()
 }
 
 #[tauri::command]
 fn pick_model_library_folder(app: AppHandle) -> Result<Option<String>, String> {
-    Ok(app.dialog().file().blocking_pick_folder()
+    app.dialog().file().blocking_pick_folder()
         .map(selected_path)
-        .transpose()?)
+        .transpose()
 }
 
 #[tauri::command]
 fn pick_workspace_folder(app: AppHandle) -> Result<Option<String>, String> {
-    Ok(app.dialog().file().blocking_pick_folder()
+    app.dialog().file().blocking_pick_folder()
         .map(selected_path)
-        .transpose()?)
+        .transpose()
 }
 
 #[tauri::command]

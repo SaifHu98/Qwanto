@@ -342,7 +342,7 @@ impl QwantoRuntimeManager {
         let canonical_model = model_file.canonicalize().map_err(|e| format!("Failed to canonicalize model path: {}", e))?;
         let canonical_model_str = canonical_model.to_string_lossy().to_string();
 
-        let mut cmd = Command::new(&self.executable_path);
+        let mut cmd = Command::new(self.executable_path.as_os_str());
         cmd.arg(&canonical_model_str);
         cmd.arg("--serve");
 

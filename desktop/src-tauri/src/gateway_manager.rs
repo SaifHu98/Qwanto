@@ -161,7 +161,7 @@ impl GatewayManager {
 
         let mut command = if let Some(binary) = packaged.as_ref().or(dev_binary.as_ref()) {
             self.status.sidecar_packaged = packaged.is_some();
-            Command::new(binary)
+            Command::new(binary.as_path())
         } else if let Some(script) = dev_script {
             let python = if cfg!(windows) { "python" } else { "python3" };
             let mut cmd = Command::new(python);

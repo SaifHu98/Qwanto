@@ -144,3 +144,14 @@ and NVMe mmap.
 - **Decision:** Do not create or modify a tag/release. Existing unsigned
   Beta.4 remains unchanged; this follow-up must pass hosted CI before any
   future publication.
+
+## 2026-08-17 — Hosted Rust Clippy correction
+
+- **Change:** Removed four needless picker `Ok`/`?` wrappers, replaced the
+  attachment base64 capacity calculation with `usize::div_ceil`, and removed
+  needless path/reference forms reported by hosted Clippy.
+- **Evidence:** Hosted run `32021371447` passed native C, Python, Web, docs,
+  and security, then failed only in Rust/Tauri Clippy with seven actionable
+  annotations. No release or tag was created.
+- **Validation:** `git diff --check` passed locally; Cargo remains unavailable
+  here, so the corrected Rust gate is being verified by hosted CI.

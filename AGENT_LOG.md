@@ -330,3 +330,14 @@
   passed. Cargo, Make, and nvcc are unavailable locally.
 - **Decision:** Keep the existing unsigned Beta.4 unchanged; no tag or release
   was created.
+
+## 2026-08-17 — Hosted Rust Clippy correction
+
+- **Evidence:** Hosted run `32021371447` passed native C, Python, Web, docs,
+  and security, then failed only in Rust/Tauri Clippy with four needless
+  `Ok`/`?` wrappers, a manual `div_ceil`, and reference/borrow diagnostics.
+- **Change:** Corrected the picker command returns, attachment capacity
+  calculation, diagnostics redaction string, and native Command path forms.
+- **Validation:** `git diff --check` passed locally; Cargo remains unavailable.
+- **Decision:** Push the focused correction and wait for hosted Rust/Tauri
+  validation; keep Beta.4 unchanged and do not create a tag or release.
