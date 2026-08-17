@@ -179,3 +179,6 @@ and NVMe mmap.
 - **Follow-up:** The initial diagnostic patch searched broad Visual Studio
   roots; the current working tree narrows that to active tool roots and
   explicit x64 tool/redist paths so hosted validation remains bounded.
+
+- **Follow-up:** Broad Visual Studio roots were removed from the recursive
+  search entirely; versioned x64 globs are now the only Visual Studio paths.

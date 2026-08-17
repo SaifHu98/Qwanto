@@ -373,3 +373,10 @@
 - **Validation:** Workflow YAML parsed and `git diff --check` passed locally.
 - **Decision:** The first hardened commit remains pushed; this follow-up is
   required before treating hosted Windows validation as representative.
+
+## 2026-08-17 — Windows OpenMP root narrowing
+
+- **Change:** Removed broad Visual Studio directories from the recursive root
+  list; only explicit x64 tool/redist globs cover Visual Studio, while active
+  Clang/LLVM and environment-provided roots remain direct search roots.
+- **Validation:** Workflow YAML parsed and `git diff --check` passed locally.

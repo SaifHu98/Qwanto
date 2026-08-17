@@ -92,9 +92,7 @@ jobs:
           $ompRoots = @(
             $clangRoot,
             'C:\Program Files\LLVM',
-            'C:\Program Files (x86)\LLVM',
-            'C:\Program Files\Microsoft Visual Studio',
-            'C:\Program Files (x86)\Microsoft Visual Studio'
+            'C:\Program Files (x86)\LLVM'
           )
           foreach ($root in @($env:LLVMInstallDir, $env:VCToolsInstallDir)) {
             if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) { $ompRoots += $root }
