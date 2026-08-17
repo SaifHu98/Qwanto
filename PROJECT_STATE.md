@@ -182,3 +182,7 @@ and NVMe mmap.
 
 - **Follow-up:** Broad Visual Studio roots were removed from the recursive
   search entirely; versioned x64 globs are now the only Visual Studio paths.
+
+- **Follow-up:** The redist glob now stops at the versioned `VC\Redist\MSVC`
+  root, allowing the actual `debug_nonredist\x64` layout to be discovered
+  without scanning the complete Visual Studio installation.

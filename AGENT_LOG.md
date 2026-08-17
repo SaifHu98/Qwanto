@@ -371,6 +371,17 @@
   tree recursion with active Clang/VC roots and explicit versioned x64 paths;
   this preserves deterministic selection without an unbounded runner scan.
 - **Validation:** Workflow YAML parsed and `git diff --check` passed locally.
+
+## 2026-08-17 — Windows OpenMP redist layout correction
+
+- **Evidence:** Hosted run `32023792420` failed the Windows native job in 18
+  seconds, before any native test artifact was produced; the public page
+  exposed only the step exit annotation. The current Visual Studio redist
+  layout includes an intermediate `debug_nonredist` directory.
+- **Change:** Changed the bounded redist search roots to the versioned MSVC
+  redist directories and retained strict recursive lookup for the x64 DLL.
+- **Validation:** YAML and release-policy checks pass locally; no failure is
+  masked and no tag/release was created.
 - **Decision:** The first hardened commit remains pushed; this follow-up is
   required before treating hosted Windows validation as representative.
 

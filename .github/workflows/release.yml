@@ -126,8 +126,8 @@ jobs:
             throw "x64 LLVM OpenMP import library was not found. clang=$($clang.Source); searched=$($ompRoots -join ';')"
           }
           $ompDllSearchPaths = @($ompRoots) + @($env:VCToolsRedistDir, $env:VCToolsInstallDir,
-            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64',
-            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64')
+            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC',
+            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC')
           $ompDll = Get-ChildItem -Path $ompDllSearchPaths -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch '\\arm64\\' -and $_.Name -eq 'libomp140.x86_64.dll' } |
             Sort-Object @{ Expression = { if ($_.FullName -match '\\(?:x64|amd64)\\') { 0 } else { 1 } } }, FullName |
