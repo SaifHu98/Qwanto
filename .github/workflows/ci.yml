@@ -86,77 +86,18 @@ jobs:
         shell: pwsh
         run: |
           Set-Location c
-          $clangCommand = Get-Command clang -ErrorAction SilentlyContinue
-          $vswherePath = @(
-            'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe',
-            'C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe'
-          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-          $vsInstallations = @()
-          if ($vswherePath) {
-            $vsInstallations = @(& $vswherePath -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Llvm -property installationPath 2>$null)
-            if (-not $vsInstallations) {
-              $vsInstallations = @(& $vswherePath -latest -products '*' -property installationPath 2>$null)
-            }
-          }
-          $clangCandidates = @()
-          if ($clangCommand -and $clangCommand.CommandType -eq 'Application') { $clangCandidates += $clangCommand.Path }
-          $clangCandidates += @(
-            'C:\Program Files\LLVM\bin\clang.exe',
-            'C:\Program Files (x86)\LLVM\bin\clang.exe',
-            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe',
-            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe'
-          )
-          foreach ($vs in $vsInstallations) { $clangCandidates += (Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang.exe') }
-          $clangPath = $clangCandidates |
-            ForEach-Object {
-              if ($_ -and $_ -like '*[*?]*') {
-                Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
-              } elseif ($_ -and (Test-Path -LiteralPath $_ -PathType Leaf)) { $_ }
-            } |
-            Select-Object -First 1
-          if (-not $clangPath) { throw "LLVM Clang was not found. vswhere=$vswherePath; installations=$($vsInstallations -join ';'); candidates=$($clangCandidates -join ';')" }
-          & $clangPath --version
-          $clangRoot = Split-Path -Parent (Split-Path -Parent $clangPath)
-          $ompRoots = @(
-            $clangRoot,
-            'C:\Program Files\LLVM',
-            'C:\Program Files (x86)\LLVM'
-          )
-          foreach ($root in @($env:LLVMInstallDir, $env:VCToolsInstallDir)) {
-            if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) { $ompRoots += $root }
-          }
-          $ompRoots = $ompRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique
-          $ompLibSearchPaths = @($ompRoots) + @(
-            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64',
-            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64')
-          foreach ($vs in $vsInstallations) {
-            $ompLibSearchPaths += (Join-Path $vs 'VC\Tools\Llvm\x64')
-            $ompLibSearchPaths += (Join-Path $vs 'VC\Tools\MSVC')
-          }
-          $ompLib = (& $clangPath --print-file-name=libomp.lib).Trim()
+          $ompLib = (& clang --print-file-name=libomp.lib).Trim()
           if (-not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
-            $ompLib = Get-ChildItem -Path $ompLibSearchPaths -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -notmatch '\\arm64\\' } |
-              Sort-Object @{ Expression = { if ($_.FullName -match '\\(?:x64|amd64|windows)\\') { 0 } else { 1 } } }, FullName |
-              Select-Object -First 1 -ExpandProperty FullName
+            $ompRoots = @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')
+            if (-not [string]::IsNullOrWhiteSpace($env:VCToolsInstallDir) -and (Test-Path -LiteralPath $env:VCToolsInstallDir)) { $ompRoots += $env:VCToolsInstallDir }
+            $ompLib = Get-ChildItem -Path $ompRoots -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\lib\\x64\\libomp\.lib$' } | Select-Object -First 1 -ExpandProperty FullName
           }
-          if (-not $ompLib -or -not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
-            throw "x64 LLVM OpenMP import library was not found. clang=$clangPath; searched=$($ompRoots -join ';')"
-          }
-          $ompDllSearchPaths = @($ompRoots) + @($env:VCToolsRedistDir, $env:VCToolsInstallDir,
-            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC',
-            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC')
-          foreach ($vs in $vsInstallations) { $ompDllSearchPaths += (Join-Path $vs 'VC\Redist\MSVC') }
-          $ompDll = Get-ChildItem -Path $ompDllSearchPaths -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '\\arm64\\' -and $_.Name -eq 'libomp140.x86_64.dll' } |
-            Sort-Object @{ Expression = { if ($_.FullName -match '\\(?:x64|amd64)\\') { 0 } else { 1 } } }, FullName |
-            Select-Object -First 1
-          if (-not $ompDll) {
-            throw "x64 LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found. searched=$($ompDllSearchPaths -join ';')"
-          }
-          Write-Host "Using x64 OpenMP import library: $ompLib"
-          Write-Host "Using x64 OpenMP runtime DLL: $($ompDll.FullName)"
-          sccache $clangPath -O3 -mavx2 -mf16c -mfma -fopenmp qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi $ompLib
+          if (-not $ompLib -or -not (Test-Path -LiteralPath $ompLib)) { throw 'LLVM OpenMP import library was not found.' }
+          $ompDllRoots = @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')
+          foreach ($root in @($env:VCToolsRedistDir, $env:VCToolsInstallDir)) { if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) { $ompDllRoots += $root } }
+          $ompDll = Get-ChildItem -Path $ompDllRoots -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\(?:x64|amd64)\\' } | Select-Object -First 1
+          if (-not $ompDll) { throw 'LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found.' }
+          sccache clang -O3 -mavx2 -mf16c -mfma -fopenmp qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi $ompLib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath $ompDll.FullName -Destination libomp140.x86_64.dll -Force
           make test-c

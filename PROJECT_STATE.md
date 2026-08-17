@@ -200,3 +200,8 @@ and NVMe mmap.
   `vswhere` when present, validates executable paths, and searches bounded x64
   LLVM/MSVC OpenMP locations. A retained PowerShell brace was removed after
   local AST parsing identified it.
+
+- **Correction:** Hosted run `32025034411` showed the `vswhere` resolver still
+  failed before compilation. The Windows CI and release build blocks are now
+  restored to the exact known-good `f9b47ec` Clang/OpenMP invocation, with x64
+  filters preserved. Hosted validation is pending after this correction.

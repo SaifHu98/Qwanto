@@ -415,6 +415,19 @@
 - **Validation:** PowerShell parser, workflow YAML, and release-policy checks
   pass locally. No tag or release was created.
 
+## 2026-08-17 — Restore hosted-proven Windows OpenMP invocation
+
+- **Evidence:** Hosted run `32025034411` failed in the Windows build step after
+  three seconds. Comparing it with the last hosted run that passed the native
+  Windows job showed the resolver changes, rather than the C sources, were the
+  regression.
+- **Change:** Restored the exact Clang/OpenMP invocation from the known-good
+  `f9b47ec` workflow in CI and release packaging, retaining strict x64 library
+  filters and visible compiler failure output.
+- **Validation:** The workflow files now match the known-good Windows build
+  block, PowerShell AST parsing and YAML validation pass, and no release/tag
+  action was performed.
+
 ## 2026-08-17 — Windows OpenMP root narrowing
 
 - **Change:** Removed broad Visual Studio directories from the recursive root
