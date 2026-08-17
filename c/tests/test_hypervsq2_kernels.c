@@ -56,6 +56,51 @@ static void generate_synthetic_hypervsq2_row(uint8_t *buf, int K, unsigned int s
     }
 }
 
+static int run_unpack_candidate_test(void) {
+    uint8_t packed[8];
+    uint8_t shift_mask[32];
+    uint8_t lut[32];
+    volatile uint64_t checksum = 0;
+    unsigned int state = 0x9e3779b9U;
+
+    for (int sample = 0; sample < 10000; sample++) {
+        for (int i = 0; i < 8; i++) {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            packed[i] = (uint8_t)state;
+        }
+        qwn_hypervsq2_unpack_shift_mask(packed, shift_mask);
+        qwn_hypervsq2_unpack_lut(packed, lut);
+        if (memcmp(shift_mask, lut, sizeof(shift_mask)) != 0) {
+            fprintf(stderr, "[FAIL] HyperVSQ-2 unpack candidates disagree at sample %d\n", sample);
+            return -1;
+        }
+    }
+
+    const int iterations = 1000000;
+    for (int iteration = 0; iteration < iterations; iteration++) {
+        qwn_hypervsq2_unpack_shift_mask(packed, shift_mask);
+        checksum += shift_mask[iteration & 31];
+    }
+    double shift_start = get_time_sec();
+    for (int iteration = 0; iteration < iterations; iteration++) {
+        qwn_hypervsq2_unpack_shift_mask(packed, shift_mask);
+        checksum += shift_mask[iteration & 31];
+    }
+    double shift_seconds = get_time_sec() - shift_start;
+    double lut_start = get_time_sec();
+    for (int iteration = 0; iteration < iterations; iteration++) {
+        qwn_hypervsq2_unpack_lut(packed, lut);
+        checksum += lut[iteration & 31];
+    }
+    double lut_seconds = get_time_sec() - lut_start;
+    printf("Unpack candidates: shift_mask=%.6f ms, lut=%.6f ms, checksum=%llu\n",
+           shift_seconds * 1000.0, lut_seconds * 1000.0,
+           (unsigned long long)checksum);
+    return 0;
+}
+
 static int run_differential_test(int K, int N) {
     const int blocks = (K + 255) / 256;
     const size_t row_bytes = (size_t)blocks * 74;
@@ -68,10 +113,13 @@ static int run_differential_test(int K, int N) {
     float *out_avx2 = (float *)malloc((size_t)N * sizeof(float));
     float *out_vnni = (float *)malloc((size_t)N * sizeof(float));
     float *out_vnni_delayed = (float *)malloc((size_t)N * sizeof(float));
+    float *out_vnni_rows2 = (float *)malloc((size_t)N * sizeof(float));
+    float *out_vnni_rows4 = (float *)malloc((size_t)N * sizeof(float));
     int32_t *activation_sums = (int32_t *)calloc((size_t)blocks * 8, sizeof(int32_t));
 
     if (!raw_blocks || !q8 || !out_scalar || !out_precomputed || !out_avx2 ||
-        !out_vnni || !out_vnni_delayed || !activation_sums) {
+        !out_vnni || !out_vnni_delayed || !out_vnni_rows2 || !out_vnni_rows4 ||
+        !activation_sums) {
         fprintf(stderr, "Allocation failed in differential test\n");
         return -1;
     }
@@ -117,14 +165,22 @@ static int run_differential_test(int K, int N) {
                                 row_bytes, out_vnni);
         qwn_gemv_hypervsq2_vnni_delayed(raw_blocks, q8, activation_sums, x_scale, K, N,
                                         row_bytes, out_vnni_delayed);
+        qwn_gemv_hypervsq2_vnni_delayed_rows(raw_blocks, q8, activation_sums, x_scale, K, N,
+                                             row_bytes, out_vnni_rows2, 2);
+        qwn_gemv_hypervsq2_vnni_delayed_rows(raw_blocks, q8, activation_sums, x_scale, K, N,
+                                             row_bytes, out_vnni_rows4, 4);
     } else {
         memcpy(out_vnni, out_scalar, (size_t)N * sizeof(float));
         memcpy(out_vnni_delayed, out_scalar, (size_t)N * sizeof(float));
+        memcpy(out_vnni_rows2, out_scalar, (size_t)N * sizeof(float));
+        memcpy(out_vnni_rows4, out_scalar, (size_t)N * sizeof(float));
     }
 
     float max_diff_avx2 = 0.0f;
     float max_diff_vnni = 0.0f;
     float max_diff_vnni_delayed = 0.0f;
+    float max_diff_vnni_rows2 = 0.0f;
+    float max_diff_vnni_rows4 = 0.0f;
     float max_diff_precomputed = 0.0f;
 
     for (int n = 0; n < N; n++) {
@@ -137,6 +193,10 @@ static int run_differential_test(int K, int N) {
         if (diff_v > max_diff_vnni) max_diff_vnni = diff_v;
         float diff_delayed = fabsf(out_scalar[n] - out_vnni_delayed[n]);
         if (diff_delayed > max_diff_vnni_delayed) max_diff_vnni_delayed = diff_delayed;
+        float diff_rows2 = fabsf(out_scalar[n] - out_vnni_rows2[n]);
+        if (diff_rows2 > max_diff_vnni_rows2) max_diff_vnni_rows2 = diff_rows2;
+        float diff_rows4 = fabsf(out_scalar[n] - out_vnni_rows4[n]);
+        if (diff_rows4 > max_diff_vnni_rows4) max_diff_vnni_rows4 = diff_rows4;
     }
 
     int passed = 1;
@@ -160,6 +220,16 @@ static int run_differential_test(int K, int N) {
                 K, N, max_diff_vnni_delayed);
         passed = 0;
     }
+    if (cpu->has_vnni && max_diff_vnni_rows2 > 1e-3f) {
+        fprintf(stderr, "[FAIL] K=%d N=%d delayed VNNI 2-row max diff: %f\n",
+                K, N, max_diff_vnni_rows2);
+        passed = 0;
+    }
+    if (cpu->has_vnni && max_diff_vnni_rows4 > 1e-3f) {
+        fprintf(stderr, "[FAIL] K=%d N=%d delayed VNNI 4-row max diff: %f\n",
+                K, N, max_diff_vnni_rows4);
+        passed = 0;
+    }
 
     free(raw_blocks);
     free(q8);
@@ -168,6 +238,8 @@ static int run_differential_test(int K, int N) {
     free(out_avx2);
     free(out_vnni);
     free(out_vnni_delayed);
+    free(out_vnni_rows2);
+    free(out_vnni_rows4);
     free(activation_sums);
 
     return passed ? 0 : -1;
@@ -251,6 +323,8 @@ int main(void) {
     printf("  AVX-VNNI: %s\n", cpu->has_vnni ? "YES" : "NO");
     printf("  AVX-512F: %s\n", cpu->has_avx512f ? "YES" : "NO");
     printf("--------------------------------------------------\n");
+
+    if (run_unpack_candidate_test() != 0) return 1;
 
     int test_k_dims[] = {1, 7, 15, 16, 31, 32, 33, 63, 64, 65, 100, 128, 200, 255, 256, 257, 512, 1024, 2048, 4096};
     int test_n_dims[] = {1, 4, 16, 32, 64, 128, 512};

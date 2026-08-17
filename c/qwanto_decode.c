@@ -621,8 +621,27 @@ static void softmax(float *x,int n){
     { for(int i=0;i<n;i++) x[i]*=inv; }
 }
 
+static int logical_tensor_category(const QwnDecoder *d, const QwnTensorDesc *w) {
+    if (w == d->lm_head_weight) return QWN_LOGICAL_LM_HEAD;
+    if (w == d->embed_weight) return QWN_LOGICAL_EMBEDDING;
+    for (int layer = 0; layer < d->cfg.layers; layer++) {
+        const QwnLayerTensors *lt = &d->layer_cache[layer];
+        if (w == lt->q_proj || w == lt->k_proj || w == lt->v_proj ||
+            w == lt->o_proj || w == lt->q_bias || w == lt->k_bias ||
+            w == lt->v_bias || w == lt->o_bias || w == lt->q_norm ||
+            w == lt->k_norm || w == lt->input_norm || w == lt->post_norm)
+            return QWN_LOGICAL_ATTENTION;
+        if (w == lt->gate_proj || w == lt->up_proj || w == lt->down_proj)
+            return QWN_LOGICAL_FFN;
+    }
+    return QWN_LOGICAL_OTHER;
+}
+
 static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
                   int in,int out,float *y){
+    if (!d || !w) return -1;
+    qwn_scratch_record_tensor_access(&d->scratch, logical_tensor_category(d, w),
+                                     w->byte_size, d->position > 0);
     if (d->qwn_cuda.available && w) {
         QwnCudaGemvFn gemv = NULL;
 #ifndef COLI_CUDA
@@ -1102,6 +1121,20 @@ void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d) {
         d->scratch.hypervsq2_logical_weight_bytes;
     d->runtime_metrics.hypervsq2_logical_flops =
         d->scratch.hypervsq2_logical_flops;
+    d->runtime_metrics.hypervsq2_delayed_reduction_invocation_count =
+        d->scratch.hypervsq2_delayed_reduction_invocation_count;
+    d->runtime_metrics.logical_tensor_visits = d->scratch.logical_tensor_visits;
+    d->runtime_metrics.logical_repeated_tensor_accesses =
+        d->scratch.logical_repeated_tensor_accesses;
+    d->runtime_metrics.logical_tensors_skipped = d->scratch.logical_tensors_skipped;
+    d->runtime_metrics.logical_embedding_bytes = d->scratch.logical_embedding_bytes;
+    d->runtime_metrics.logical_attention_bytes = d->scratch.logical_attention_bytes;
+    d->runtime_metrics.logical_ffn_bytes = d->scratch.logical_ffn_bytes;
+    d->runtime_metrics.logical_lm_head_bytes = d->scratch.logical_lm_head_bytes;
+    d->runtime_metrics.logical_other_weight_bytes = d->scratch.logical_other_weight_bytes;
+    d->runtime_metrics.logical_kv_bytes = d->scratch.logical_kv_bytes;
+    d->runtime_metrics.logical_activation_bytes = d->scratch.logical_activation_bytes;
+    d->runtime_metrics.logical_temporary_bytes = d->scratch.logical_temporary_bytes;
     d->runtime_metrics.hypervsq2_kernel_ms =
         d->scratch.hypervsq2_kernel_ms;
     d->runtime_metrics.hypervsq2_reductions_per_row =
@@ -1212,6 +1245,22 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         fprintf(stderr, "forward err bounds: token=%d vocab=%d pos=%d max_ctx=%d\n", token, c->vocab, pos, c->max_ctx);
         return -1;
     }
+    /* Logical execution accounting: these are descriptor/buffer accesses
+     * requested by the decoder, not DRAM traffic.  Keep the categories
+     * explicit so roofline evidence cannot silently turn them into hardware
+     * counter claims. */
+    d->scratch.logical_activation_bytes += (uint64_t)(
+        (3 * D + 3 * c->intermediate + 2 * (H * HD) + 2 * (HK * HD) +
+         H * c->max_ctx + c->vocab) * sizeof(float));
+    d->scratch.logical_temporary_bytes += (uint64_t)(
+        d->scratch.padded_k * sizeof(int8_t) +
+        d->scratch.activation_sum_blocks * sizeof(int32_t));
+    if (d->embed_weight) {
+        uint64_t row_bytes = d->embed_weight->numel > 0 ?
+            (d->embed_weight->byte_size * (uint64_t)D) / d->embed_weight->numel : 0;
+        qwn_scratch_record_tensor_access(&d->scratch, QWN_LOGICAL_EMBEDDING,
+                                         row_bytes, pos > 0);
+    }
     if(qwn_row_f32(&d->model,d->embed_weight,token,d->x,D)!=0){
         fprintf(stderr, "forward err embed: token=%d D=%d embed_dtype=%d numel=%llu byte_size=%llu\n",
                 token, D, d->embed_weight?d->embed_weight->dtype:-1,
@@ -1226,6 +1275,13 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
     }
     for(int l=0;l<c->layers;l++){
         const QwnLayerTensors *lt = &d->layer_cache[l];
+        if (!lt->q_proj) d->scratch.logical_tensors_skipped++;
+        if (!lt->k_proj) d->scratch.logical_tensors_skipped++;
+        if (!lt->v_proj) d->scratch.logical_tensors_skipped++;
+        if (!lt->o_proj) d->scratch.logical_tensors_skipped++;
+        if (!lt->gate_proj) d->scratch.logical_tensors_skipped++;
+        if (!lt->up_proj) d->scratch.logical_tensors_skipped++;
+        if (!lt->down_proj) d->scratch.logical_tensors_skipped++;
         /* Per-layer output dims: each layer can have its own head_dim
          * (Qwen3.5 hybrid, MLA, dense models with non-uniform GQA). */
         int Q  = lt->q_out  ? lt->q_out  : (H  ? H  * HD : 0);
@@ -1274,6 +1330,9 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             if (d->use_turboquant && d->turboquant_layers) {
                 qwn_turboquant_quantize_token(d->k, d->turboquant_layers[l].packed_k + (size_t)pos * d->turboquant_layers[l].token_stride_k, KV);
                 qwn_turboquant_quantize_token(d->v, d->turboquant_layers[l].packed_v + (size_t)pos * d->turboquant_layers[l].token_stride_v, KV);
+                d->scratch.logical_kv_bytes +=
+                    (uint64_t)(d->turboquant_layers[l].token_stride_k +
+                               d->turboquant_layers[l].token_stride_v);
                 memset(d->ctx, 0, (size_t)Q * sizeof(float));
                 float scale = 1.0f / sqrtf((float)hd_this);
                 float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;
@@ -1282,6 +1341,10 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
 #endif
                 for (int h = 0; h < H; h++) {
                     int kh = (int)((float)h / ratio);
+                    d->scratch.logical_kv_bytes +=
+                        (uint64_t)(pos + 1) *
+                        (uint64_t)(d->turboquant_layers[l].token_stride_k +
+                                   d->turboquant_layers[l].token_stride_v);
                     qwn_turboquant_attention_head(
                         d->q + h * hd_this,
                         &d->turboquant_layers[l],
@@ -1297,12 +1360,16 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             } else if (d->use_paged_kv) {
                 if (qwn_paged_kv_write(&d->paged_kv, &d->paged_table, l, pos,
                                        d->k, d->v) != 0) return -1;
+                d->scratch.logical_kv_bytes +=
+                    (uint64_t)2 * (uint64_t)KV * sizeof(uint16_t);
                 memset(d->ctx, 0, (size_t)Q * sizeof(float));
 #if defined(_OPENMP)
                 #pragma omp parallel for schedule(static) if(H > 1)
 #endif
                 for (int h = 0; h < H; h++) {
                     int kh = (h * HK) / H;
+                    d->scratch.logical_kv_bytes +=
+                        (uint64_t)2 * (uint64_t)(pos + 1) * (uint64_t)hd_this * sizeof(uint16_t);
                     qwn_paged_attention_gather_head(
                         &d->paged_kv, &d->paged_table, l, h, kh,
                         d->q + h * hd_this,
@@ -1318,6 +1385,8 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             } else {
             size_t layer_base=(size_t)l*c->max_ctx*KV;
             size_t pos_base=layer_base+(size_t)pos*KV;
+            d->scratch.logical_kv_bytes +=
+                (uint64_t)2 * (uint64_t)KV * sizeof(uint16_t);
             /* F16C KV cache write: batch convert float32 -> float16 */
 #if defined(__AVX2__) && defined(__F16C__)
             {
@@ -1349,6 +1418,8 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                 int kh=(int)((float)h/ratio);
                 float *att_head=d->att+(size_t)h*c->max_ctx;
                 float *ctx_head=d->ctx+h*hd_this;
+                d->scratch.logical_kv_bytes +=
+                    (uint64_t)2 * (uint64_t)(pos + 1) * (uint64_t)hd_this * sizeof(uint16_t);
                 for(int t=0;t<=pos;t++){
                     const uint16_t *kc=d->key_cache+layer_base+(size_t)t*KV+kh*hd_this;
                     float score=0.0f;

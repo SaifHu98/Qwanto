@@ -52,6 +52,15 @@ and NVMe mmap.
   agreement and 140/140 differential tests pass. The results are
   `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION`; README performance claims remain
   intentionally unchanged.
+- CPU Phase A local follow-up uses the production-default delayed VNNI path.
+  Final local executable `c/qwnrun_phaseA_final.exe` has SHA-256
+  `4d3f3a4b9eca86023b49056439298e7333f0d53f74a70af935c3e9f3fb5e621` and the
+  model SHA-256 remains
+  `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
+  Release-quality local delayed medians are `18.619635 tok/s` for 64 tokens
+  and `18.540185 tok/s` for 128 tokens; same-binary disabled controls are
+  `17.319207` and `17.286976`. All new records remain pending hosted
+  validation and README remains unchanged.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
   native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
@@ -93,9 +102,10 @@ and NVMe mmap.
   alone is never classified as CUDA inference.
 - CPU Phase 3 roofline counters for process reads, memory-controller bandwidth,
   cache misses, cycles, instructions, vector instructions, and OpenMP barrier
-  time are `UNAVAILABLE` locally. The independent 8-worker read-only stream
-  proxy measured `6.366657 GB/s`; the roofline prediction is a derived estimate,
-  not hardware-measured bandwidth.
+  time are `UNAVAILABLE` locally. The corrected selected 8-worker read-only
+  stream proxy is `36.647854509 GB/s`; logical executed bytes are
+  `481200178.14 bytes/token`, yielding a derived estimate of `76.159270 tok/s`.
+  This is not hardware-measured bandwidth and is not a product claim.
 - The gateway control-plane contract is versioned at schema `1`; `/health` is
   outside `/v1`, while models/config/telemetry remain under `/v1`.
 - Third-party plugin execution remains unavailable by design until a native
@@ -148,6 +158,13 @@ and NVMe mmap.
   when same-config measured evidence beats recomputation; CUDA remains out of
   scope and README performance claims remain unchanged.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.
+
+- Phase A local decisions: delayed reduction is enabled by default with
+  `QWN_HYPERVSQ2_DISABLE_DELAYED_REDUCTION=1` retained only as an explicit
+  developer ablation override; row blocking is rejected for end-to-end
+  performance; current shift/mask unpacking remains selected; SIMD SwiGLU is
+  rejected as not material; OS-default affinity remains selected. CUDA was not
+  started. Full hosted validation on the final exact commit is still required.
 
 - Phase 2 clean evidence is now regenerated from commit `e23c2a8` with
   executable SHA-256 `3cca5eb31638ccaf8dad90992d46bd3828b6e2b9d09304bbf560a87e02e9f24b`.

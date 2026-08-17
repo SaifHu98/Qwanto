@@ -224,13 +224,35 @@ int qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k) {
     s->activation_sum_enabled = !(disable_activation_sums &&
                                   *disable_activation_sums &&
                                   strcmp(disable_activation_sums, "0") != 0);
-    const char *delayed_reduction = getenv("QWN_HYPERVSQ2_DELAYED_REDUCTION");
-    s->hypervsq2_delayed_reduction_enabled = delayed_reduction &&
-        (strcmp(delayed_reduction, "1") == 0 || strcmp(delayed_reduction, "true") == 0);
+    /* Delayed reduction is the validated VNNI default.  The opt-out exists
+     * only for reproducible baseline/ablation runs; normal users never need
+     * an environment variable to receive the production path. */
+    const char *disable_delayed = getenv("QWN_HYPERVSQ2_DISABLE_DELAYED_REDUCTION");
+    s->hypervsq2_delayed_reduction_enabled = !(disable_delayed &&
+        (strcmp(disable_delayed, "1") == 0 || strcmp(disable_delayed, "true") == 0));
+    const char *row_block = getenv("QWN_HYPERVSQ2_ROW_BLOCK");
+    s->hypervsq2_row_block = row_block ? atoi(row_block) : 1;
+    if (s->hypervsq2_row_block != 2 && s->hypervsq2_row_block != 4 &&
+        s->hypervsq2_row_block != 8)
+        s->hypervsq2_row_block = 1;
     s->bytes = total;
     s->max_tokens = max_tokens;
     s->padded_k = padded_k;
     return 0;
+}
+
+void qwn_scratch_record_tensor_access(QwnScratch *scratch, int category,
+                                      uint64_t bytes, int repeated) {
+    if (!scratch) return;
+    scratch->logical_tensor_visits++;
+    if (repeated) scratch->logical_repeated_tensor_accesses++;
+    switch (category) {
+    case QWN_LOGICAL_EMBEDDING: scratch->logical_embedding_bytes += bytes; break;
+    case QWN_LOGICAL_ATTENTION: scratch->logical_attention_bytes += bytes; break;
+    case QWN_LOGICAL_FFN: scratch->logical_ffn_bytes += bytes; break;
+    case QWN_LOGICAL_LM_HEAD: scratch->logical_lm_head_bytes += bytes; break;
+    default: scratch->logical_other_weight_bytes += bytes; break;
+    }
 }
 
 void qwn_scratch_destroy(QwnScratch *s) {
@@ -442,6 +464,27 @@ static inline __m256i unpack_32x2bit_avx2(const uint8_t *qs) {
     __m256i w2 = _mm256_and_si256(_mm256_srli_epi32(rep, 4), _mm256_set1_epi32(0x00030000));
     __m256i w3 = _mm256_and_si256(_mm256_srli_epi32(rep, 6), _mm256_set1_epi32(0x03000000));
     return _mm256_or_si256(_mm256_or_si256(w0, w1), _mm256_or_si256(w2, w3));
+}
+
+void qwn_hypervsq2_unpack_shift_mask(const uint8_t *packed, uint8_t unpacked[32]) {
+    __m256i values = unpack_32x2bit_avx2(packed);
+    _mm256_storeu_si256((__m256i *)unpacked, values);
+}
+
+void qwn_hypervsq2_unpack_lut(const uint8_t *packed, uint8_t unpacked[32]) {
+    static const uint8_t nibble_codes[16][2] = {
+        {0,0},{1,0},{2,0},{3,0},{0,1},{1,1},{2,1},{3,1},
+        {0,2},{1,2},{2,2},{3,2},{0,3},{1,3},{2,3},{3,3},
+    };
+    for (int byte = 0; byte < 8; byte++) {
+        uint8_t value = packed[byte];
+        const uint8_t *low = nibble_codes[value & 0x0F];
+        const uint8_t *high = nibble_codes[value >> 4];
+        unpacked[byte * 4 + 0] = low[0];
+        unpacked[byte * 4 + 1] = low[1];
+        unpacked[byte * 4 + 2] = high[0];
+        unpacked[byte * 4 + 3] = high[1];
+    }
 }
 #endif
 
@@ -862,6 +905,82 @@ void qwn_gemv_hypervsq2_vnni_delayed(const uint8_t *raw_blocks, const int8_t *q8
 #endif
 }
 
+/* Development candidate: process a small group of rows while reusing the
+ * activation load.  The candidate is intentionally restricted to complete
+ * 256-value blocks; all other shapes use the validated delayed implementation
+ * so tails cannot acquire a different quantization interpretation. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avxvnni")))
+#endif
+void qwn_gemv_hypervsq2_vnni_delayed_rows(const uint8_t *raw_blocks, const int8_t *q8,
+                                          const int32_t *activation_sums,
+                                          float x_scale, int K, int N,
+                                          size_t row_bytes, float *out,
+                                          int row_block) {
+#if defined(__AVX2__)
+    if (row_block <= 1 || row_block > 8 || (row_block != 2 && row_block != 4 && row_block != 8) ||
+        (K & 255) != 0) {
+        qwn_gemv_hypervsq2_vnni_delayed(raw_blocks, q8, activation_sums,
+                                        x_scale, K, N, row_bytes, out);
+        return;
+    }
+    const int blocks = K / 256;
+    const __m256i ones8 = _mm256_set1_epi8(1);
+    for (int start = 0; start < N; start += row_block) {
+        int count = N - start;
+        if (count > row_block) count = row_block;
+        float lane_sum[8][8] = {{0.0f}};
+        float offset_sum[8] = {0.0f};
+        for (int b = 0; b < blocks; b++) {
+            const int32_t *sum_row = activation_sums ? activation_sums + b * 8 : NULL;
+            const uint8_t *activation_block = q8 + b * 256;
+            for (int oct = 0; oct < 8; oct++) {
+                const int base_idx = b * 256 + oct * 32;
+                const __m256i a_vec = _mm256_loadu_si256(
+                    (const __m256i *)(activation_block + oct * 32));
+                const __m256i sum_a32 = _mm256_dpbusd_epi32(
+                    _mm256_setzero_si256(), ones8, a_vec);
+                const int32_t sum_a = sum_row ? sum_row[oct] : hsum_epi32_avx2(sum_a32);
+                for (int row = 0; row < count; row++) {
+                    const uint8_t *block = raw_blocks +
+                        (size_t)(start + row) * row_bytes + (size_t)b * 74;
+                    uint16_t hs, hm;
+                    memcpy(&hs, block, 2);
+                    memcpy(&hm, block + 2, 2);
+                    const float base_scale = half_to_float(hs);
+                    const float offset = half_to_float(hm);
+                    const uint8_t *sub_bytes = block + 4;
+                    const int sub_value = (oct & 1) ?
+                        (sub_bytes[oct >> 1] >> 4) : (sub_bytes[oct >> 1] & 0x0F);
+                    const float effective_scale = base_scale *
+                        ((float)sub_value * (1.0f / 8.0f));
+                    const __m256i q_unpacked = unpack_32x2bit_avx2(block + 10 + oct * 8);
+                    const __m256i dot32 = _mm256_dpbusd_epi32(
+                        _mm256_setzero_si256(), q_unpacked, a_vec);
+                    const __m256i diff32 = _mm256_sub_epi32(dot32, sum_a32);
+                    const __m256 scaled = _mm256_mul_ps(
+                        _mm256_cvtepi32_ps(diff32),
+                        _mm256_set1_ps(effective_scale * x_scale));
+                    float lanes[8];
+                    _mm256_storeu_ps(lanes, scaled);
+                    for (int lane = 0; lane < 8; lane++) lane_sum[row][lane] += lanes[lane];
+                    offset_sum[row] += (float)sum_a * (offset * x_scale);
+                }
+            }
+        }
+        for (int row = 0; row < count; row++) {
+            float sum = offset_sum[row];
+            for (int lane = 0; lane < 8; lane++) sum += lane_sum[row][lane];
+            out[start + row] = sum;
+        }
+    }
+#else
+    (void)row_block;
+    qwn_gemv_hypervsq2_vnni_delayed(raw_blocks, q8, activation_sums,
+                                    x_scale, K, N, row_bytes, out);
+#endif
+}
+
 /* Full matrix multiplication for HyperVSQ-2 with runtime CPUID dispatch */
 int qwn_matmul_hypervsq2_f32(const QwnModel *m,
                              const QwnTensorDesc *weights,
@@ -910,7 +1029,10 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
 
     typedef void (*gemv_fn_t)(const uint8_t *, const int8_t *, const int32_t *,
                               float, int, int, size_t, float *);
+    typedef void (*rows_fn_t)(const uint8_t *, const int8_t *, const int32_t *,
+                              float, int, int, size_t, float *, int);
     gemv_fn_t gemv_fn = qwn_gemv_hypervsq2_scalar;
+    rows_fn_t rows_fn = qwn_gemv_hypervsq2_vnni_delayed_rows;
     if (cpu->forced_mode == 1) {
         gemv_fn = qwn_gemv_hypervsq2_scalar;
     } else if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_cpu_avx2_kernel_compiled()) {
@@ -930,7 +1052,9 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
     if (scratch->hypervsq2_matmul_calls == 0) {
         snprintf(scratch->hypervsq2_kernel, sizeof(scratch->hypervsq2_kernel),
                  "%s", gemv_fn == qwn_gemv_hypervsq2_vnni_delayed ?
-                 "vnni-delayed-reduction" : qwn_cpu_kernel_name());
+                 (scratch->hypervsq2_row_block > 1 ?
+                  "vnni-delayed-reduction-row-block" : "vnni-delayed-reduction") :
+                 qwn_cpu_kernel_name());
         snprintf(scratch->hypervsq2_reduction_mode,
                  sizeof(scratch->hypervsq2_reduction_mode), "%s",
                  gemv_fn == qwn_gemv_hypervsq2_vnni_delayed ? "delayed" : "per-octant");
@@ -939,7 +1063,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         if (gemv_fn == qwn_gemv_hypervsq2_vnni_delayed) {
             snprintf(scratch->hypervsq2_dispatch_reason,
                      sizeof(scratch->hypervsq2_dispatch_reason),
-                     "cpu_vnni=yes;binary_vnni=yes;dtype=hypervsq2-74;selected=vnni-delayed-reduction;env=QWN_HYPERVSQ2_DELAYED_REDUCTION");
+                     "cpu_vnni=yes;binary_vnni=yes;dtype=hypervsq2-74;selected=vnni;reduction=delayed;row_block=%d;default=true;override=QWN_HYPERVSQ2_DISABLE_DELAYED_REDUCTION",
+                     scratch->hypervsq2_row_block);
         } else if (gemv_fn == qwn_gemv_hypervsq2_vnni) {
             snprintf(scratch->hypervsq2_dispatch_reason,
                      sizeof(scratch->hypervsq2_dispatch_reason),
@@ -984,8 +1109,15 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
                 participated = 1;
                 int chunk = N - n;
                 if (chunk > 64) chunk = 64;
-                gemv_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
-                        x_scale, K, chunk, row_bytes, yt + n);
+                if (gemv_fn == qwn_gemv_hypervsq2_vnni_delayed &&
+                    scratch->hypervsq2_row_block > 1) {
+                    rows_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
+                            x_scale, K, chunk, row_bytes, yt + n,
+                            scratch->hypervsq2_row_block);
+                } else {
+                    gemv_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
+                            x_scale, K, chunk, row_bytes, yt + n);
+                }
             }
             if (participated) {
                 #pragma omp atomic
@@ -996,11 +1128,25 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         for (int n = 0; n < N; n += 64) {
             int chunk = N - n;
             if (chunk > 64) chunk = 64;
-            gemv_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
-                    x_scale, K, chunk, row_bytes, yt + n);
+            if (gemv_fn == qwn_gemv_hypervsq2_vnni_delayed &&
+                scratch->hypervsq2_row_block > 1) {
+                rows_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
+                        x_scale, K, chunk, row_bytes, yt + n,
+                        scratch->hypervsq2_row_block);
+            } else {
+                gemv_fn(raw + (size_t)n * row_bytes, q8, activation_sums,
+                        x_scale, K, chunk, row_bytes, yt + n);
+            }
         }
         participating_threads = 1;
 #endif
+        if (gemv_fn == qwn_gemv_hypervsq2_vnni_delayed)
+            scratch->hypervsq2_delayed_reduction_invocation_count +=
+                (uint64_t)((N + 63) / 64);
+        if (gemv_fn == qwn_gemv_hypervsq2_vnni_delayed &&
+            scratch->hypervsq2_row_block > 1)
+            scratch->hypervsq2_row_block_invocation_count +=
+                (uint64_t)((N + 63) / 64);
         scratch->hypervsq2_matmul_calls++;
         scratch->hypervsq2_worker_participations += (uint64_t)participating_threads;
         scratch->hypervsq2_last_active_threads = participating_threads;

@@ -12,6 +12,7 @@ import benchmark_release_quality
 import thread_autotuner
 import benchmark_warm_repeats
 import benchmark_cpu_roofline
+import validate_cpu_roofline
 from runtime_config_snapshot import comparable_runtime_config, make_runtime_config_snapshot
 
 
@@ -114,6 +115,45 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
             benchmark_cpu_roofline.EVIDENCE_CLASSIFICATION,
             "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION",
         )
+
+    def test_roofline_equation_validator_rejects_mismatched_displayed_values(self):
+        report = {
+            "schema_version": "1.1.0",
+            "benchmark_class": "CPU_ROOFLINE",
+            "evidence_classification": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION",
+            "independent_bandwidth": {
+                "selected_worker_count": 8,
+                "selected_result": {
+                    "workers": 8,
+                    "read_only": {
+                        "bytes_read": 861579040,
+                        "bytes_written": 0,
+                        "traffic_bytes": 861579040,
+                        "wall_seconds": 1.0,
+                        "aggregate_bytes_per_sec": 861579040.0,
+                        "aggregate_gb_per_sec": 0.86157904,
+                        "aggregate_gib_per_sec": 0.802584,
+                    },
+                    "copy": {"bytes_read": 1, "bytes_written": 1, "traffic_bytes": 2,
+                             "wall_seconds": 1.0, "aggregate_bytes_per_sec": 2.0,
+                             "aggregate_gb_per_sec": 2e-9, "aggregate_gib_per_sec": 2 / (1024 ** 3)},
+                    "triad": {"bytes_read": 2, "bytes_written": 1, "traffic_bytes": 3,
+                              "wall_seconds": 1.0, "aggregate_bytes_per_sec": 3.0,
+                              "aggregate_gb_per_sec": 3e-9, "aggregate_gib_per_sec": 3 / (1024 ** 3)},
+                },
+                "source": "test",
+            },
+            "roofline_estimate": {
+                "predicted_tok_per_sec": 50.432375,
+                "equation_inputs": {
+                    "aggregate_bandwidth_bytes_per_sec": 861579040.0,
+                    "executed_bytes_per_token": 861579040.0,
+                    "selected_worker_count": 8,
+                },
+            },
+        }
+        errors = validate_cpu_roofline.validate_report(report)
+        self.assertTrue(any("derived_tok_per_sec" in error for error in errors))
 
     def test_thread_autotune_candidates_are_bounded_and_deduplicated(self):
         candidates = thread_autotuner.candidate_threads()

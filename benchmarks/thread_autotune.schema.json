@@ -4,8 +4,8 @@
   "type": "object",
   "required": ["schema_version", "evidence_id", "identity", "selection_policy", "trials", "autotuned_threads", "actual_active_threads", "selection_reason", "classification"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "classification": {"enum": ["MEASURED", "UNAVAILABLE", "INVALID"]},
+    "schema_version": {"const": "1.1.0"},
+    "classification": {"enum": ["MEASURED_LOCAL_PENDING_HOSTED_VALIDATION", "MEASURED", "UNAVAILABLE", "INVALID"]},
     "identity": {"type": "object", "required": ["cpu", "logical_cores", "physical_cores", "executable_sha256", "model_sha256", "model_dtype", "context_size_class", "backend"]},
     "selection_policy": {"type": "object", "required": ["candidates", "trials_per_candidate", "warmup_tokens", "selection"]},
     "trials": {"type": "array"}

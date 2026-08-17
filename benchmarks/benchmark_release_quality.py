@@ -91,6 +91,19 @@ def _build_runtime_metadata(report: dict, text: str, fields: dict) -> None:
         ("preferred_kernel_candidate", "preferred_kernel_candidate"),
         ("binary_avx2_kernel", "binary_avx2_kernel"),
         ("binary_vnni_kernel", "binary_vnni_kernel"),
+        ("hypervsq2_delayed_reduction_invocation_count", "hypervsq2_delayed_reduction_invocation_count"),
+        ("row_block_invocation_count", "hypervsq2_row_block_invocation_count"),
+        ("logical_tensor_visits", "logical_tensor_visits"),
+        ("logical_repeated_tensor_accesses", "logical_repeated_tensor_accesses"),
+        ("logical_tensors_skipped", "logical_tensors_skipped"),
+        ("logical_embedding_bytes", "logical_embedding_bytes"),
+        ("logical_attention_bytes", "logical_attention_bytes"),
+        ("logical_ffn_bytes", "logical_ffn_bytes"),
+        ("logical_lm_head_bytes", "logical_lm_head_bytes"),
+        ("logical_other_weight_bytes", "logical_other_weight_bytes"),
+        ("logical_kv_bytes", "logical_kv_bytes"),
+        ("logical_activation_bytes", "logical_activation_bytes"),
+        ("logical_temporary_bytes", "logical_temporary_bytes"),
     ):
         if source in fields:
             report["runtime_metadata"][target] = fields[source]
@@ -161,6 +174,7 @@ def run_release_quality(
         "evidence_classification": "UNAVAILABLE",
         "invalid_reasons": [],
         "runtime_metadata": {},
+        "warmup": {},
         "requests": [],
         "summary": {},
     }
@@ -194,7 +208,7 @@ def run_release_quality(
     try:
         runtime = PersistentQwnrun(executable_path, model_path, backend, context_size,
                                    max_tokens, threads, seed, timeout, env_overrides)
-        runtime.request("release-warmup", prompt, warmup_tokens)
+        report["warmup"] = runtime.request("release-warmup", prompt, warmup_tokens)
         for index in range(repeats):
             item = runtime.request(f"release-{index + 1}", prompt, max_tokens)
             item["process_pid"] = runtime.pid
@@ -235,6 +249,19 @@ def run_release_quality(
                 "swiglu_ms": runtime_fields.get("swiglu_ms", 0),
                 "hypervsq2_reductions_per_row": runtime_fields.get("hypervsq2_reductions_per_row", 0),
                 "hypervsq2_reduction_mode": runtime_fields.get("hypervsq2_reduction_mode", "Unavailable"),
+                "hypervsq2_delayed_reduction_invocation_count": runtime_fields.get("delayed_reduction_invocation_count", 0),
+                "hypervsq2_row_block_invocation_count": runtime_fields.get("row_block_invocation_count", 0),
+                "logical_tensor_visits": runtime_fields.get("logical_tensor_visits", 0),
+                "logical_repeated_tensor_accesses": runtime_fields.get("logical_repeated_tensor_accesses", 0),
+                "logical_tensors_skipped": runtime_fields.get("logical_tensors_skipped", 0),
+                "logical_embedding_bytes": runtime_fields.get("logical_embedding_bytes", 0),
+                "logical_attention_bytes": runtime_fields.get("logical_attention_bytes", 0),
+                "logical_ffn_bytes": runtime_fields.get("logical_ffn_bytes", 0),
+                "logical_lm_head_bytes": runtime_fields.get("logical_lm_head_bytes", 0),
+                "logical_other_weight_bytes": runtime_fields.get("logical_other_weight_bytes", 0),
+                "logical_kv_bytes": runtime_fields.get("logical_kv_bytes", 0),
+                "logical_activation_bytes": runtime_fields.get("logical_activation_bytes", 0),
+                "logical_temporary_bytes": runtime_fields.get("logical_temporary_bytes", 0),
             })
             update_runtime_config_snapshot(report["runtime_config_snapshot"], runtime_fields)
 
@@ -246,6 +273,10 @@ def run_release_quality(
     latency = [float(r["decode_wall_ms"]) for r in report["requests"]]
     ttft = [float(r["first_token_ms"]) for r in report["requests"]]
     tokens = [int(r["generated_tokens"]) for r in report["requests"]]
+    forward_tokens = sum(
+        int(item.get("prompt_tokens", 0)) + int(item.get("generated_tokens", 0))
+        for item in [report["warmup"], *report["requests"]]
+    )
     prefill_ms = [float(r["prefill_ms"]) for r in report["requests"]
                   if _number(r.get("prefill_ms")) is not None and float(r["prefill_ms"]) > 0]
     prefill = [float(r["prefill_tok_per_sec"]) for r in report["requests"]
@@ -253,6 +284,7 @@ def run_release_quality(
     report["summary"] = {
         "measured_runs": len(report["requests"]),
         "generated_tokens_per_run": tokens,
+        "forward_tokens_including_warmup": forward_tokens,
         "decode_tok_per_sec_median": _median(throughput),
         "decode_tok_per_sec_p5": percentile(throughput, 0.05),
         "decode_tok_per_sec_min": min(throughput),

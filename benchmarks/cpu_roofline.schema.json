@@ -4,16 +4,16 @@
   "type": "object",
   "required": ["schema_version", "benchmark_class", "benchmark_id", "timestamp_utc", "evidence_classification", "source_identity", "model", "runtime", "independent_bandwidth", "counters", "arithmetic_intensity", "roofline_estimate", "actual_throughput"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
+    "schema_version": {"const": "1.1.0"},
     "benchmark_class": {"const": "CPU_ROOFLINE"},
     "evidence_classification": {"const": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION"},
     "source_identity": {"type": "object", "required": ["git_commit", "git_worktree_dirty", "executable_sha256", "model_sha256"]},
     "model": {"type": "object", "required": ["file_size_bytes", "mapped_tensor_bytes", "source"]},
     "runtime": {"type": "object", "required": ["evidence_classification", "benchmark_class"]},
-    "independent_bandwidth": {"type": "object", "required": ["results", "source"]},
-    "counters": {"type": "object"},
+    "independent_bandwidth": {"type": "object", "required": ["results", "selected_worker_count", "selected_result", "source"]},
+    "counters": {"type": "object", "required": ["logical_byte_categories"]},
     "arithmetic_intensity": {"type": "object", "required": ["flops_per_token", "bytes_per_token", "flops_per_byte"]},
-    "roofline_estimate": {"type": "object", "required": ["predicted_tok_per_sec", "source"]},
+    "roofline_estimate": {"type": "object", "required": ["predicted_tok_per_sec", "source", "equation_inputs"]},
     "actual_throughput": {"type": "object", "required": ["median_tok_per_sec", "source"]}
   }
 }

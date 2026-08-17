@@ -64,10 +64,24 @@ def _p95(values: list[float]) -> float | None:
     return sorted(values)[max(0, min(len(values) - 1, int(0.95 * len(values) + 0.999999) - 1))]
 
 
+def _cache_key(identity: dict) -> str:
+    payload = json.dumps({
+        "cpu": identity["cpu"],
+        "logical_cores": identity["logical_cores"],
+        "physical_cores": identity["physical_cores"],
+        "executable_sha256": identity["executable_sha256"],
+        "model_sha256": identity["model_sha256"],
+        "context_size_class": identity["context_size_class"],
+        "backend": identity["backend"],
+    }, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def run_autotune(
     *, model: str, executable: str, backend: str = "cpu", context_size: int = 4096,
-    prompt: str = "Measure the local QWN decode path.", max_tokens: int = 8,
-    warmup_tokens: int = 8, trials: int = 3, timeout: float = 240.0,
+    prompt: str = "Measure the local QWN decode path.", max_tokens: int = 64,
+    warmup_tokens: int = 1, trials: int = 3, timeout: float = 240.0,
+    cache_path: str | None = None,
 ) -> dict:
     if trials < 2:
         raise ValueError("at least two repeated trials are required")
@@ -76,7 +90,7 @@ def run_autotune(
     evidence_id = f"qwn-autotune-{time.time_ns()}"
     candidates = candidate_threads()
     result: dict = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "evidence_id": evidence_id,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "selection_policy": {
@@ -101,6 +115,19 @@ def run_autotune(
         "selection_reason": "Unavailable",
         "classification": "UNAVAILABLE",
     }
+    result["cache_key"] = _cache_key(result["identity"])
+    result["cache_path"] = str(Path(cache_path).expanduser().resolve()) if cache_path else None
+    result["cache_hit"] = False
+    if cache_path:
+        cache_file = Path(cache_path).expanduser().resolve()
+        try:
+            cached = json.loads(cache_file.read_text(encoding="utf-8"))
+            if cached.get("cache_key") == result["cache_key"]:
+                cached["cache_hit"] = True
+                cached["cache_path"] = str(cache_file)
+                return cached
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
     for requested in candidates:
         rows = []
         for trial in range(trials):
@@ -149,7 +176,11 @@ def run_autotune(
             f"selected {winner['requested_threads']} workers by median decode throughput "
             f"({winner['median_decode_tok_per_sec']:.6f} tok/s); p95 latency and variance were tie-breakers"
         )
-        result["classification"] = "MEASURED"
+        result["classification"] = "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION"
+    if cache_path and result["classification"] != "UNAVAILABLE":
+        cache_file = Path(cache_path).expanduser().resolve()
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
 
 
@@ -160,16 +191,18 @@ def main() -> None:
     parser.add_argument("--backend", choices=("cpu", "cuda", "auto"), default="cpu")
     parser.add_argument("--context-size", type=int, default=4096)
     parser.add_argument("--prompt", default="Measure the local QWN decode path.")
-    parser.add_argument("--max-tokens", type=int, default=8)
-    parser.add_argument("--warmup-tokens", type=int, default=8)
+    parser.add_argument("--max-tokens", type=int, default=64)
+    parser.add_argument("--warmup-tokens", type=int, default=1)
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=240.0)
+    parser.add_argument("--cache-path", default=None)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     report = run_autotune(
         model=args.model, executable=args.executable, backend=args.backend,
         context_size=args.context_size, prompt=args.prompt, max_tokens=args.max_tokens,
         warmup_tokens=args.warmup_tokens, trials=args.trials, timeout=args.timeout,
+        cache_path=args.cache_path,
     )
     output = Path(args.output)
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

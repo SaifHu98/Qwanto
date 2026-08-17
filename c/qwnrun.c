@@ -82,9 +82,10 @@ static void print_build_info(const QwnRuntimeConfig *config) {
     fprintf(stderr, "qwnrun build: compiler=%s compiler_version=%s "
             "optimization_flags=%s openmp_enabled=%s openmp_runtime_loaded=%s "
             "openmp_version=%s omp_max_threads=%d requested_threads=%d "
-            "active_threads=Unavailable actual_executed_kernel=Unavailable "
-            "preferred_kernel_candidate=%s "
-            "compiled_kernels=avx2:%s,vnni:%s "
+             "active_threads=Unavailable actual_executed_kernel=Unavailable "
+             "preferred_kernel_candidate=%s "
+             "delayed_reduction_compiled=true delayed_reduction_executed=false "
+             "compiled_kernels=avx2:%s,vnni:%s "
             "detected_cpu_features=avx2:%s,f16c:%s,fma:%s,vnni:%s,avx512f:%s "
             "binary_sha256=%s "
             "model_dtype=Unavailable backend_requested=%s backend_actual=Unavailable "
@@ -141,6 +142,7 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
            "\"compiled_kernels\":{\"avx2\":%s,\"vnni\":%s},"
            "\"detected_cpu_features\":{\"avx2\":%s,\"f16c\":%s,\"fma\":%s,\"vnni\":%s,\"avx512f\":%s},"
            "\"preferred_kernel_candidate\":\"%s\","
+           "\"delayed_reduction_compiled\":true,\"delayed_reduction_executed\":false,"
            "\"actual_executed_kernel\":\"Unavailable\","
            "\"selected_isa_kernel\":\"Unavailable\",\"binary_sha256\":\"%s\","
            "\"backend_requested\":\"%s\",\"backend_actual\":\"Unavailable\","
@@ -190,10 +192,17 @@ static void print_runtime_info(const QwnDecoder *decoder) {
             "hypervsq2_last_active_threads=%d hypervsq2_max_active_threads=%d "
             "activation_sum_precompute_calls=%llu activation_sum_reuse_count=%llu "
             "activation_sum_recompute_count=%llu activation_sum_mode=%s "
-            "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
-            "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
-            "hypervsq2_reductions_per_row=%d hypervsq2_reduction_mode=%s "
-            "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
+             "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
+             "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
+             "hypervsq2_reductions_per_row=%d hypervsq2_reduction_mode=%s "
+             "delayed_reduction_invocation_count=%llu "
+             "row_block_invocation_count=%llu "
+             "logical_tensor_visits=%llu logical_repeated_tensor_accesses=%llu "
+             "logical_tensors_skipped=%llu logical_embedding_bytes=%llu "
+             "logical_attention_bytes=%llu logical_ffn_bytes=%llu "
+             "logical_lm_head_bytes=%llu logical_other_weight_bytes=%llu "
+             "logical_kv_bytes=%llu logical_activation_bytes=%llu logical_temporary_bytes=%llu "
+             "final_lm_head_calls=%llu intermediate_lm_head_calls=%llu "
             "final_lm_head_ms=%.3f intermediate_lm_head_ms=%.3f "
             "early_exit_decisions=%llu layers_skipped=%llu tokens_saved=%llu\n",
             decoder->qwn_cuda.available ? "true" : "false", dtype,
@@ -222,11 +231,24 @@ static void print_runtime_info(const QwnDecoder *decoder) {
             (unsigned long long)(metrics ? metrics->hypervsq2_logical_flops : 0),
             metrics ? metrics->hypervsq2_kernel_ms : 0.0,
             (unsigned long long)(metrics ? metrics->swiglu_calls : 0),
-            (unsigned long long)(metrics ? metrics->swiglu_elements : 0),
-            metrics ? metrics->swiglu_ms : 0.0,
-            metrics ? metrics->hypervsq2_reductions_per_row : 0,
-            metrics ? metrics->hypervsq2_reduction_mode : "Unavailable",
-            (unsigned long long)(metrics ? metrics->final_lm_head_calls : 0),
+             (unsigned long long)(metrics ? metrics->swiglu_elements : 0),
+             metrics ? metrics->swiglu_ms : 0.0,
+             metrics ? metrics->hypervsq2_reductions_per_row : 0,
+             metrics ? metrics->hypervsq2_reduction_mode : "Unavailable",
+             (unsigned long long)(metrics ? metrics->hypervsq2_delayed_reduction_invocation_count : 0),
+             (unsigned long long)(metrics ? metrics->hypervsq2_row_block_invocation_count : 0),
+             (unsigned long long)(metrics ? metrics->logical_tensor_visits : 0),
+             (unsigned long long)(metrics ? metrics->logical_repeated_tensor_accesses : 0),
+             (unsigned long long)(metrics ? metrics->logical_tensors_skipped : 0),
+             (unsigned long long)(metrics ? metrics->logical_embedding_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_attention_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_ffn_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_lm_head_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_other_weight_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_kv_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_activation_bytes : 0),
+             (unsigned long long)(metrics ? metrics->logical_temporary_bytes : 0),
+             (unsigned long long)(metrics ? metrics->final_lm_head_calls : 0),
             (unsigned long long)(metrics ? metrics->intermediate_lm_head_calls : 0),
             metrics ? metrics->final_lm_head_ms : 0.0,
             metrics ? metrics->intermediate_lm_head_ms : 0.0,
@@ -396,6 +418,12 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
                    "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
                    "hypervsq2_reductions_per_row=%d hypervsq2_reduction_mode=%s "
+                   "delayed_reduction_invocation_count=%llu "
+                   "logical_tensor_visits=%llu logical_repeated_tensor_accesses=%llu "
+                   "logical_tensors_skipped=%llu logical_embedding_bytes=%llu "
+                   "logical_attention_bytes=%llu logical_ffn_bytes=%llu "
+                   "logical_lm_head_bytes=%llu logical_other_weight_bytes=%llu "
+                   "logical_kv_bytes=%llu logical_activation_bytes=%llu logical_temporary_bytes=%llu "
                    "thinking_mode=%s decode_function=%s config_backend=%s context_size=%d "
                    "max_tokens=%d seed=%d kv_cache_mode=%s quantization=%s kernel_requested=%s "
                    "temperature=%.8g top_p=%.8g first_real_forward_ms=%.3f "
@@ -432,6 +460,18 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    d.runtime_metrics.swiglu_ms,
                    d.runtime_metrics.hypervsq2_reductions_per_row,
                    d.runtime_metrics.hypervsq2_reduction_mode,
+                   (unsigned long long)d.runtime_metrics.hypervsq2_delayed_reduction_invocation_count,
+                   (unsigned long long)d.runtime_metrics.logical_tensor_visits,
+                   (unsigned long long)d.runtime_metrics.logical_repeated_tensor_accesses,
+                   (unsigned long long)d.runtime_metrics.logical_tensors_skipped,
+                   (unsigned long long)d.runtime_metrics.logical_embedding_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_attention_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_ffn_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_lm_head_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_other_weight_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_kv_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_activation_bytes,
+                   (unsigned long long)d.runtime_metrics.logical_temporary_bytes,
                    config.thinking_mode,
                    strcmp(config.thinking_mode, "none") == 0 ? "qwn_decoder_generate" : "qwn_decoder_generate_thinking",
                    qwn_runtime_backend_name(config.backend), config.context_size, config.max_tokens,
@@ -618,6 +658,12 @@ int main(int argc,char **argv){
                 "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
                 "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
                 "hypervsq2_reductions_per_row=%d hypervsq2_reduction_mode=%s "
+                "delayed_reduction_invocation_count=%llu "
+                "logical_tensor_visits=%llu logical_repeated_tensor_accesses=%llu "
+                "logical_tensors_skipped=%llu logical_embedding_bytes=%llu "
+                "logical_attention_bytes=%llu logical_ffn_bytes=%llu "
+                "logical_lm_head_bytes=%llu logical_other_weight_bytes=%llu "
+                "logical_kv_bytes=%llu logical_activation_bytes=%llu logical_temporary_bytes=%llu "
                 "config_backend=%s context_size=%d max_tokens=%d seed=%d "
                 "kv_cache_mode=%s quantization=%s kernel_requested=%s temperature=%.8g top_p=%.8g\n",
                 metrics ? metrics->backend : "unknown",
@@ -659,6 +705,18 @@ int main(int argc,char **argv){
                 metrics ? metrics->swiglu_ms : 0.0,
                 metrics ? metrics->hypervsq2_reductions_per_row : 0,
                 metrics ? metrics->hypervsq2_reduction_mode : "Unavailable",
+                (unsigned long long)(metrics ? metrics->hypervsq2_delayed_reduction_invocation_count : 0),
+                (unsigned long long)(metrics ? metrics->logical_tensor_visits : 0),
+                (unsigned long long)(metrics ? metrics->logical_repeated_tensor_accesses : 0),
+                (unsigned long long)(metrics ? metrics->logical_tensors_skipped : 0),
+                (unsigned long long)(metrics ? metrics->logical_embedding_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_attention_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_ffn_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_lm_head_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_other_weight_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_kv_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_activation_bytes : 0),
+                (unsigned long long)(metrics ? metrics->logical_temporary_bytes : 0),
                 qwn_runtime_backend_name(runtime_config.backend), runtime_config.context_size,
                 runtime_config.max_tokens, runtime_config.seed, runtime_config.kv_cache_mode,
                 runtime_config.quantization, runtime_config.kernel, temperature, top_p);

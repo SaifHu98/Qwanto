@@ -27,7 +27,7 @@ typedef struct {
     int      hypervsq2_last_active_threads;
     int      hypervsq2_max_active_threads;
     char     hypervsq2_kernel[32];
-    char     hypervsq2_dispatch_reason[128];
+    char     hypervsq2_dispatch_reason[256];
     uint64_t activation_sum_precompute_calls;
     uint64_t activation_sum_reuse_count;
     uint64_t activation_sum_recompute_count;
@@ -37,7 +37,32 @@ typedef struct {
     int hypervsq2_reductions_per_row;
     char hypervsq2_reduction_mode[32];
     int hypervsq2_delayed_reduction_enabled;
+    uint64_t hypervsq2_delayed_reduction_invocation_count;
+    uint64_t hypervsq2_row_block_invocation_count;
+    int hypervsq2_row_block;
+    uint64_t logical_tensor_visits;
+    uint64_t logical_repeated_tensor_accesses;
+    uint64_t logical_tensors_skipped;
+    uint64_t logical_embedding_bytes;
+    uint64_t logical_attention_bytes;
+    uint64_t logical_ffn_bytes;
+    uint64_t logical_lm_head_bytes;
+    uint64_t logical_other_weight_bytes;
+    uint64_t logical_kv_bytes;
+    uint64_t logical_activation_bytes;
+    uint64_t logical_temporary_bytes;
 } QwnScratch;
+
+enum {
+    QWN_LOGICAL_EMBEDDING = 1,
+    QWN_LOGICAL_ATTENTION = 2,
+    QWN_LOGICAL_FFN = 3,
+    QWN_LOGICAL_LM_HEAD = 4,
+    QWN_LOGICAL_OTHER = 5,
+};
+
+void qwn_scratch_record_tensor_access(QwnScratch *scratch, int category,
+                                      uint64_t bytes, int repeated);
 
 /* Allocate once per session. No malloc/free occurs in the token hot path. */
 int  qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k);
@@ -100,6 +125,22 @@ void qwn_gemv_hypervsq2_vnni_delayed(const uint8_t *raw_blocks, const int8_t *q8
                                      const int32_t *activation_sums,
                                      float x_scale, int K, int N,
                                      size_t row_bytes, float *out);
+
+/* Development-only multi-row candidate for the exact 74-byte layout. It
+ * shares the activation vector load across 2/4/8 output rows while retaining
+ * each row and octant's scale/offset semantics. Unsupported tails fall back
+ * to the validated delayed kernel. */
+void qwn_gemv_hypervsq2_vnni_delayed_rows(const uint8_t *raw_blocks, const int8_t *q8,
+                                          const int32_t *activation_sums,
+                                          float x_scale, int K, int N,
+                                          size_t row_bytes, float *out,
+                                          int row_block);
+
+/* Development/evidence hooks for the 32-code unpack comparison. They do not
+ * alter the production dispatcher; the current shift/mask implementation is
+ * the only one used by the validated GEMV path. */
+void qwn_hypervsq2_unpack_shift_mask(const uint8_t *packed, uint8_t unpacked[32]);
+void qwn_hypervsq2_unpack_lut(const uint8_t *packed, uint8_t unpacked[32]);
 
 /* Full matrix multiplication for HyperVSQ-2 */
 int qwn_matmul_hypervsq2_f32(const QwnModel *m,

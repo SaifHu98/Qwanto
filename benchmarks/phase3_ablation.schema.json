@@ -1,21 +1,23 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Qwanto CPU Phase 3 ablation evidence",
+  "title": "Qwanto CPU Phase A ablation evidence",
   "type": "object",
   "required": ["schema_version", "benchmark_class", "timestamp_utc", "evidence_classification", "rows", "accepted_variants"],
   "properties": {
-    "schema_version": {"const": "1.0.0"},
-    "benchmark_class": {"const": "CPU_PHASE3_ABLATION_MATRIX"},
+    "schema_version": {"const": "1.1.0"},
+    "benchmark_class": {"const": "CPU_PHASE_A_ABLATION_MATRIX"},
     "evidence_classification": {"const": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION"},
     "rows": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["variant", "classification"],
+          "required": ["variant", "classification", "decision", "evidence_path"],
         "properties": {
           "variant": {"type": "string"},
-          "classification": {"type": "string"}
+          "classification": {"type": "string"},
+          "decision": {"type": "string"},
+          "evidence_path": {"type": "string"}
         }
       }
     },
