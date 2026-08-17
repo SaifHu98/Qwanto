@@ -83,6 +83,10 @@ and NVMe mmap.
 - Hosted Rust correction run `32047197045` passed after commit `363d1d8`.
   The later CPU Phase 3 commits still require a complete hosted validation run
   on their final exact commit.
+- Full hosted CI run `32061547684` passed on commit `b9b036e` with Linux and
+  Windows native builds, Python, Web, Documentation, Security, and Rust/Tauri
+  host jobs green. CUDA correctness/performance remains local because the
+  hosted matrix has no real CUDA runner; no CUDA benchmark claim is promoted.
 - CPU Phase A documentation was cleaned in commit `ffb46ac`; the canonical
   status is `docs/cpu-phaseA-feature-status-2026-08-17.md`. Its measurements
   remain bound to the recorded `9a68691` executable/source identity. The
