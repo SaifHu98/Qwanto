@@ -434,3 +434,28 @@
   list; only explicit x64 tool/redist globs cover Visual Studio, while active
   Clang/LLVM and environment-provided roots remain direct search roots.
 - **Validation:** Workflow YAML parsed and `git diff --check` passed locally.
+
+## 2026-08-17 — Split cold and persistent runtime evidence
+
+- **Change:** Added `benchmarks/benchmark_runtime_phases.py`,
+  `benchmarks/benchmark_thread_scaling.py`, and
+  `benchmarks/runtime_benchmark.schema.json` for cold startup, persistent
+  prefill, persistent warm decode, and actual OpenMP worker scaling. Extended
+  qwnrun build/runtime telemetry with executable hash, OpenMP state, ISA,
+  model dtype, backend, CUDA counters, PID, phase timings, and HyperVSQ-2 hot
+  path worker participation. Tightened AVX2/VNNI dispatch to compiled-code and
+  CPU-feature proof, and made explicit CUDA fail closed.
+- **Files:** `c/qwnrun.c`, `c/qwanto_decode.c`, `c/qwanto_decode.h`,
+  `c/qwanto_kernels.c`, `c/qwanto_kernels.h`, `c/Makefile`,
+  `.github/workflows/ci.yml`, `.github/workflows/release.yml`,
+  `c/tests/test_real_qwnrun_serve_e2e.py`, `c/tests/test_runtime_benchmark.py`,
+  and the three benchmark files under `benchmarks/`.
+- **Validation:** Fresh local evidence: cold ready `77.633 ms`, model load
+  `63 ms`; persistent prefill `1.129704 tok/s`; persistent warm decode
+  `1.243495 tok/s` with two requests under PID `22704`; active workers matched
+  requested `1,2,4,8,16,32`. Python `225 passed, 4 skipped`; web `56 passed`
+  and build; native C syntax and Clang/OpenMP link passed; explicit CUDA was
+  `UNAVAILABLE` with the real missing-DLL/device error. `cargo`, `make`, and
+  `nvcc` are unavailable locally.
+- **Decision:** README performance claims were intentionally not changed; no
+  tag or release was created.

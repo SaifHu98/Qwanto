@@ -17,6 +17,13 @@ typedef struct {
     size_t  bytes;
     int     max_tokens;
     int     padded_k;
+    /* Observability for the exact HyperVSQ-2 hot path. These counters are
+     * updated outside the inner GEMV loop and never affect its arithmetic. */
+    uint64_t hypervsq2_matmul_calls;
+    uint64_t hypervsq2_worker_participations;
+    int      hypervsq2_last_active_threads;
+    int      hypervsq2_max_active_threads;
+    char     hypervsq2_kernel[32];
 } QwnScratch;
 
 /* Allocate once per session. No malloc/free occurs in the token hot path. */

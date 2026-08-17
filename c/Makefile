@@ -55,6 +55,7 @@ OMPC    =
 OMPL    =
 endif
 CFLAGS  = -O3 $(OMPC) -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+QWN_BUILD_OPT_FLAGS ?= O3,openmp
 # Opt-in: ARCH=native appends -mcpu=native (arm64 clang uses -mcpu, not -march),
 # which unlocks the i8mm SMMLA int8/int4 dot kernels in glm.c. ARCH unset ->
 # no -mcpu, default build byte-identical. Apple clang knows apple-m4 / native.
@@ -75,6 +76,7 @@ else ifneq ($(IS_WIN),)
 CC      = gcc
 ARCH   ?= x86-64-v3
 CFLAGS  = -D_FILE_OFFSET_BITS=64 -O3 -march=$(ARCH) -mavx2 -mfma -funroll-loops -flto -fopenmp -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+QWN_BUILD_OPT_FLAGS ?= O3,march-$(ARCH),mavx2,mfma,funroll-loops,lto,openmp
 # -lpsapi: compat.h calls GetProcessMemoryInfo (rss_gb). It's linked via
 # #pragma comment(lib,"psapi.lib") for MSVC, but MinGW gcc ignores that pragma
 # (warns), so link psapi explicitly or the build fails undefined-reference on
@@ -90,6 +92,7 @@ ifneq (,$(PPC64))
 CC      = gcc
 ARCH   ?= native
 CFLAGS  = -O3 -mcpu=$(ARCH) -fopenmp -pthread -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+QWN_BUILD_OPT_FLAGS ?= O3,mcpu-$(ARCH),openmp,pthread
 LDFLAGS = -lm -fopenmp -pthread
 EXE     =
 else ifneq (,$(AARCH64))
@@ -97,6 +100,7 @@ else ifneq (,$(AARCH64))
 CC      = gcc
 ARCH   ?= native
 CFLAGS  = -O3 -march=$(ARCH) -funroll-loops -flto -fopenmp -pthread -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+QWN_BUILD_OPT_FLAGS ?= O3,march-$(ARCH),funroll-loops,lto,openmp,pthread
 LDFLAGS = -lm -flto -fopenmp -pthread
 EXE     =
 else
@@ -104,6 +108,7 @@ else
 CC      = gcc
 ARCH   ?= native
 CFLAGS  = -O3 -march=$(ARCH) -mavx2 -mfma -funroll-loops -flto -fopenmp -pthread -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+QWN_BUILD_OPT_FLAGS ?= O3,march-$(ARCH),mavx2,mfma,funroll-loops,lto,openmp,pthread
 LDFLAGS = -lm -flto -fopenmp -pthread
 EXE     =
 endif
@@ -112,6 +117,10 @@ endif
 ifneq (,$(LINUX))
 LDFLAGS += -ldl
 endif
+
+# Preserve the optimization profile selected by this Makefile in qwnrun's
+# audit record. The escaped quotes make the value a C string on all shells.
+CFLAGS += -DQWN_BUILD_OPT_FLAGS='"$(QWN_BUILD_OPT_FLAGS)"'
 
 # --- install ---
 PREFIX     ?= /usr/local

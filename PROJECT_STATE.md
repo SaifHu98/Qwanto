@@ -28,7 +28,7 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `219 passed, 3 skipped` in `c/tests/`; the decoder
+- Native/Python validation: `225 passed, 4 skipped` in `c/tests/`; the decoder
   test passed separately (`2 passed`). Focused gateway tests passed
   (`45 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
@@ -40,10 +40,18 @@ and NVMe mmap.
   1280px, 1440px, 1920px, and short laptop heights. Skills & Plugins, GitHub,
   and Feedback are separate lazy settings sections; model/conversion/download
   work remains focused under Models.
-- A current local Windows `qwnrun.exe` build produced a real `MEASURED`
-  `benchmark_evidence.json` and `benchmarks/benchmark_matrix.json` record for
-  the checked-in 4B `.qwn` fixture: CPU decode `8.154199 tok/s`; TTFT and CUDA
-  execution counters are explicitly unavailable for this run.
+- The existing `benchmark_evidence.json` claim remains unchanged while the
+  split phase methodology is validated. New local evidence uses a rebuilt
+  Windows Clang/OpenMP scalar executable and is stored in uncommitted
+  `benchmark_cold_start_omp.json`, `benchmark_prefill_omp.json`,
+  `benchmark_warm_decode_omp.json`, and `benchmark_thread_scaling_omp.json`.
+  The fresh 4B HyperVSQ-2 rows report cold readiness `77.633 ms` (model load
+  `63 ms`), warm prefill `1.129704 tok/s`, and persistent warm decode
+  `1.243495 tok/s` across two sequential requests under PID `22704`. The
+  thread matrix proved active hot-path workers of `1, 2, 4, 8, 16, 32` for
+  requested counts `1, 2, 4, 8, 16, 32`; the executable selected scalar because
+  this local build did not compile AVX2 code. README performance claims remain
+  intentionally unchanged until a clean, versioned evidence decision is made.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
   native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
@@ -76,6 +84,9 @@ and NVMe mmap.
   Settings and explicit acquisition consent.
 - TTFT and sensor metrics remain unavailable unless the runtime protocol or
   local sensor query supplies them.
+- CUDA is still `UNAVAILABLE` on this workstation: explicit `--backend cuda`
+  fails closed because `qwn_cuda.dll`/device support is absent. GPU detection
+  alone is never classified as CUDA inference.
 - The gateway control-plane contract is versioned at schema `1`; `/health` is
   outside `/v1`, while models/config/telemetry remain under `/v1`.
 - Third-party plugin execution remains unavailable by design until a native
@@ -205,3 +216,22 @@ and NVMe mmap.
   failed before compilation. The Windows CI and release build blocks are now
   restored to the exact known-good `f9b47ec` Clang/OpenMP invocation, with x64
   filters preserved. Hosted validation is pending after this correction.
+
+## 2026-08-17 — Split runtime phase evidence
+
+- **Change:** Added machine-readable cold-start, persistent prefill, persistent
+  warm-decode, and thread-scaling harnesses. Warm decode requires two measured
+  requests under one PID after a warmup request before classification.
+- **Runtime audit:** qwnrun now exposes compiler/version, optimization flags,
+  executable SHA-256, OpenMP compile/runtime state, requested and hot-path
+  active threads, CPU ISA, model dtype, backend, CUDA counters, and PID. The
+  HyperVSQ-2 74-byte CPU matmul path records actual participating OpenMP
+  workers and dispatches AVX2/VNNI only when compiled code and runtime support
+  both exist.
+- **Validation:** Python `225 passed, 4 skipped`; web `56 passed` and
+  production build; native C syntax and local Clang/OpenMP link passed. Fresh
+  CPU phase evidence is `MEASURED`; explicit CUDA is `UNAVAILABLE` because
+  `qwn_cuda.dll`/device support is absent. `cargo`, `make`, and `nvcc` are not
+  installed on this workstation.
+- **Decision:** README performance claims were intentionally not changed. No
+  tag or release was created; existing Beta.4 remains unchanged.

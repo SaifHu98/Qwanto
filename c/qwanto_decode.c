@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -25,6 +26,25 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+static double qwn_decode_wall_seconds(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER frequency;
+    static int initialized = 0;
+    LARGE_INTEGER counter;
+    if (!initialized) {
+        QueryPerformanceFrequency(&frequency);
+        initialized = 1;
+    }
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return (double)clock() / (double)CLOCKS_PER_SEC;
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
 
 typedef struct {
     uint32_t state[8];
@@ -132,7 +152,7 @@ static void qwn_sha256_final(QwnSha256 *ctx, uint8_t digest[32]) {
     }
 }
 
-static int qwn_sha256_file_hex(const char *path, char output[65]) {
+int qwn_sha256_file_hex(const char *path, char output[65]) {
     uint8_t buffer[64 * 1024];
     uint8_t digest[32];
     QwnSha256 ctx;
@@ -875,7 +895,11 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
 #if defined(_OPENMP)
     if (d->runtime_config.cpu_threads > 0)
         omp_set_num_threads(d->runtime_config.cpu_threads);
+    d->runtime_metrics.openmp_runtime_loaded = omp_get_max_threads() > 0;
+#else
+    d->runtime_metrics.openmp_runtime_loaded = 0;
 #endif
+    d->runtime_metrics.requested_cpu_threads = d->runtime_config.cpu_threads;
     if(qwn_open(path,&d->model,error)!=0)return -1;
     if (strcmp(d->runtime_config.quantization, "auto") != 0) {
         uint32_t wanted = strcmp(d->runtime_config.quantization, "q4_0") == 0 ? QWN_DT_Q4_0 :
@@ -1025,6 +1049,7 @@ for (int l = 0; l < d->cfg.layers; l++) {
     init_residency(d);
     /* Precompute RoPE table once at load time */
     rope_cache_ensure(d, d->cfg.max_ctx, d->cfg.head_dim / 2, d->cfg.rope_theta);
+    qwn_decoder_refresh_runtime_metrics(d);
     return 0;
 fail:qwn_decoder_close(d);return -1;
 }
@@ -1033,9 +1058,36 @@ const QwnRuntimeMetrics *qwn_decoder_metrics(const QwnDecoder *d) {
     return d ? &d->runtime_metrics : NULL;
 }
 
+void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d) {
+    if (!d) return;
+    d->runtime_metrics.requested_cpu_threads = d->runtime_config.cpu_threads;
+    d->runtime_metrics.hypervsq2_matmul_count = d->scratch.hypervsq2_matmul_calls;
+    d->runtime_metrics.hypervsq2_worker_participations =
+        d->scratch.hypervsq2_worker_participations;
+    d->runtime_metrics.hypervsq2_last_active_threads =
+        d->scratch.hypervsq2_last_active_threads;
+    d->runtime_metrics.hypervsq2_max_active_threads =
+        d->scratch.hypervsq2_max_active_threads;
+    if (d->scratch.hypervsq2_matmul_calls > 0) {
+        d->runtime_metrics.active_cpu_threads =
+            d->scratch.hypervsq2_last_active_threads;
+        if (strcmp(d->runtime_metrics.backend, "cuda") != 0) {
+            snprintf(d->runtime_metrics.kernel, sizeof(d->runtime_metrics.kernel),
+                     "%s", d->scratch.hypervsq2_kernel);
+        }
+    } else {
+        d->runtime_metrics.active_cpu_threads = 0;
+    }
+}
+
+const QwnGenerationMetrics *qwn_decoder_generation_metrics(const QwnDecoder *d) {
+    return d ? &d->generation_metrics : NULL;
+}
+
 void qwn_decoder_reset(QwnDecoder *d){
     if (!d) return;
     d->position = 0;
+    memset(&d->generation_metrics, 0, sizeof(d->generation_metrics));
     if (d->use_paged_kv) {
         qwn_block_table_free(&d->paged_kv, &d->paged_table);
         qwn_block_table_init(&d->paged_table, 0,
@@ -1421,11 +1473,19 @@ int qwn_decoder_generate(QwnDecoder *d,const int *prompt,int prompt_count,
                          int max_new_tokens,float temperature,float top_p,
                          void(*callback)(const char*,int,void*),void *opaque){
     const float *logits=NULL;int token=-1;
+    double request_started = qwn_decode_wall_seconds();
+    double prefill_started = request_started;
+    memset(&d->generation_metrics, 0, sizeof(d->generation_metrics));
+    d->generation_metrics.prompt_tokens = prompt_count;
     for(int i=0;i<prompt_count;i++)if(qwn_decoder_forward(d,prompt[i],&logits)!=0)return -1;
+    double decode_started = qwn_decode_wall_seconds();
+    d->generation_metrics.prefill_ms = (decode_started - prefill_started) * 1000.0;
     int generated=0;
+    double first_token_at = 0.0;
     for(int step=0;step<max_new_tokens;step++){
         token=sample_token(logits,d->cfg.vocab,temperature,top_p,&d->rng_state);
         if(token==d->cfg.eos_id)break;
+        if (first_token_at == 0.0) first_token_at = qwn_decode_wall_seconds();
         if(callback) {
             if (token >= 0 && token < d->tokenizer.n_ids && d->tokenizer.id2str && d->tokenizer.id2str[token]) {
                 const char *s = d->tokenizer.id2str[token];
@@ -1437,5 +1497,13 @@ int qwn_decoder_generate(QwnDecoder *d,const int *prompt,int prompt_count,
         }
         generated++;
         if(qwn_decoder_forward(d,token,&logits)!=0)return -1;
-    }return generated;
+    }
+    double finished = qwn_decode_wall_seconds();
+    d->generation_metrics.generated_tokens = generated;
+    d->generation_metrics.first_token_ms = first_token_at > 0.0 ?
+        (first_token_at - request_started) * 1000.0 : 0.0;
+    d->generation_metrics.decode_wall_ms = generated > 0 ?
+        (finished - decode_started) * 1000.0 : 0.0;
+    qwn_decoder_refresh_runtime_metrics(d);
+    return generated;
 }

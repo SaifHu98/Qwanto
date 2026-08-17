@@ -43,6 +43,14 @@ static void aligned_free64(void *p) {
 static QwnCpuFeatures g_cpu_features;
 static int g_cpu_features_initialized = 0;
 
+static int qwn_avx2_kernel_compiled(void) {
+#if defined(__AVX2__)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 static uint64_t qwn_xgetbv0(void) {
 #if defined(_MSC_VER)
     return (uint64_t)_xgetbv(0);
@@ -135,11 +143,14 @@ const QwnCpuFeatures *qwn_get_cpu_features(void) {
 const char *qwn_cpu_kernel_name(void) {
     const QwnCpuFeatures *cpu = qwn_get_cpu_features();
     if (cpu->forced_mode == 1) return "scalar-forced";
-    if (cpu->forced_mode == 2 && cpu->has_avx2) return "avx2-fma-f16c-forced";
-    if (cpu->forced_mode == 3 && cpu->has_vnni) return "vnni-forced";
-    if (cpu->has_vnni) return "vnni";
-    if (cpu->has_avx2 && cpu->has_fma && cpu->has_f16c) return "avx2-fma-f16c";
-    if (cpu->has_avx2) return "avx2";
+    if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_avx2_kernel_compiled())
+        return "avx2-fma-f16c-forced";
+    if (cpu->forced_mode == 3 && cpu->has_vnni && qwn_avx2_kernel_compiled())
+        return "vnni-forced";
+    if (cpu->has_vnni && qwn_avx2_kernel_compiled()) return "vnni";
+    if (cpu->has_avx2 && qwn_avx2_kernel_compiled() && cpu->has_fma && cpu->has_f16c)
+        return "avx2-fma-f16c";
+    if (cpu->has_avx2 && qwn_avx2_kernel_compiled()) return "avx2";
     return "scalar";
 }
 
@@ -151,16 +162,18 @@ int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size) {
         return 0;
     }
     if (strcmp(kernel, "avx2") == 0) {
-        if (!cpu->has_avx2) {
-            if (error && error_size) snprintf(error, error_size, "AVX2 kernel requested but CPU support is unavailable");
+        if (!cpu->has_avx2 || !qwn_avx2_kernel_compiled()) {
+            if (error && error_size) snprintf(error, error_size,
+                "AVX2 kernel requested but CPU support or compiled AVX2 code is unavailable");
             return -1;
         }
         g_cpu_features.forced_mode = 2;
         return 0;
     }
     if (strcmp(kernel, "vnni") == 0) {
-        if (!cpu->has_vnni) {
-            if (error && error_size) snprintf(error, error_size, "VNNI kernel requested but AVX-VNNI/AVX512-VNNI support is unavailable");
+        if (!cpu->has_vnni || !qwn_avx2_kernel_compiled()) {
+            if (error && error_size) snprintf(error, error_size,
+                "VNNI kernel requested but CPU support or compiled AVX2/VNNI code is unavailable");
             return -1;
         }
         g_cpu_features.forced_mode = 3;
@@ -762,14 +775,19 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
     gemv_fn_t gemv_fn = qwn_gemv_hypervsq2_scalar;
     if (cpu->forced_mode == 1) {
         gemv_fn = qwn_gemv_hypervsq2_scalar;
-    } else if (cpu->forced_mode == 2 && cpu->has_avx2) {
+    } else if (cpu->forced_mode == 2 && cpu->has_avx2 && qwn_avx2_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_avx2;
-    } else if (cpu->forced_mode == 3 && cpu->has_vnni) {
+    } else if (cpu->forced_mode == 3 && cpu->has_vnni && qwn_avx2_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_vnni;
-    } else if (cpu->has_vnni) {
+    } else if (cpu->has_vnni && qwn_avx2_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_vnni;
-    } else if (cpu->has_avx2) {
+    } else if (cpu->has_avx2 && qwn_avx2_kernel_compiled()) {
         gemv_fn = qwn_gemv_hypervsq2_avx2;
+    }
+
+    if (scratch->hypervsq2_matmul_calls == 0) {
+        snprintf(scratch->hypervsq2_kernel, sizeof(scratch->hypervsq2_kernel),
+                 "%s", qwn_cpu_kernel_name());
     }
 
     for (int t = 0; t < M; t++) {
@@ -777,14 +795,39 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         float x_scale = scratch->token_scales[t];
         float *yt = y + (size_t)t * N;
 
+        int active_threads = 1;
+        int participating_threads = 0;
 #if defined(_OPENMP)
-        #pragma omp parallel for schedule(static) if(N > 16)
-#endif
+        #pragma omp parallel if(N > 16)
+        {
+            int participated = 0;
+            #pragma omp single
+            active_threads = omp_get_num_threads();
+            #pragma omp for schedule(static)
+            for (int n = 0; n < N; n += 64) {
+                participated = 1;
+                int chunk = N - n;
+                if (chunk > 64) chunk = 64;
+                gemv_fn(raw + (size_t)n * row_bytes, q8, x_scale, K, chunk, row_bytes, yt + n);
+            }
+            if (participated) {
+                #pragma omp atomic
+                participating_threads += 1;
+            }
+        }
+#else
         for (int n = 0; n < N; n += 64) {
             int chunk = N - n;
             if (chunk > 64) chunk = 64;
             gemv_fn(raw + (size_t)n * row_bytes, q8, x_scale, K, chunk, row_bytes, yt + n);
         }
+        participating_threads = 1;
+#endif
+        scratch->hypervsq2_matmul_calls++;
+        scratch->hypervsq2_worker_participations += (uint64_t)participating_threads;
+        scratch->hypervsq2_last_active_threads = participating_threads;
+        if (participating_threads > scratch->hypervsq2_max_active_threads)
+            scratch->hypervsq2_max_active_threads = participating_threads;
     }
     return 0;
 }

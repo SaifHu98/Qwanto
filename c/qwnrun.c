@@ -15,10 +15,22 @@
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#define qwn_process_id() ((unsigned long)GetCurrentProcessId())
+#else
+#include <unistd.h>
+#define qwn_process_id() ((unsigned long)getpid())
 #endif
+
+#ifndef QWN_BUILD_OPT_FLAGS
+#define QWN_BUILD_OPT_FLAGS "Unavailable"
+#endif
+
+#define QWN_STR_IMPL(value) #value
+#define QWN_STR(value) QWN_STR_IMPL(value)
 
 static void emit(const char *s,int n,void *opaque){(void)opaque;fwrite(s,1,(size_t)n,stdout);fflush(stdout);}
 static double wall_seconds(void);
+static const char *g_executable_path = NULL;
 
 typedef struct {
     double started;
@@ -57,51 +69,90 @@ static int runtime_active_threads(void) {
 #endif
 }
 
-static void print_build_info(void) {
+static void print_build_info(const QwnRuntimeConfig *config) {
     const char *compiler = "unknown";
+    const char *compiler_version = "Unavailable";
 #if defined(__clang__)
     compiler = "clang";
+    compiler_version = QWN_STR(__clang_major__) "." QWN_STR(__clang_minor__) "." QWN_STR(__clang_patchlevel__);
 #elif defined(__GNUC__)
     compiler = "gcc";
+    compiler_version = QWN_STR(__GNUC__) "." QWN_STR(__GNUC_MINOR__) "." QWN_STR(__GNUC_PATCHLEVEL__);
 #elif defined(_MSC_VER)
     compiler = "msvc";
+    compiler_version = QWN_STR(_MSC_VER);
 #endif
-    const char *optimization_flags = "unknown";
-#if defined(__OPTIMIZE__)
-    optimization_flags = "optimized";
-#endif
+    const QwnRuntimeConfig default_config = {0};
+    if (!config) config = &default_config;
+    const QwnCpuFeatures *cpu = qwn_get_cpu_features();
+    char binary_sha256[65] = "Unavailable";
+    if (!g_executable_path || qwn_sha256_file_hex(g_executable_path, binary_sha256) != 0)
+        snprintf(binary_sha256, sizeof(binary_sha256), "Unavailable");
+    int active_threads = 1;
+    int runtime_loaded = 0;
 #if defined(_OPENMP)
-    fprintf(stderr, "qwnrun build: compiler=%s openmp_enabled=true "
-            "openmp_runtime=%d omp_max_threads=%d active_threads=%d "
-            "optimization_flags=%s selected_isa_kernel=%s model_dtype=Unavailable "
-            "backend=unselected gpu_kernel_coverage=hypervsq2-74,q4_0 cpu_fallback_count=0\n",
-            compiler, _OPENMP, omp_get_max_threads(), runtime_active_threads(),
-            optimization_flags, qwn_cpu_kernel_name());
-#else
-    fprintf(stderr, "qwnrun build: compiler=%s openmp_enabled=false "
-            "openmp_runtime=none omp_max_threads=1 active_threads=1 "
-            "optimization_flags=%s selected_isa_kernel=%s model_dtype=Unavailable "
-            "backend=unselected gpu_kernel_coverage=hypervsq2-74,q4_0 cpu_fallback_count=0\n",
-            compiler, optimization_flags, qwn_cpu_kernel_name());
+    if (config->cpu_threads > 0) omp_set_num_threads(config->cpu_threads);
+    active_threads = runtime_active_threads();
+    runtime_loaded = omp_get_max_threads() > 0;
 #endif
+    fprintf(stderr, "qwnrun build: compiler=%s compiler_version=%s "
+            "optimization_flags=%s openmp_enabled=%s openmp_runtime_loaded=%s "
+            "openmp_version=%s omp_max_threads=%d requested_threads=%d "
+            "active_threads=%d hot_path_active_threads=Unavailable "
+            "selected_isa_kernel=%s hot_path_isa_kernel=Unavailable "
+            "cpu_avx2=%s cpu_f16c=%s cpu_fma=%s cpu_vnni=%s "
+            "binary_sha256=%s "
+            "model_dtype=Unavailable backend_requested=%s backend_actual=Unavailable "
+            "gpu_kernel_coverage=hypervsq2-74,q4_0 gpu_matmul_count=0 "
+            "cpu_fallback_count=0 pid=%lu\n",
+            compiler, compiler_version, QWN_BUILD_OPT_FLAGS,
+#if defined(_OPENMP)
+            "true", runtime_loaded ? "true" : "false", QWN_STR(_OPENMP),
+            omp_get_max_threads(),
+#else
+            "false", "false", "Unavailable", 1,
+#endif
+            config->cpu_threads, active_threads, qwn_cpu_kernel_name(),
+            cpu->has_avx2 ? "true" : "false", cpu->has_f16c ? "true" : "false",
+            cpu->has_fma ? "true" : "false", cpu->has_vnni ? "true" : "false",
+            binary_sha256,
+            qwn_runtime_backend_name(config->backend), qwn_process_id());
 }
 
 static void print_runtime_info(const QwnDecoder *decoder) {
+    qwn_decoder_refresh_runtime_metrics((QwnDecoder *)decoder);
     const QwnRuntimeMetrics *metrics = qwn_decoder_metrics(decoder);
     const char *dtype = decoder->embed_weight ? qwn_dtype_name(decoder->embed_weight->dtype) : "Unavailable";
+    const char *hot_kernel = metrics && metrics->hypervsq2_matmul_count > 0 ?
+                             metrics->kernel : "Unavailable";
+    const char *backend_actual = metrics && strcmp(metrics->backend, "cuda-pending") == 0 ?
+                                 "Unavailable" : (metrics ? metrics->backend : "Unavailable");
     fprintf(stderr, "qwnrun runtime detail: qwn_cuda_dll_loaded=%s model_dtype=%s "
-            "selected_isa_kernel=%s backend=%s kernel=%s gpu_matmul_count=%llu "
-            "cpu_fallback_count=%llu gpu_device=%d cuda_upload_bytes=%llu "
-            "cuda_resident_bytes=%llu cuda_dll_sha256=%s\n",
+            "selected_isa_kernel=%s hot_path_isa_kernel=%s "
+            "backend_requested=%s backend_actual=%s backend=%s kernel=%s "
+            "gpu_matmul_count=%llu cpu_fallback_count=%llu gpu_device=%d "
+            "cuda_upload_bytes=%llu cuda_resident_bytes=%llu cuda_dll_sha256=%s "
+            "requested_threads=%d active_threads=%d openmp_runtime_loaded=%s "
+            "hypervsq2_matmul_count=%llu hypervsq2_worker_participations=%llu "
+            "hypervsq2_last_active_threads=%d hypervsq2_max_active_threads=%d\n",
             decoder->qwn_cuda.available ? "true" : "false", dtype,
-            qwn_cpu_kernel_name(), metrics ? metrics->backend : "unknown",
+            qwn_cpu_kernel_name(), hot_kernel,
+            qwn_runtime_backend_name(decoder->runtime_config.backend), backend_actual,
+            backend_actual,
             metrics ? metrics->kernel : "unknown",
             (unsigned long long)(metrics ? metrics->cuda_matmul_count : 0),
             (unsigned long long)(metrics ? metrics->cpu_fallback_count : 0),
             metrics ? metrics->cuda_device : -1,
             (unsigned long long)(metrics ? metrics->cuda_upload_bytes : 0),
             (unsigned long long)(metrics ? metrics->cuda_resident_bytes : 0),
-            metrics ? metrics->cuda_dll_hash : "Unavailable");
+            metrics ? metrics->cuda_dll_hash : "Unavailable",
+            metrics ? metrics->requested_cpu_threads : 0,
+            metrics ? metrics->active_cpu_threads : 0,
+            metrics && metrics->openmp_runtime_loaded ? "true" : "false",
+            (unsigned long long)(metrics ? metrics->hypervsq2_matmul_count : 0),
+            (unsigned long long)(metrics ? metrics->hypervsq2_worker_participations : 0),
+            metrics ? metrics->hypervsq2_last_active_threads : 0,
+            metrics ? metrics->hypervsq2_max_active_threads : 0);
 #ifdef COLI_CUDA
     if (decoder->cuda_enabled) {
         fprintf(stderr, "qwnrun runtime: backend=CUDA cuda_compiled=true "
@@ -147,11 +198,20 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
     else qwn_runtime_config_default(&config);
     if (getenv("CTX") && atoi(getenv("CTX")) > 0) config.context_size = atoi(getenv("CTX"));
     if (getenv("NGEN") && atoi(getenv("NGEN")) > 0) config.max_tokens = atoi(getenv("NGEN"));
+    print_build_info(&config);
+    double serve_started = wall_seconds();
+    double model_load_started = serve_started;
     QwnDecoder d;const char *error=NULL;
     if(qwn_decoder_open_with_config(&d,model,&config,&error)!=0){fprintf(stderr,"qwnrun: %s\n",error?error:"open");return 1;}
+    double model_loaded = wall_seconds();
     print_runtime_info(&d);
     if(getenv("SERVE")){
-        printf("\x01\x01READY\x01\x01\nSTAT 0 0 0 0\n");fflush(stdout);
+        printf("\x01\x01READY\x01\x01\nSTAT 0 0.000 0.0 0.0 0 0 "
+               "model_load_ms=%.3f runtime_ready_ms=%.3f pid=%lu\n",
+               (model_loaded - model_load_started) * 1000.0,
+               (wall_seconds() - serve_started) * 1000.0,
+               qwn_process_id());
+        fflush(stdout);
     }
     char line[512];
     while(fgets(line,sizeof(line),stdin)){
@@ -191,16 +251,37 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                 continue;
             }
             if(d.cfg.bos_id>=0&&count<effective_ctx){memmove(ids+1,ids,(size_t)count*sizeof(int));ids[0]=d.cfg.bos_id;count++;}
-            qwn_decoder_reset(&d);ServeOut out={id};double start=wall_seconds();
+            qwn_decoder_reset(&d);ServeOut out={id};
             if (max_tokens <= 0 || max_tokens > config.max_tokens) max_tokens = config.max_tokens;
             int generated=qwn_decoder_generate(&d,ids,count,max_tokens,temp,top_p,emit_mux,&out);free(ids);
             if(generated<0){
                 fprintf(stderr, "qwnrun result: status=error tokens=0\n");
                 printf("ERROR %s generation-failed\n",id);fflush(stdout);continue;
             }
-            double sec=wall_seconds()-start;
-            double tps=sec>0?generated/sec:0;
-            printf("DONE %s STAT %d %.3f 0 0 %d %d\n",id,generated,tps,count,generated>=max_tokens);fflush(stdout);
+            qwn_decoder_refresh_runtime_metrics(&d);
+            const QwnGenerationMetrics *generation = qwn_decoder_generation_metrics(&d);
+            double prefill_tps = generation && generation->prefill_ms > 0.0 ?
+                (double)generation->prompt_tokens / (generation->prefill_ms / 1000.0) : 0.0;
+            double decode_tps = generation && generation->decode_wall_ms > 0.0 ?
+                (double)generation->generated_tokens / (generation->decode_wall_ms / 1000.0) : 0.0;
+            printf("DONE %s STAT %d %.6f 0 0 %d %d "
+                   "prefill_ms=%.3f prefill_tok_per_sec=%.6f "
+                   "first_token_ms=%.3f decode_wall_ms=%.3f "
+                   "decode_tok_per_sec=%.6f pid=%lu backend_actual=%s "
+                   "kernel=%s gpu_matmul_count=%llu cpu_fallback_count=%llu "
+                   "active_threads=%d\n",
+                   id, generated, decode_tps, count, generated>=max_tokens,
+                   generation ? generation->prefill_ms : 0.0, prefill_tps,
+                   generation ? generation->first_token_ms : 0.0,
+                   generation ? generation->decode_wall_ms : 0.0, decode_tps,
+                   qwn_process_id(),
+                   d.runtime_metrics.backend[0] ? d.runtime_metrics.backend : "Unavailable",
+                   d.runtime_metrics.kernel[0] ? d.runtime_metrics.kernel : "Unavailable",
+                   (unsigned long long)d.runtime_metrics.cuda_matmul_count,
+                   (unsigned long long)d.runtime_metrics.cpu_fallback_count,
+                   d.runtime_metrics.active_cpu_threads);
+            fflush(stdout);
+            print_runtime_info(&d);
         }else if(sscanf(line,"CANCEL %63s",id)==1){
             printf("ERROR %s CANCELLED\n",id);fflush(stdout);
         }
@@ -213,8 +294,16 @@ int main(int argc,char **argv){
     _setmode(_fileno(stdin),_O_BINARY);
     _setmode(_fileno(stdout),_O_BINARY);
 #endif
-    if (argc == 2 && strcmp(argv[1], "--build-info") == 0) {
-        print_build_info();
+    g_executable_path = argc > 0 ? argv[0] : NULL;
+    if (argc >= 2 && strcmp(argv[1], "--build-info") == 0) {
+        QwnRuntimeConfig config;
+        char config_error[256];
+        if (qwn_runtime_config_parse(&config, argc, argv, 2,
+                                     config_error, sizeof(config_error)) != 0) {
+            fprintf(stderr, "qwnrun: %s\n", config_error);
+            return 2;
+        }
+        print_build_info(&config);
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--list-gpus") == 0 || strcmp(argv[1], "-l") == 0)) {
@@ -238,7 +327,6 @@ int main(int argc,char **argv){
         return serve_mode(model, &config);
     }
 
-    print_build_info();
     if(getenv("SERVE")){
         const char *model=getenv("SNAP");if(!model||!*model){fprintf(stderr,"SNAP missing\n");return 2;}
         QwnRuntimeConfig config; char config_error[256];
@@ -277,6 +365,7 @@ int main(int argc,char **argv){
         fprintf(stderr, "qwnrun: %s\n", config_error);
         return 2;
     }
+    print_build_info(&runtime_config);
     int max_tokens = runtime_config.max_tokens;
 
     QwnDecoder decoder;const char *error=NULL;

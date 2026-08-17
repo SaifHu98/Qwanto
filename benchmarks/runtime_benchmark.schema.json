@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qwanto Native split runtime benchmark evidence",
+  "type": "object",
+  "required": [
+    "schema_version", "benchmark_id", "timestamp_utc", "mode",
+    "evidence_classification", "runtime_metadata", "model_metadata",
+    "benchmark_parameters", "execution_evidence", "measurements"
+  ],
+  "properties": {
+    "schema_version": { "const": "5.0.0" },
+    "mode": { "enum": ["cold-start", "prefill", "warm-decode"] },
+    "evidence_classification": { "enum": ["MEASURED", "UNAVAILABLE", "INVALID"] },
+    "runtime_metadata": {
+      "type": "object",
+      "required": [
+        "executable_sha256", "binary_sha256", "compiler", "compiler_version",
+        "optimization_flags", "openmp_compiled", "openmp_runtime_loaded",
+        "requested_cpu_threads", "active_cpu_threads",
+        "selected_cpu_isa_kernel", "cpu_feature_detection", "model_dtype",
+        "backend_requested", "backend_actual",
+        "gpu_matmul_count", "cpu_fallback_count", "model_hash"
+      ]
+    },
+    "model_metadata": {
+      "type": "object",
+      "required": ["path", "sha256", "architecture", "qwn_dtype"]
+    },
+    "execution_evidence": {
+      "type": "object",
+      "required": ["process_create_ms", "runtime_ready_ms", "process_pid",
+                   "same_pid_sequential_requests", "request_ids"]
+    },
+    "measurements": {
+      "type": "object",
+      "properties": { "runtime_stat_line": { "type": "string" } }
+    }
+  }
+}
