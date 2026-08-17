@@ -13,7 +13,7 @@
     "independent_bandwidth": {"type": "object", "required": ["results", "selected_worker_count", "selected_result", "source"]},
     "counters": {"type": "object", "required": ["logical_byte_categories"]},
     "arithmetic_intensity": {"type": "object", "required": ["flops_per_token", "bytes_per_token", "flops_per_byte"]},
-    "roofline_estimate": {"type": "object", "required": ["predicted_tok_per_sec", "source", "equation_inputs"]},
+    "roofline_estimate": {"type": "object", "required": ["predicted_tok_per_sec", "source", "classification", "equation_inputs"], "properties": {"classification": {"const": "DERIVED_PROXY_NOT_HARDWARE_MEASURED"}}},
     "actual_throughput": {"type": "object", "required": ["median_tok_per_sec", "source"]}
   }
 }

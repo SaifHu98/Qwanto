@@ -440,7 +440,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
                                   "flops_per_byte": {"value": intensity, "source": "derived_estimate"}},
         "roofline_estimate": {
             "predicted_tok_per_sec": predicted,
-            "source": "derived_estimate" if predicted is not None else "DERIVED_OR_UNAVAILABLE",
+            "source": "derived_proxy" if predicted is not None else "DERIVED_OR_UNAVAILABLE",
+            "classification": "DERIVED_PROXY_NOT_HARDWARE_MEASURED",
             "equation_inputs": {
                 "aggregate_bandwidth_bytes_per_sec": aggregate_bandwidth,
                 "executed_bytes_per_token": total_logical_bytes_per_token,

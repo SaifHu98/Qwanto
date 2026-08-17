@@ -42,13 +42,18 @@ The selected worker count was **8**. Its read-only aggregate rate was **34.421 G
 | Total logical bytes per token | 481038007.515 | derived_from_qwn_logical_execution_counters from executed logical counters |
 | Logical FLOPs per token | 3206021120.000 | qwnrun_matmul_shape_counter from descriptor-derived operations |
 | Arithmetic intensity | 6.664798 FLOP/byte | derived estimate |
-| Predicted throughput | 71.556 tok/s | derived_estimate using selected aggregate bytes/s |
+| Predicted throughput | 71.556 tok/s | `DERIVED_PROXY_NOT_HARDWARE_MEASURED`; derived only from selected aggregate stream proxy |
 | Actual persistent decode median | 18.463467 tok/s | qwnrun_release_quality_persistent_decode |
 | Actual / predicted estimate | 25.80% | derived comparison, not a hardware efficiency measurement |
 
 Equation inputs: `34421311165.34105` bytes/s ÷ `481038007.515006` bytes/token = `71.55632325844289` tok/s. The machine-readable validator recomputes this equation and rejects inconsistent evidence.
 
-The logical bytes/token value is not a process read counter. It assumes the descriptor-derived logical traffic and therefore cannot prove that every byte was fetched from DRAM. The predicted throughput excludes decoder overhead, cache reuse, synchronization, sampling, and page/cache effects. It is a roofline estimate only.
+The classification is **`DERIVED_PROXY_NOT_HARDWARE_MEASURED`**. The logical
+bytes/token value is not a process read counter. It assumes descriptor-derived
+logical traffic and therefore cannot prove that every byte was fetched from
+DRAM. The predicted throughput excludes decoder overhead, cache reuse,
+synchronization, sampling, and page/cache effects. It is a proxy equation, not
+a hardware-measured runtime ceiling or a product performance claim.
 
 ## Time and counter evidence
 

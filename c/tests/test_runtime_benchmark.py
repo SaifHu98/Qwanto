@@ -145,6 +145,7 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
             },
             "roofline_estimate": {
                 "predicted_tok_per_sec": 50.432375,
+                "classification": "DERIVED_PROXY_NOT_HARDWARE_MEASURED",
                 "equation_inputs": {
                     "aggregate_bandwidth_bytes_per_sec": 861579040.0,
                     "executed_bytes_per_token": 861579040.0,
@@ -154,6 +155,16 @@ class TestRuntimeBenchmarkEvidence(unittest.TestCase):
         }
         errors = validate_cpu_roofline.validate_report(report)
         self.assertTrue(any("derived_tok_per_sec" in error for error in errors))
+
+    def test_committed_roofline_uses_explicit_proxy_classification(self):
+        evidence = ROOT / "benchmarks" / "evidence" / "windows" / "2026-08-17" / \
+            "phaseA-clean-9a68691" / "roofline-final-8t-64.json"
+        report = json.loads(evidence.read_text(encoding="utf-8"))
+        self.assertEqual(
+            report["roofline_estimate"]["classification"],
+            "DERIVED_PROXY_NOT_HARDWARE_MEASURED",
+        )
+        self.assertEqual(validate_cpu_roofline.validate_report(report), [])
 
     def test_thread_autotune_candidates_are_bounded_and_deduplicated(self):
         candidates = thread_autotuner.candidate_threads()

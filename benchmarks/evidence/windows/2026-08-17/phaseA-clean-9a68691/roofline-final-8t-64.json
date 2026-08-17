@@ -2092,7 +2092,8 @@
   },
   "roofline_estimate": {
     "predicted_tok_per_sec": 71.55632325844289,
-    "source": "derived_estimate",
+    "source": "derived_proxy",
+    "classification": "DERIVED_PROXY_NOT_HARDWARE_MEASURED",
     "equation_inputs": {
       "aggregate_bandwidth_bytes_per_sec": 34421311165.34105,
       "executed_bytes_per_token": 481038007.515006,

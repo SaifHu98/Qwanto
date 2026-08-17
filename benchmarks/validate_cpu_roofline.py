@@ -13,6 +13,7 @@ from typing import Any
 
 SCHEMA_VERSION = "1.1.0"
 RELATIVE_TOLERANCE = 1e-6
+ROOFLINE_CLASSIFICATION = "DERIVED_PROXY_NOT_HARDWARE_MEASURED"
 
 
 def _close(left: float | None, right: float | None) -> bool:
@@ -72,6 +73,11 @@ def validate_report(report: dict[str, Any]) -> list[str]:
                     errors.append(f"{workload_name} GiB/s conversion is inconsistent")
 
         equation = _require(report, "roofline_estimate.equation_inputs")
+        classification = _require(report, "roofline_estimate.classification")
+        if classification != ROOFLINE_CLASSIFICATION:
+            errors.append(
+                "roofline classification must be DERIVED_PROXY_NOT_HARDWARE_MEASURED"
+            )
         aggregate = equation.get("aggregate_bandwidth_bytes_per_sec")
         executed = equation.get("executed_bytes_per_token")
         predicted = _require(report, "roofline_estimate.predicted_tok_per_sec")
