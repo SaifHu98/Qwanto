@@ -1013,6 +1013,22 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                 else:
                     f.seek(count * 4, 1)
 
+        architecture = str(metadata.get("general.architecture", "")).lower()
+        blocked_features = []
+        if architecture in {"qwen35", "qwen3.5", "qwen3_5"}:
+            blocked_features.append("Qwen3.5 hybrid Transformer/SSM execution")
+        if any("ssm" in str(key).lower() or "mamba" in str(key).lower()
+               for key in metadata):
+            blocked_features.append("SSM state/tensor execution")
+        if any("mtp" in str(key).lower() or "multi_token" in str(key).lower()
+               for key in metadata):
+            blocked_features.append("MTP head execution")
+        if blocked_features:
+            raise ValueError(
+                "native QWN conversion is unavailable until the architecture is fully implemented: "
+                + ", ".join(dict.fromkeys(blocked_features))
+            )
+
         alignment = metadata.get("general.alignment", 32)
         raw_tensors = []
         for _ in range(tensor_count):

@@ -1,5 +1,11 @@
 #include "qwanto_decode.h"
 
+#if !defined(_WIN32)
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#endif
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +15,7 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <limits.h>
 #endif
 
 #if defined(_OPENMP)
@@ -18,6 +25,131 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+typedef struct {
+    uint32_t state[8];
+    uint64_t bit_count;
+    uint8_t block[64];
+    size_t used;
+} QwnSha256;
+
+static uint32_t qwn_sha256_rotr(uint32_t value, unsigned count) {
+    return (value >> count) | (value << (32u - count));
+}
+
+static void qwn_sha256_transform(QwnSha256 *ctx, const uint8_t block[64]) {
+    static const uint32_t k[64] = {
+        0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
+        0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+        0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+        0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+        0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
+        0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+        0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+        0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+        0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+        0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+        0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
+        0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+        0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
+        0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+        0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+        0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
+    };
+    uint32_t words[64];
+    uint32_t a, b, c, d, e, f, g, h;
+    for (int i = 0; i < 16; i++) {
+        words[i] = ((uint32_t)block[i * 4] << 24) |
+                   ((uint32_t)block[i * 4 + 1] << 16) |
+                   ((uint32_t)block[i * 4 + 2] << 8) |
+                   (uint32_t)block[i * 4 + 3];
+    }
+    for (int i = 16; i < 64; i++) {
+        uint32_t s0 = qwn_sha256_rotr(words[i - 15], 7) ^
+                      qwn_sha256_rotr(words[i - 15], 18) ^ (words[i - 15] >> 3);
+        uint32_t s1 = qwn_sha256_rotr(words[i - 2], 17) ^
+                      qwn_sha256_rotr(words[i - 2], 19) ^ (words[i - 2] >> 10);
+        words[i] = words[i - 16] + s0 + words[i - 7] + s1;
+    }
+    a = ctx->state[0]; b = ctx->state[1]; c = ctx->state[2]; d = ctx->state[3];
+    e = ctx->state[4]; f = ctx->state[5]; g = ctx->state[6]; h = ctx->state[7];
+    for (int i = 0; i < 64; i++) {
+        uint32_t s1 = qwn_sha256_rotr(e, 6) ^ qwn_sha256_rotr(e, 11) ^ qwn_sha256_rotr(e, 25);
+        uint32_t choose = (e & f) ^ ((~e) & g);
+        uint32_t temp1 = h + s1 + choose + k[i] + words[i];
+        uint32_t s0 = qwn_sha256_rotr(a, 2) ^ qwn_sha256_rotr(a, 13) ^ qwn_sha256_rotr(a, 22);
+        uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+        uint32_t temp2 = s0 + majority;
+        h = g; g = f; f = e; e = d + temp1;
+        d = c; c = b; b = a; a = temp1 + temp2;
+    }
+    ctx->state[0] += a; ctx->state[1] += b; ctx->state[2] += c; ctx->state[3] += d;
+    ctx->state[4] += e; ctx->state[5] += f; ctx->state[6] += g; ctx->state[7] += h;
+}
+
+static void qwn_sha256_init(QwnSha256 *ctx) {
+    static const uint32_t initial[8] = {
+        0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+        0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
+    };
+    memcpy(ctx->state, initial, sizeof(initial));
+    ctx->bit_count = 0;
+    ctx->used = 0;
+}
+
+static void qwn_sha256_update(QwnSha256 *ctx, const uint8_t *data, size_t length) {
+    while (length > 0) {
+        size_t take = sizeof(ctx->block) - ctx->used;
+        if (take > length) take = length;
+        memcpy(ctx->block + ctx->used, data, take);
+        ctx->used += take;
+        ctx->bit_count += (uint64_t)take * 8u;
+        data += take;
+        length -= take;
+        if (ctx->used == sizeof(ctx->block)) {
+            qwn_sha256_transform(ctx, ctx->block);
+            ctx->used = 0;
+        }
+    }
+}
+
+static void qwn_sha256_final(QwnSha256 *ctx, uint8_t digest[32]) {
+    uint64_t bits = ctx->bit_count;
+    ctx->block[ctx->used++] = 0x80;
+    if (ctx->used > 56) {
+        memset(ctx->block + ctx->used, 0, sizeof(ctx->block) - ctx->used);
+        qwn_sha256_transform(ctx, ctx->block);
+        ctx->used = 0;
+    }
+    memset(ctx->block + ctx->used, 0, 56 - ctx->used);
+    for (int i = 0; i < 8; i++) ctx->block[56 + i] = (uint8_t)(bits >> (56 - i * 8));
+    qwn_sha256_transform(ctx, ctx->block);
+    for (int i = 0; i < 8; i++) {
+        digest[i * 4] = (uint8_t)(ctx->state[i] >> 24);
+        digest[i * 4 + 1] = (uint8_t)(ctx->state[i] >> 16);
+        digest[i * 4 + 2] = (uint8_t)(ctx->state[i] >> 8);
+        digest[i * 4 + 3] = (uint8_t)ctx->state[i];
+    }
+}
+
+static int qwn_sha256_file_hex(const char *path, char output[65]) {
+    uint8_t buffer[64 * 1024];
+    uint8_t digest[32];
+    QwnSha256 ctx;
+    FILE *file = fopen(path, "rb");
+    if (!file) return -1;
+    qwn_sha256_init(&ctx);
+    size_t count;
+    while ((count = fread(buffer, 1, sizeof(buffer), file)) > 0)
+        qwn_sha256_update(&ctx, buffer, count);
+    int ok = ferror(file) ? -1 : 0;
+    fclose(file);
+    if (ok != 0) return -1;
+    qwn_sha256_final(&ctx, digest);
+    for (int i = 0; i < 32; i++) snprintf(output + i * 2, 3, "%02x", digest[i]);
+    output[64] = '\0';
+    return 0;
+}
 
 static size_t up64(size_t n) { return (n + 63u) & ~63u; }
 
@@ -98,50 +230,79 @@ static void *qwn_cuda_symbol(void *handle, const char *name) {
 #endif
 }
 
-static void qwn_cuda_load(QwnDecoder *d) {
+static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
     const char *requested = getenv("QWANTO_CUDA_DLL");
-    const char *candidates[] = { requested, "c/qwn_cuda.dll", "qwn_cuda.dll",
-                                 "./c/qwn_cuda.dll", "./qwn_cuda.dll" };
+    char module_candidate[1024] = {0};
+    const char *candidates[3] = { requested, NULL, NULL };
+#ifdef _WIN32
+    DWORD module_len = GetModuleFileNameA(NULL, module_candidate, sizeof(module_candidate));
+    if (module_len > 0 && module_len < sizeof(module_candidate)) {
+        char *slash = strrchr(module_candidate, '\\');
+        if (slash) {
+            slash[1] = '\0';
+            strncat(module_candidate, "qwn_cuda.dll", sizeof(module_candidate) - strlen(module_candidate) - 1);
+            candidates[1] = module_candidate;
+        }
+    }
+#else
+    Dl_info info;
+    memset(&info, 0, sizeof(info));
+    if (dladdr((void *)&qwn_cuda_load, &info) != 0 && info.dli_fname) {
+        snprintf(module_candidate, sizeof(module_candidate), "%s", info.dli_fname);
+        char *slash = strrchr(module_candidate, '/');
+        if (slash) {
+            slash[1] = '\0';
+            strncat(module_candidate, "qwn_cuda.so",
+                    sizeof(module_candidate) - strlen(module_candidate) - 1);
+            candidates[1] = module_candidate;
+        }
+    }
+#endif
     void *handle = NULL;
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+    const char *loaded_path = NULL;
+    for (size_t i = 0; i < 2; i++) {
         if (!candidates[i] || !*candidates[i]) continue;
 #ifdef _WIN32
         handle = (void *)LoadLibraryA(candidates[i]);
 #else
         handle = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
 #endif
-        if (handle) break;
+        if (handle) {
+            loaded_path = candidates[i];
+            break;
+        }
+    }
+    if (loaded_path) {
+        if (qwn_sha256_file_hex(loaded_path, d->runtime_metrics.cuda_dll_hash) != 0)
+            snprintf(d->runtime_metrics.cuda_dll_hash, sizeof(d->runtime_metrics.cuda_dll_hash), "Unavailable");
     }
     if (!handle) {
-        fprintf(stderr, "[INFO] CUDA DLL not found, falling back to CPU runtime.\n");
-        return;
+        fprintf(stderr, required ? "[ERROR] CUDA backend requested but qwn_cuda.dll was not found.\n" :
+                                  "[INFO] CUDA DLL not found; auto backend remains on CPU.\n");
+        return -1;
     }
     d->qwn_cuda.handle = handle;
     d->qwn_cuda.init = (QwnCudaInitFn)qwn_cuda_symbol(handle, "qwn_cuda_init");
-    d->qwn_cuda.gemv_hypervsq = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_gemv_hypervsq");
+    d->qwn_cuda.gemv_hypervsq2 = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_gemv_hypervsq2");
     d->qwn_cuda.gemv_q4_0 = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_gemv_q4_0");
+    d->qwn_cuda.get_metrics = (QwnCudaGetMetricsFn)qwn_cuda_symbol(handle, "qwn_cuda_get_metrics");
     d->qwn_cuda.shutdown = (QwnCudaShutdownFn)qwn_cuda_symbol(handle, "qwn_cuda_shutdown");
-    if (!d->qwn_cuda.init || (!d->qwn_cuda.gemv_hypervsq && !d->qwn_cuda.gemv_q4_0) ||
-        !d->qwn_cuda.shutdown) {
-        fprintf(stderr, "[WARN] CUDA DLL is missing the qwnrun ABI; using CPU runtime.\n");
+    if (!d->qwn_cuda.init || (!d->qwn_cuda.gemv_hypervsq2 && !d->qwn_cuda.gemv_q4_0) ||
+        !d->qwn_cuda.get_metrics || !d->qwn_cuda.shutdown) {
+        fprintf(stderr, required ? "[ERROR] CUDA DLL is missing the qwnrun HyperVSQ-2 ABI.\n" :
+                                  "[WARN] CUDA DLL is missing the qwnrun ABI; auto backend remains on CPU.\n");
         qwn_cuda_unload(d);
-        return;
-    }
-    int gpu_id = 0;
-    const char *gpu = getenv("COLI_GPU");
-    if (!gpu || !*gpu) gpu = getenv("COLI_GPUS");
-    if (gpu && *gpu && strcmp(gpu, "none") != 0 && strcmp(gpu, "auto") != 0) {
-        char *end = NULL;
-        long value = strtol(gpu, &end, 10);
-        if (end != gpu && (*end == '\0' || *end == ',')) gpu_id = (int)value;
+        return -1;
     }
     if (d->qwn_cuda.init(gpu_id) != 0) {
-        fprintf(stderr, "[WARN] CUDA DLL initialization failed, using CPU runtime.\n");
+        fprintf(stderr, required ? "[ERROR] CUDA device initialization failed.\n" :
+                                  "[WARN] CUDA device initialization failed; auto backend remains on CPU.\n");
         qwn_cuda_unload(d);
-        return;
+        return -1;
     }
     d->qwn_cuda.available = 1;
     fprintf(stderr, "[INFO] qwn_cuda.dll loaded: GPU %d\n", gpu_id);
+    return 0;
 }
 
 static float half_to_float(uint16_t h) {
@@ -447,10 +608,25 @@ static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
 #ifndef COLI_CUDA
         if (w->dtype == QWN_DT_Q4_0) gemv = d->qwn_cuda.gemv_q4_0;
 #endif
-        if (w->dtype == QWN_DT_HYPER_VSQ) gemv = d->qwn_cuda.gemv_hypervsq;
-        if (gemv && gemv(out, in, qwn_data(&d->model, w), x, y) == 0) return 0;
-        fprintf(stderr, "[WARN] qwn CUDA GEMV failed; disabling qwn CUDA fallback.\n");
+        if (w->dtype == QWN_DT_HYPER_VSQ2) gemv = d->qwn_cuda.gemv_hypervsq2;
+        if (gemv && gemv(out, in, qwn_data(&d->model, w), x, y) == 0) {
+            QwnCudaMetricsSnapshot snapshot;
+            if (d->qwn_cuda.get_metrics(&snapshot) != 0) {
+                fprintf(stderr, "[ERROR] CUDA backend returned no execution metrics.\n");
+                return -1;
+            }
+            d->runtime_metrics.cuda_matmul_count = snapshot.matmul_count;
+            d->runtime_metrics.cuda_resident_bytes = snapshot.resident_bytes;
+            d->runtime_metrics.cuda_upload_bytes = snapshot.upload_bytes;
+            d->runtime_metrics.cuda_device = snapshot.device_id;
+            snprintf(d->runtime_metrics.backend, sizeof(d->runtime_metrics.backend), "cuda");
+            snprintf(d->runtime_metrics.kernel, sizeof(d->runtime_metrics.kernel), "%s", snapshot.kernel);
+            return 0;
+        }
+        if (d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) return -1;
+        fprintf(stderr, "[WARN] qwn CUDA GEMV failed; auto backend returns to CPU.\n");
         qwn_cuda_unload(d);
+        d->runtime_metrics.cpu_fallback_count++;
     }
 #ifdef COLI_CUDA
     if(d->cuda_enabled && w && w->dtype==QWN_DT_Q4_0){
@@ -661,6 +837,15 @@ if (!lt->is_ssm && (!d->cfg.heads || !d->cfg.kv_heads ||
 }
 
 int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **error){
+    QwnRuntimeConfig config;
+    qwn_runtime_config_default(&config);
+    config.context_size = ctx_size > 0 ? ctx_size : config.context_size;
+    return qwn_decoder_open_with_config(d, path, &config, error);
+}
+
+int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
+                                 const QwnRuntimeConfig *config,
+                                 const char **error){
     static const char *ERR_CONFIG="unsupported/missing Llama-Qwen config";
     static const char *ERR_TENSORS="missing or inconsistent dense Transformer tensors";
     static const char *ERR_SHAPE="unsupported native architecture or Q/K/V shape";
@@ -671,9 +856,44 @@ int qwn_decoder_open(QwnDecoder *d,const char *path,int ctx_size,const char **er
     float *p;
 
     memset(d,0,sizeof(*d));if(error)*error=NULL;
+    snprintf(d->runtime_metrics.cuda_dll_hash,
+             sizeof(d->runtime_metrics.cuda_dll_hash), "Unavailable");
+    qwn_runtime_config_default(&d->runtime_config);
+    if (config) d->runtime_config = *config;
+    if (qwn_runtime_config_validate(&d->runtime_config, NULL, 0) != 0) {
+        if (error) *error = "invalid runtime configuration";
+        return -1;
+    }
+    {
+        char kernel_error[128];
+        if (qwn_select_cpu_kernel(d->runtime_config.kernel, kernel_error, sizeof(kernel_error)) != 0) {
+            if (error) *error = "requested CPU kernel is unavailable on this host";
+            fprintf(stderr, "[ERROR] %s\n", kernel_error);
+            return -1;
+        }
+    }
+#if defined(_OPENMP)
+    if (d->runtime_config.cpu_threads > 0)
+        omp_set_num_threads(d->runtime_config.cpu_threads);
+#endif
     if(qwn_open(path,&d->model,error)!=0)return -1;
+    if (strcmp(d->runtime_config.quantization, "auto") != 0) {
+        uint32_t wanted = strcmp(d->runtime_config.quantization, "q4_0") == 0 ? QWN_DT_Q4_0 :
+                          strcmp(d->runtime_config.quantization, "hyper_vsq2") == 0 ? QWN_DT_HYPER_VSQ2 :
+                          strcmp(d->runtime_config.quantization, "fp16") == 0 ? QWN_DT_F16 : QWN_DT_F32;
+        int found = 0;
+        for (uint32_t i = 0; i < d->model.hdr.n_tensors; i++) {
+            const QwnTensorDesc *tensor = qwn_tensor_at(&d->model, i);
+            if (tensor && tensor->dtype == wanted) { found = 1; break; }
+        }
+        if (!found) {
+            if (error) *error = "requested quantization is not present in the QWN model";
+            goto fail;
+        }
+    }
     if(load_config(d)!=0||load_tokenizer(d)!=0){if(error)*error=ERR_CONFIG;goto fail;}
-    if(ctx_size>0&&ctx_size<d->cfg.max_ctx)d->cfg.max_ctx=ctx_size;
+    if(d->runtime_config.context_size>0&&d->runtime_config.context_size<d->cfg.max_ctx)
+        d->cfg.max_ctx=d->runtime_config.context_size;
     if(required_tensors(d)!=0){if(error)*error=ERR_TENSORS;goto fail;}
     /* Resolve per-layer tensors + dims first so we can size the
      * buffers for the largest layer, not the global head_dim product. */
@@ -775,8 +995,9 @@ for (int l = 0; l < d->cfg.layers; l++) {
     if (!d->cuda_enabled) d->cuda_device_count = 0;
 #endif
     const char *seed_text = getenv("QWANTO_SEED");
-    d->rng_state = seed_text && *seed_text ? strtoull(seed_text, NULL, 10)
-                                           : 0x9e3779b97f4a7c15ULL;
+    d->rng_state = d->runtime_config.seed > 0 ? (uint64_t)d->runtime_config.seed :
+                   (seed_text && *seed_text ? strtoull(seed_text, NULL, 10)
+                                            : 0x9e3779b97f4a7c15ULL);
     if (d->rng_state == 0) d->rng_state = 0x9e3779b97f4a7c15ULL;
     const char *tq_env = getenv("QWN_TURBOQUANT");
     if (tq_env && (strcmp(tq_env, "1") == 0 || strcmp(tq_env, "true") == 0 || strcmp(tq_env, "auto") == 0)) {
@@ -789,12 +1010,27 @@ for (int l = 0; l < d->cfg.layers; l++) {
             }
         }
     }
-    qwn_cuda_load(d);
+    d->runtime_metrics.cuda_device = d->runtime_config.gpu_device >= 0 ? d->runtime_config.gpu_device : 0;
+    snprintf(d->runtime_metrics.backend, sizeof(d->runtime_metrics.backend),
+             d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA ? "cuda-pending" : "cpu");
+    snprintf(d->runtime_metrics.kernel, sizeof(d->runtime_metrics.kernel), "%s", qwn_cpu_kernel_name());
+    {
+        int cuda_required = d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA;
+        if (d->runtime_config.backend != QWN_RUNTIME_BACKEND_CPU &&
+            qwn_cuda_load(d, d->runtime_metrics.cuda_device, cuda_required) != 0 && cuda_required) {
+            if (error) *error = "CUDA backend requested but qwn_cuda.dll/device is unavailable";
+            goto fail;
+        }
+    }
     init_residency(d);
     /* Precompute RoPE table once at load time */
     rope_cache_ensure(d, d->cfg.max_ctx, d->cfg.head_dim / 2, d->cfg.rope_theta);
     return 0;
 fail:qwn_decoder_close(d);return -1;
+}
+
+const QwnRuntimeMetrics *qwn_decoder_metrics(const QwnDecoder *d) {
+    return d ? &d->runtime_metrics : NULL;
 }
 
 void qwn_decoder_reset(QwnDecoder *d){

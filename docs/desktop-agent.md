@@ -35,6 +35,11 @@ They require explicit user consent, disk/source/checksum validation, and use
 the sidecar’s local acquisition paths described in
 [model-acquisition-design.md](model-acquisition-design.md).
 
+Privileged file flows use the Tauri native dialog: project folders, model
+sources, managed model folders, chat attachments, plugin packages, feedback
+screenshots, and project-memory exports. The browser preview has no privileged
+path picker and does not accept typed filesystem paths for these operations.
+
 ## Agent modes and tools
 
 The Rust policy supports Plan and Agent modes. Read-only inspection is

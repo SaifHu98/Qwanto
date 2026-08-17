@@ -13,8 +13,10 @@ pub mod extensions;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
+use std::fs;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri_plugin_dialog::{DialogExt, FilePath};
 use gateway_manager::{GatewayManager, GatewayStatus};
 use runtime_manager::{QwantoRuntimeManager, RuntimeStatus, StartOptions};
 use model_registry::{ModelInfo, ModelRegistry};
@@ -76,6 +78,45 @@ fn restart_gateway(state: State<AppState>) -> Result<GatewayStatus, String> {
 #[tauri::command]
 fn discover_models(directories: Vec<String>) -> Result<Vec<ModelInfo>, String> {
     Ok(ModelRegistry::discover_models(directories))
+}
+
+fn selected_path(path: FilePath) -> Result<String, String> {
+    match path {
+        FilePath::Path(path) => Ok(path.to_string_lossy().to_string()),
+        FilePath::Url(url) => Err(format!("The selected location is not a local filesystem path: {url}")),
+    }
+}
+
+#[tauri::command]
+fn pick_model_source(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app.dialog().file()
+        .add_filter("Qwanto model sources", &["qwn", "gguf", "safetensors", "pt", "pth", "bin"])
+        .blocking_pick_file()
+        .map(selected_path)
+        .transpose()?)
+}
+
+#[tauri::command]
+fn pick_qwn_model(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app.dialog().file()
+        .add_filter("Qwanto Native containers", &["qwn"])
+        .blocking_pick_file()
+        .map(selected_path)
+        .transpose()?)
+}
+
+#[tauri::command]
+fn pick_model_library_folder(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app.dialog().file().blocking_pick_folder()
+        .map(selected_path)
+        .transpose()?)
+}
+
+#[tauri::command]
+fn pick_workspace_folder(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(app.dialog().file().blocking_pick_folder()
+        .map(selected_path)
+        .transpose()?)
 }
 
 #[tauri::command]
@@ -231,9 +272,20 @@ fn clear_project_memory(state: State<AppState>) -> Result<ProjectMemory, String>
 }
 
 #[tauri::command]
-fn export_project_memory(state: State<AppState>) -> Result<String, String> {
+fn export_project_memory(app: AppHandle, state: State<AppState>) -> Result<Option<String>, String> {
     let root = workspace_root(&state)?;
-    ProjectMemoryStore::export(&root)
+    let content = ProjectMemoryStore::export(&root)?;
+    let Some(selected) = app.dialog().file()
+        .set_file_name("qwanto-project-memory.json")
+        .blocking_save_file() else {
+        return Ok(None);
+    };
+    let path = match selected {
+        FilePath::Path(path) => path,
+        FilePath::Url(url) => return Err(format!("The selected location is not a local filesystem path: {url}")),
+    };
+    fs::write(&path, content).map_err(|error| format!("Could not export project memory: {error}"))?;
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -248,6 +300,69 @@ fn set_project_memory_enabled(enabled: bool, state: State<AppState>) -> Result<P
 fn store_chat_attachment(name: String, mime: String, bytes: Vec<u8>, state: State<AppState>) -> Result<StoredAttachment, String> {
     let root = workspace_root(&state)?;
     attachments::store(&root, &name, &mime, &bytes)
+}
+
+fn attachment_mime(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|value| value.to_str()).unwrap_or_default().to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "txt" | "md" | "rs" | "c" | "h" | "cpp" | "py" | "js" | "ts" | "tsx" | "json" | "toml" | "yaml" | "yml" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+#[tauri::command]
+fn pick_chat_attachment(app: AppHandle, state: State<AppState>) -> Result<Option<StoredAttachment>, String> {
+    let Some(selected) = app.dialog().file().blocking_pick_file() else { return Ok(None) };
+    let path = match selected { FilePath::Path(path) => path, FilePath::Url(url) => return Err(format!("The selected location is not a local filesystem path: {url}")) };
+    let metadata = fs::metadata(&path).map_err(|error| format!("Could not inspect attachment: {error}"))?;
+    if metadata.len() == 0 || metadata.len() > attachments::MAX_ATTACHMENT_BYTES as u64 {
+        return Err(format!("Attachments must be between 1 byte and {} MiB.", attachments::MAX_ATTACHMENT_BYTES / (1024 * 1024)));
+    }
+    let bytes = fs::read(&path).map_err(|error| format!("Could not read attachment: {error}"))?;
+    let root = workspace_root(&state)?;
+    attachments::store(&root, &path.file_name().and_then(|value| value.to_str()).unwrap_or("attachment"), attachment_mime(&path), &bytes).map(Some)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct PickedFileBytes {
+    name: String,
+    bytes: Vec<u8>,
+}
+
+fn pick_file_bytes(
+    app: &AppHandle,
+    title: &str,
+    extensions: &[&str],
+    max_bytes: u64,
+) -> Result<Option<PickedFileBytes>, String> {
+    let Some(selected) = app.dialog().file().add_filter(title, extensions).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = match selected {
+        FilePath::Path(path) => path,
+        FilePath::Url(url) => return Err(format!("The selected location is not a local filesystem path: {url}")),
+    };
+    let metadata = fs::metadata(&path).map_err(|error| format!("Could not inspect selected file: {error}"))?;
+    if metadata.len() == 0 || metadata.len() > max_bytes {
+        return Err(format!("The selected file must be between 1 byte and {} MiB.", max_bytes / (1024 * 1024)));
+    }
+    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("selected-file").to_string();
+    let bytes = fs::read(&path).map_err(|error| format!("Could not read selected file: {error}"))?;
+    Ok(Some(PickedFileBytes { name, bytes }))
+}
+
+#[tauri::command]
+fn pick_plugin_package(app: AppHandle) -> Result<Option<PickedFileBytes>, String> {
+    pick_file_bytes(&app, "Qwanto plugin packages", &["zip", "qwp", "tar", "gz", "bin"], 25 * 1024 * 1024)
+}
+
+#[tauri::command]
+fn pick_feedback_screenshot(app: AppHandle) -> Result<Option<PickedFileBytes>, String> {
+    pick_file_bytes(&app, "Feedback screenshots", &["png", "jpg", "jpeg", "webp"], 5 * 1024 * 1024)
 }
 
 #[tauri::command]
@@ -378,6 +493,7 @@ fn chrono_like_timestamp() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             gateway_manager: Mutex::new(GatewayManager::new()),
             runtime_manager: Mutex::new(QwantoRuntimeManager::new()),
@@ -394,6 +510,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             discover_models,
+            pick_model_source,
+            pick_qwn_model,
+            pick_model_library_folder,
+            pick_workspace_folder,
             get_desktop_capabilities,
             get_gateway_status,
             restart_gateway,
@@ -415,6 +535,9 @@ pub fn run() {
             export_project_memory,
             set_project_memory_enabled,
             store_chat_attachment,
+            pick_chat_attachment,
+            pick_plugin_package,
+            pick_feedback_screenshot,
             create_feedback_bundle,
             list_plugins,
             validate_plugin_manifest,

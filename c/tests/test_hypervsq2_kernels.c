@@ -87,11 +87,18 @@ static int run_differential_test(int K, int N) {
 
     float x_scale = 0.0078125f;
 
-    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out_scalar);
-    qwn_gemv_hypervsq2_avx2(raw_blocks, q8, x_scale, K, N, row_bytes, out_avx2);
-    qwn_gemv_hypervsq2_vnni(raw_blocks, q8, x_scale, K, N, row_bytes, out_vnni);
-
     const QwnCpuFeatures *cpu = qwn_get_cpu_features();
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, x_scale, K, N, row_bytes, out_scalar);
+    if (cpu->has_avx2) {
+        qwn_gemv_hypervsq2_avx2(raw_blocks, q8, x_scale, K, N, row_bytes, out_avx2);
+    } else {
+        memcpy(out_avx2, out_scalar, (size_t)N * sizeof(float));
+    }
+    if (cpu->has_vnni) {
+        qwn_gemv_hypervsq2_vnni(raw_blocks, q8, x_scale, K, N, row_bytes, out_vnni);
+    } else {
+        memcpy(out_vnni, out_scalar, (size_t)N * sizeof(float));
+    }
 
     float max_diff_avx2 = 0.0f;
     float max_diff_vnni = 0.0f;

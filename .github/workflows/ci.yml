@@ -6,6 +6,8 @@ on:
     branches: [main, dev]
   push:
     branches: [main, dev]
+  schedule:
+    - cron: "23 3 * * 1"
 
 concurrency:
   group: qwanto-ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,8 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.filter.outputs.native }}
+      rust: ${{ steps.filter.outputs.rust }}
       python: ${{ steps.filter.outputs.python }}
       web: ${{ steps.filter.outputs.web }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
@@ -29,30 +33,34 @@ jobs:
         with:
           filters: |
             native:
-              - 'c/**'
+              - 'c/**/*.c'
+              - 'c/**/*.h'
+              - 'c/**/*.cu'
+              - 'c/Makefile'
+              - '.github/workflows/ci.yml'
+            rust:
               - 'desktop/**'
-              - '.github/workflows/**'
               - '**/Cargo.toml'
               - '**/Cargo.lock'
-              - '**/Makefile'
             python:
-              - 'c/**'
+              - 'c/**/*.py'
+              - 'c/tests/**/*.py'
               - 'benchmarks/**'
               - 'skills/**'
-              - 'docs/**'
-              - 'README.md'
-              - 'RELEASE_READINESS.md'
               - '.github/workflows/**'
             web:
               - 'web/**'
               - 'skills/**'
-              - 'desktop/**'
               - '.github/workflows/**'
+            docs:
+              - '*.md'
+              - 'docs/**'
+              - '.github/ISSUE_TEMPLATE/**'
 
   native-c-engine:
     name: Native C (${{ matrix.os }})
     needs: change-scope
-    if: needs.change-scope.outputs.native == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.change-scope.outputs.native == 'true' || needs.change-scope.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -78,8 +86,20 @@ jobs:
         shell: pwsh
         run: |
           Set-Location c
-          sccache clang -O3 -mavx2 -mf16c -mfma qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi
+          $ompLib = (& clang --print-file-name=libomp.lib).Trim()
+          if (-not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
+            $ompRoots = @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')
+            if (-not [string]::IsNullOrWhiteSpace($env:VCToolsInstallDir) -and (Test-Path -LiteralPath $env:VCToolsInstallDir)) { $ompRoots += $env:VCToolsInstallDir }
+            $ompLib = Get-ChildItem -Path $ompRoots -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\lib\\x64\\libomp\.lib$' } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $ompLib -or -not (Test-Path -LiteralPath $ompLib)) { throw 'LLVM OpenMP import library was not found.' }
+          $ompDllRoots = @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')
+          foreach ($root in @($env:VCToolsRedistDir, $env:VCToolsInstallDir)) { if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) { $ompDllRoots += $root } }
+          $ompDll = Get-ChildItem -Path $ompDllRoots -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\(?:x64|amd64)\\' } | Select-Object -First 1
+          if (-not $ompDll) { throw 'LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found.' }
+          sccache clang -O3 -mavx2 -mf16c -mfma -fopenmp qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi $ompLib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath $ompDll.FullName -Destination libomp140.x86_64.dll -Force
           make test-c
       - name: Upload native runtime
         uses: actions/upload-artifact@v4
@@ -87,11 +107,18 @@ jobs:
           name: qwnrun-${{ runner.os }}
           path: c/${{ matrix.artifact }}
           if-no-files-found: error
+      - name: Upload Windows OpenMP runtime
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwnrun-runtime-${{ runner.os }}
+          path: c/libomp140.x86_64.dll
+          if-no-files-found: error
 
   rust-tauri-host:
     name: Rust/Tauri host
     needs: [change-scope, native-c-engine]
-    if: (needs.change-scope.outputs.native == 'true' || github.event_name == 'workflow_dispatch') && needs.native-c-engine.result == 'success'
+    if: (needs.change-scope.outputs.rust == 'true' || github.event_name == 'workflow_dispatch') && needs.native-c-engine.result == 'success'
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache
@@ -119,7 +146,7 @@ jobs:
       - name: Cache Tauri CLI
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/bin/tauri
+          path: ~/.cargo/bin/cargo-tauri
           key: tauri-cli-${{ runner.os }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
             tauri-cli-${{ runner.os }}-
@@ -148,17 +175,18 @@ jobs:
   python:
     name: Python
     needs: change-scope
-    if: needs.change-scope.outputs.python == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.change-scope.outputs.python == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
       - name: Install native decoder dependencies
         run: |
           sudo apt-get update
@@ -173,8 +201,21 @@ jobs:
         run: python c/tools/check_release_workflow.py
       - name: Run Python tests
         run: python -m pytest c/tests/ -q
+
+  docs:
+    name: Documentation
+    needs: change-scope
+    if: needs.change-scope.outputs.docs == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Check documentation links
         run: python c/tools/check_doc_links.py
+      - name: Check documentation for trailing whitespace
+        shell: bash
+        run: '! git grep -n ''[[:blank:]]$'' -- ''*.md'''
+      - name: Audit documentation changes for secrets
+        run: python c/tools/audit_secrets.py
 
   web:
     name: Web

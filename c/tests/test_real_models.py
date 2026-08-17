@@ -33,7 +33,7 @@ from qwn_roles import classify_all
 import qwn_convert as qcnv
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = HERE.parent
 MODELS_DIR = ROOT / "models"
 MODELS = {
     "1.5B": MODELS_DIR / "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
@@ -100,7 +100,10 @@ def _make_placeholder_tensors(meta: dict) -> list:
     kv = int(meta.get(f"{arch}.attention.head_count_kv", heads))
     head_dim = hidden // max(1, heads) if heads else 0
     layers = int(meta.get(f"{arch}.block_count", 0))
-    vocab = int(meta.get(f"{arch}.vocab_size", 0))
+    # Some GGUF exports omit vocab_size from metadata; the tokenizer shape is
+    # not needed for these registry tests, so use the documented Qwen2 default
+    # only to construct placeholder nodes.
+    vocab = int(meta.get(f"{arch}.vocab_size", 151936))
     if not vocab or not hidden:
         return []
     nodes: list = []
@@ -240,51 +243,18 @@ class DeepSeek4BTests(unittest.TestCase):
                                        "generic_dense_transformer"))
         self.assertGreaterEqual(conf.score, 0.60)
 
-    def test_real_conversion_q4_0_is_much_smaller(self):
-        """The 4B model is BF16.  Q4_0 conversion must produce a
-        container that is < 1/3 of the source size, with a real
-        measured payload_bpw close to 4.5.
-        """
+    def test_qwen35_mtp_conversion_fails_explicitly(self):
+        """Hybrid Qwen3.5/MTP is not silently emitted as partial QWN."""
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "model.qwn"
-            qcnv.convert_model(str(self.path), str(out), quant="q4_0")
-            src_size = self.path.stat().st_size
-            out_size = out.stat().st_size
-            self.assertLess(out_size, src_size // 3)
-            info = qcnv.inspect_qwn(str(out))
-            self.assertGreater(info["n_tensors"], 100)
-            # Verify real payload_bpw.
-            from qwn_bpw_truth import TensorByteBreakdown, report as bpw_report
-            bd = [TensorByteBreakdown(
-                    name=t["name"], numel=t["numel"], dt_id=t["dtype"],
-                    payload_bytes=t["payload_size"],
-                    page_aligned_bytes=t["byte_size"],
-                    descriptor_bytes=96)
-                  for t in info["tensors"]]
-            rep = bpw_report(bd)
-            self.assertAlmostEqual(rep.format_payload_bpw, 4.5, delta=0.2)
+            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
+                qcnv.convert_model(str(self.path), str(out), quant="q4_0")
 
-    def test_real_conversion_hyper_vsq2_is_sub_3_bpw(self):
-        """hyper_vsq2 is the engine's sub-2-bit target.  Real
-        conversion of 4B BF16 → hyper_vsq2 must yield payload_bpw
-        strictly below 3.0 (the closest realistic bound given the
-        2.3125 bpw payload + protected overhead).
-        """
+    def test_qwen35_hyper_vsq2_conversion_fails_explicitly(self):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "model.qwn"
-            qcnv.convert_model(str(self.path), str(out), quant="hyper_vsq2")
-            info = qcnv.inspect_qwn(str(out))
-            from qwn_bpw_truth import TensorByteBreakdown, report as bpw_report
-            bd = [TensorByteBreakdown(
-                    name=t["name"], numel=t["numel"], dt_id=t["dtype"],
-                    payload_bytes=t["payload_size"],
-                    page_aligned_bytes=t["byte_size"],
-                    descriptor_bytes=96)
-                  for t in info["tensors"]]
-            rep = bpw_report(bd)
-            self.assertLess(rep.format_payload_bpw, 3.0)
-            # On-disk size must be < 1.5 GB (source is 8.07 GB BF16).
-            self.assertLess(out.stat().st_size, int(1.5 * 1024 ** 3))
+            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
+                qcnv.convert_model(str(self.path), str(out), quant="hyper_vsq2")
 
 
 @unittest.skipUnless(MODELS["27B"].exists(),
@@ -307,6 +277,12 @@ class Qwen27BTests(unittest.TestCase):
         adapter, conf = registry.select(self.meta, [])
         self.assertIn(adapter.name, ("known_dense_transformer", "generic_dense_transformer"))
         self.assertGreaterEqual(conf.score, 0.60)
+
+    def test_qwen35_27b_conversion_fails_explicitly(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "model.qwn"
+            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
+                qcnv.convert_model(str(self.path), str(out), quant="q4_0")
 
 
 class NegativeAndEdgeCaseTests(unittest.TestCase):

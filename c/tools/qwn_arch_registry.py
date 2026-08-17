@@ -58,6 +58,20 @@ from qwn_model_ir import (
 )
 
 
+def _gguf_architecture(metadata: Dict[str, object]) -> str:
+    """Normalize Hugging Face and GGUF architecture metadata for detection."""
+    raw = metadata.get("architectures")
+    if raw is None:
+        raw = metadata.get("general.architecture", "")
+    if isinstance(raw, list):
+        raw = raw[0] if raw else ""
+    return str(raw or "").lower()
+
+
+def _model_type(metadata: Dict[str, object]) -> str:
+    return str(metadata.get("model_type", metadata.get("general.architecture", "")) or "").lower()
+
+
 # ---------------------------------------------------------------------------
 # Adapter base class
 # ---------------------------------------------------------------------------
@@ -127,10 +141,8 @@ class DenseTransformerAdapter(ArchAdapter):
 
     def detect(self, metadata, tensors):
         conf = Confidence()
-        arch = str(metadata.get("architectures", [""])[0] if isinstance(
-            metadata.get("architectures"), list) else metadata.get("architectures", "")
-        ).lower()
-        model_type = str(metadata.get("model_type", "")).lower()
+        arch = _gguf_architecture(metadata)
+        model_type = _model_type(metadata)
 
         # We do NOT mutate ``self.name`` here: that would override the
         # class-level name on the instance and break MoEAdapter, which
@@ -298,10 +310,8 @@ class MambaAdapter(ArchAdapter):
 
     def detect(self, metadata, tensors):
         conf = Confidence()
-        arch = str(metadata.get("architectures", [""])[0] if isinstance(
-            metadata.get("architectures"), list) else metadata.get("architectures", "")
-        ).lower()
-        mt = str(metadata.get("model_type", "")).lower()
+        arch = _gguf_architecture(metadata)
+        mt = _model_type(metadata)
         if any(p in arch for p in self.arch_patterns) or any(p in mt for p in self.model_type_patterns):
             conf.score = 0.95
             conf.evidence.append(f"arch={arch!r} model_type={mt!r}")

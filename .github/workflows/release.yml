@@ -100,13 +100,47 @@ jobs:
         shell: powershell
         run: |
           Set-Location c
-          clang -O3 -mavx2 -mf16c -mfma qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi
+          $ompLib = (& clang --print-file-name=libomp.lib).Trim()
+          if (-not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
+            $ompRoots = @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')
+            if (-not [string]::IsNullOrWhiteSpace($env:VCToolsInstallDir) -and (Test-Path -LiteralPath $env:VCToolsInstallDir)) { $ompRoots += $env:VCToolsInstallDir }
+            $ompLib = Get-ChildItem -Path $ompRoots -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\lib\\x64\\libomp\.lib$' } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $ompLib -or -not (Test-Path -LiteralPath $ompLib)) { throw 'LLVM OpenMP import library was not found.' }
+          $ompDllRoots = @('C:\Program Files\Microsoft Visual Studio', 'C:\Program Files (x86)\Microsoft Visual Studio')
+          foreach ($root in @($env:VCToolsRedistDir, $env:VCToolsInstallDir)) { if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) { $ompDllRoots += $root } }
+          $ompDll = Get-ChildItem -Path $ompDllRoots -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\(?:x64|amd64)\\' } | Select-Object -First 1
+          if (-not $ompDll) { throw 'LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found.' }
+          clang -O3 -mavx2 -mf16c -mfma -fopenmp qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi $ompLib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath $ompDll.FullName -Destination libomp140.x86_64.dll -Force
+
+      - name: Build optional CUDA sidecar on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          QWANTO_CUDA_BUILD_ENABLED: ${{ vars.QWANTO_CUDA_BUILD_ENABLED }}
+        run: |
+          if ($env:QWANTO_CUDA_BUILD_ENABLED -eq 'false') {
+            Write-Host 'CUDA sidecar build explicitly disabled; this package is CPU-only.'
+            exit 0
+          }
+          $nvcc = Get-Command nvcc.exe -ErrorAction SilentlyContinue
+          if (-not $nvcc) {
+            Write-Host 'CUDA toolkit is not installed on this runner; this package is CPU-only and qwnrun will report CUDA unavailable.'
+            exit 0
+          }
+          Set-Location c
+          make qwn-cuda-dll
+          if (-not (Test-Path qwn_cuda.dll)) { throw 'NVCC completed without producing c/qwn_cuda.dll.' }
 
       - name: Stage target-native qwnrun resource
         shell: bash
         run: |
           mkdir -p desktop/src-tauri/resources
           if [ "$RUNNER_OS" = "Windows" ]; then cp c/qwnrun.exe desktop/src-tauri/resources/qwnrun; else cp c/qwnrun desktop/src-tauri/resources/qwnrun; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then cp c/libomp140.x86_64.dll desktop/src-tauri/resources/libomp140.x86_64.dll; fi
+          if [ "$RUNNER_OS" = "Windows" ] && [ -f c/qwn_cuda.dll ]; then cp c/qwn_cuda.dll desktop/src-tauri/resources/qwn_cuda.dll; fi
           if [ "$RUNNER_OS" = "Windows" ]; then cp dist/qwanto-gateway.exe desktop/src-tauri/resources/qwanto-gateway; else cp dist/qwanto-gateway desktop/src-tauri/resources/qwanto-gateway; fi
 
       - name: Validate Windows signing configuration
@@ -166,6 +200,19 @@ jobs:
           files: |
             ${{ github.workspace }}\desktop\src-tauri\resources\qwnrun
             ${{ github.workspace }}\desktop\src-tauri\resources\qwanto-gateway
+            ${{ github.workspace }}\desktop\src-tauri\resources\libomp140.x86_64.dll
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Sign optional CUDA Windows sidecar
+        if: runner.os == 'Windows' && vars.SIGNING_ENABLED == 'true' && vars.QWANTO_WINDOWS_SIGNING_ENABLED == 'true' && hashFiles('desktop/src-tauri/resources/qwn_cuda.dll') != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.QWANTO_AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.QWANTO_AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.QWANTO_AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\desktop\src-tauri\resources\qwn_cuda.dll
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -242,6 +289,7 @@ jobs:
         run: |
           test -f desktop/src-tauri/resources/qwnrun
           test -f desktop/src-tauri/resources/qwanto-gateway
+          if [ -f desktop/src-tauri/resources/qwn_cuda.dll ]; then test "$RUNNER_OS" = "Windows"; fi
           if find desktop/src-tauri/target/release/bundle -type f \( -iname '*.qwn' -o -iname '*.gguf' -o -iname '*.safetensors' \) | grep -q .; then exit 1; fi
           git diff --check
 
@@ -267,6 +315,8 @@ jobs:
             (Resolve-Path 'desktop/src-tauri/resources/qwnrun'),
             (Resolve-Path 'desktop/src-tauri/resources/qwanto-gateway')
           ) + @(Get-ChildItem 'desktop/src-tauri/target/release/bundle' -Recurse -File -Include *.exe,*.msi | ForEach-Object { $_.FullName })
+          if (Test-Path 'desktop/src-tauri/resources/qwn_cuda.dll') { $targets += (Resolve-Path 'desktop/src-tauri/resources/qwn_cuda.dll') }
+          if (Test-Path 'desktop/src-tauri/resources/libomp140.x86_64.dll') { $targets += (Resolve-Path 'desktop/src-tauri/resources/libomp140.x86_64.dll') }
           $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
           if (-not $signtool) { throw 'SignTool is required to verify signed Windows release files.' }
           foreach ($target in $targets) {
@@ -369,9 +419,7 @@ jobs:
             -iname '*.msi' -o \
             -iname '*.dmg' -o \
             -iname '*.appimage' -o \
-            -iname '*.deb' -o \
-            -iname '*.asc' -o \
-            -iname '*_LINUX_SHA256SUMS.txt' \
+            -iname '*.deb' \
           \) -print)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No installer assets were downloaded" >&2

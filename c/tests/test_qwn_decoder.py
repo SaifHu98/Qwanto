@@ -97,7 +97,7 @@ class NativeDecoderTest(unittest.TestCase):
     @staticmethod
     def compile(clang, exe, main):
         cmd=[clang,"-std=c11","-O2","-D_CRT_SECURE_NO_WARNINGS","-Wno-unused-function",
-             str(main),str(HERE/"qwanto_decode.c"),str(HERE/"qwanto_native.c"),
+             str(main),str(HERE/"qwn_runtime_config.c"),str(HERE/"qwanto_decode.c"),str(HERE/"qwanto_native.c"),
              str(HERE/"qwanto_kernels.c"),str(HERE/"qwanto_turboquant.c"),str(HERE/"qwanto_thinking.c"),str(HERE/"qwanto_speculative.c"),str(HERE/"qwanto_agentic.c"),str(HERE/"qwanto_autopilot.c"),str(HERE/"qwanto_gpu.c"),str(HERE/"qwanto_bitdecoding.c"),str(HERE/"qwanto_jetspec.c"),str(HERE/"qwanto_talon.c"),str(HERE/"qwanto_sliminfer.c"),str(HERE/"qwanto_pquant.c"),str(HERE/"qwanto_littlebit.c"),str(HERE/"qwn_paged_kv.c"),"-o",exe]
         if sys.platform == "linux":
             cmd.append("-fopenmp")

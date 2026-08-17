@@ -407,20 +407,11 @@ def stream_turn(p, sentinel, on_bytes):
             on_bytes(out)
 
 def detect_backend(model_path, backend_option="auto"):
-    if backend_option != "auto":
-        return backend_option
-    if model_path.endswith(".gguf") or (os.path.isfile(model_path) and model_path.lower().endswith(".gguf")):
-        return "llama.cpp"
-    if model_path.lower().endswith(".qwn") and os.path.isfile(model_path):
+    if backend_option not in ("auto", "native", "qwn"):
+        return "unsupported"
+    if model_path and model_path.lower().endswith(".qwn") and os.path.isfile(model_path):
         return "qwn"
-    if model_path.startswith("hf.co/"):
-        return "ollama"
-    if "/" in model_path or "\\" in model_path or model_path.startswith("."):
-        if not os.path.isdir(model_path):
-            return "native"
-    if not os.path.isdir(model_path):
-        return "ollama"
-    return "native"
+    return "source" if model_path else "none"
 
 # ---------- comandi ----------
 def cmd_build(a):
@@ -668,23 +659,20 @@ def cmd_chat_generic(a, backend):
             if messages: messages.pop()
 
 def cmd_run(a):
+    if a.model and not os.path.exists(a.model):
+        sys.exit(f"{C.yel}model not found:{C.r} {a.model}\n  set QWANTO_MODEL or use --model")
     backend = detect_backend(a.model, a.backend)
     if backend == "qwn":
         prompt=" ".join(a.prompt) if a.prompt else sys.exit('usage: qwanto run "your prompt"')
         qwn=_here_qwn if os.path.exists(_here_qwn) else os.path.join(_LIBEXEC,"qwnrun"+_EXE)
         if not os.path.exists(qwn): sys.exit(f"{C.yel}qwnrun is not built. Run: make -C c qwnrun{C.r}")
         sys.exit(subprocess.call([qwn,a.model,prompt,str(a.ngen),str(a.ctx or 4096)]))
-    if backend != "native":
-        cmd_run_generic(a, backend)
-        return
-    need_model(a.model)
-    prompt=" ".join(a.prompt) if a.prompt else sys.exit('usage: qwanto run "your prompt"')
-    banner("run")
-    # template ufficiale GLM-5.2: niente \n dopo i ruoli; <think></think> = risposta diretta (nothink)
-    e=env_for(a); e["PROMPT"]=f"[gMASK]<sop><|user|>{prompt}<|assistant|><think></think>"
-    sys.exit(subprocess.call([GLM, str(a.cap)], env=e))
+    if backend != "qwn":
+        sys.exit("Only validated .qwn containers can be executed; source artifacts must be converted first.")
 
 def cmd_chat(a):
+    if a.model and not os.path.exists(a.model):
+        sys.exit(f"{C.yel}model not found:{C.r} {a.model}\n  set QWANTO_MODEL or use --model")
     backend = detect_backend(a.model, a.backend)
     if backend == "qwn":
         qwn=_here_qwn if os.path.exists(_here_qwn) else os.path.join(_LIBEXEC,"qwnrun"+_EXE)
@@ -695,11 +683,10 @@ def cmd_chat(a):
             if prompt in (":q",":quit","exit"): break
             if prompt: subprocess.call([qwn,a.model,prompt,str(a.ngen),str(a.ctx or 4096)])
         return
-    if backend != "native":
-        cmd_chat_generic(a, backend)
-        return
+    if backend != "qwn":
+        sys.exit("Only validated .qwn containers can be executed; source artifacts must be converted first.")
+    banner(f"chat · {os.path.basename(a.model)}")
     need_model(a.model)
-    banner(f"chat · {os.path.basename(a.model)} · ram {a.ram or '-'}GB · topp {a.topp or 'off'}")
     errlog=tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False)
     e=env_for(a); e["SERVE"]="1"
     # stderr -> PIPE, NOT stderr=errlog (file). On Windows/MinGW, pointing the
@@ -834,18 +821,22 @@ def cmd_chat(a):
 
 def cmd_serve(a):
     backend = detect_backend(a.model, a.backend)
-    if backend == "native" and a.model and os.path.exists(a.model):
-        need_model(a.model)
+    if backend == "source":
+        sys.exit("Only validated .qwn containers can be served; source artifacts must be converted first.")
+    if backend == "unsupported":
+        sys.exit("Qwanto Native supports only the qwn backend; external runtimes are disabled.")
     from openai_server import serve
     serve(a.model, a.host, a.port, a.model_id, a.api_key,
           a.cap,a.ngen,GLM,env_for(a),a.cors_origin,
-          a.max_queue,a.queue_timeout,a.kv_slots, backend=backend)
+          a.max_queue,a.queue_timeout,a.kv_slots, backend="qwn" if backend == "qwn" else "none")
 
 def cmd_web(a):
     """serve + open the dashboard in the browser once the API answers."""
     backend = detect_backend(a.model, a.backend)
-    if backend == "native" and a.model and os.path.exists(a.model):
-        need_model(a.model)
+    if backend == "source":
+        sys.exit("Only validated .qwn containers can be served; source artifacts must be converted first.")
+    if backend == "unsupported":
+        sys.exit("Qwanto Native supports only the qwn backend; external runtimes are disabled.")
     dist = os.path.join(os.path.dirname(os.path.abspath(HERE)), "web", "dist")
     if not os.path.exists(os.path.join(dist, "index.html")):
         print(f"{C.yel}web UI not built:{C.r} run  cd web && npm install && npm run build  first;")
@@ -926,7 +917,7 @@ def cmd_inspect(a):
 def main():
     common=argparse.ArgumentParser(add_help=False)
     common.add_argument("--model", default=DEF_MODEL); common.add_argument("--ram", type=int, default=0)  # 0 = auto (il motore usa l'88% della RAM disponibile)
-    common.add_argument("--backend", choices=("native", "qwn", "ollama", "llama.cpp", "auto"), default="auto")
+    common.add_argument("--backend", choices=("native", "qwn", "auto"), default="auto")
     common.add_argument("--auto-tier",action="store_true",help="automatically apply the RAM/VRAM plan")
     common.add_argument("--ctx",type=int,default=0)
     common.add_argument("--gpu",default=None,help="auto, none, or a device list such as 0,1")

@@ -27,11 +27,16 @@ type RequestTracking = Arc<Mutex<HashMap<String, (Instant, Option<Instant>)>>>;
 pub struct StartOptions {
     pub max_tokens: Option<u32>,
     pub ctx_size: Option<u32>,
-    pub mode: Option<String>,
+    pub backend: Option<String>,
     pub gpu_device: Option<i32>,
     pub force_cpu: Option<bool>,
-    pub auto_tune: Option<bool>,
     pub num_threads: Option<u32>,
+    pub kv_cache_mode: Option<String>,
+    pub quantization: Option<String>,
+    pub kernel: Option<String>,
+    pub seed: Option<u32>,
+    pub speculative_decoding: Option<bool>,
+    pub fused_kernel: Option<bool>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
 }
@@ -349,19 +354,47 @@ impl QwantoRuntimeManager {
         cmd.env("NGEN", max_tokens.to_string());
 
         if let Some(ref opts) = options {
-            if let Some(ref mode) = opts.mode {
-                cmd.arg("--mode").arg(mode);
+            if opts.speculative_decoding.unwrap_or(false) {
+                return Err("Speculative decoding is not implemented by qwnrun".into());
             }
-            if opts.auto_tune.unwrap_or(true) {
-                cmd.arg("--auto-tune");
+            if opts.fused_kernel.unwrap_or(false) {
+                return Err("Fused kernel execution is not implemented by qwnrun".into());
             }
+            let backend = if opts.force_cpu.unwrap_or(false) {
+                "cpu".to_string()
+            } else {
+                opts.backend.clone().unwrap_or_else(|| "auto".into())
+            };
+            if !matches!(backend.as_str(), "cpu" | "cuda" | "auto") {
+                return Err(format!("Unsupported runtime backend: {backend}"));
+            }
+            cmd.arg("--backend").arg(backend);
             if let Some(threads) = opts.num_threads {
                 cmd.arg("--threads").arg(threads.to_string());
             }
             if let Some(gpu_dev) = opts.gpu_device {
-                cmd.arg("--gpu").arg("--gpu-device").arg(gpu_dev.to_string());
+                if gpu_dev < 0 {
+                    return Err("GPU device must be non-negative".into());
+                }
+                cmd.arg("--gpu-device").arg(gpu_dev.to_string());
             }
+            if let Some(kv_cache_mode) = &opts.kv_cache_mode {
+                cmd.arg("--kv-cache").arg(kv_cache_mode);
+            }
+            if let Some(quantization) = &opts.quantization {
+                cmd.arg("--quantization").arg(quantization);
+            }
+            if let Some(kernel) = &opts.kernel {
+                cmd.arg("--kernel").arg(kernel);
+            }
+            if let Some(seed) = opts.seed {
+                cmd.arg("--seed").arg(seed.to_string());
+            }
+        } else {
+            cmd.arg("--backend").arg("auto");
         }
+        cmd.arg("--ctx-size").arg(ctx_size.to_string());
+        cmd.arg("--max-tokens").arg(max_tokens.to_string());
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());

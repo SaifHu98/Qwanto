@@ -28,8 +28,9 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `204 passed, 15 skipped` in `c/tests/`; the decoder
-  test passed separately (`1 passed, 1 skipped`). Safe model-acquisition tests use only
+- Native/Python validation: `217 passed, 3 skipped` in `c/tests/`; the decoder
+  test passed separately (`1 passed, 1 skipped`). Focused gateway tests passed
+  (`45 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
 - Web validation: production build passed and Vitest passed (`54 tests`). The
@@ -40,24 +41,23 @@ and NVMe mmap.
 - A current local Windows `qwnrun.exe` build produced a real `MEASURED`
   `benchmark_evidence.json` record for the checked-in 4B `.qwn` fixture.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
-  hosted CI remains authoritative for Rust and cross-platform packaging. The
-  current local web/Python gates pass, but this follow-up still needs a hosted
-  Rust/package run before release publication.
-- Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, and `v0.1.0-beta.3` are
-  published GitHub prereleases and must remain unchanged. Beta.3 hosted CI run
-  `31966186386` and package/publish run `31966709143` passed. Beta.4 is not
-  tagged or published; its policy is an explicitly unsigned prerelease when
-  protected signing credentials are absent, with installers and SHA-256
-  coverage only. Fetched `origin/main` currently contains later cleanup commits
-  that delete local project instructions and feature files; normal publication
-  must preserve this local feature tree through a non-destructive merge.
+  hosted CI remains authoritative for Rust and cross-platform packaging. The local
+  native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
+  device/toolkit is unavailable.
+- Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, `v0.1.0-beta.3`, and the
+  explicitly unsigned `v0.1.0-beta.4` are published GitHub prereleases. Beta.4
+  package/publish run `31974921398` passed and its assets contain only installers
+  plus SHA-256 coverage. The current follow-up changes are after the existing
+  Beta.4 tag and must not be silently described as part of that release.
 
 ## Active limitations
 
 - Native `.qwn` support is model/architecture dependent; unsupported shapes
   and formats must fail explicitly.
-- GGUF models use the external local-runtime boundary and are not native QWN
-  benchmark claims.
+- GGUF, Safetensors, and PyTorch files are source artifacts only. They cannot be
+  activated by qwnrun; only validated, architecture-compatible QWN conversions
+  can become native runtime models. Qwen3.5 hybrid/MTP and 27B conversion paths
+  fail explicitly until their tensor and reference-oracle validation exists.
 - The gateway has explicit Hugging Face, allowlisted Direct HTTPS, and local
   file acquisition providers. Downloads use `.part` files and atomic publish;
   checksums, size, disk, redirects, and format compatibility are explicit.
@@ -102,8 +102,12 @@ and NVMe mmap.
   credential backend is added; the Settings surface provides only safe public
   repository links, an approval-gated reporter skill, and never accepts a
   token in browser storage.
-- Beta.3 remains unchanged. Beta.4 has not been tagged or published; hosted
-  CI exposed and the local tree corrected a duplicate Rust import and two
-  Edition 2024 `Cow<str>` replacement-pattern errors. Local Cargo and
-  cross-platform signing/package gates are not available here.
+- Beta.3 remains unchanged. Existing Beta.4 is unsigned and remains tied to its
+  already-published tag; follow-up work requires a new hosted validation cycle
+  before any future package publication. Native runtime configuration now flows
+  through CLI, gateway, desktop, and decoder; explicit CUDA is fail-closed, while
+  auto mode remains on CPU until a real CUDA matmul completes.
+- Windows qwnrun builds use real LLVM OpenMP and package `libomp140.x86_64.dll`
+  beside the executable. The runtime reports actual ISA, OpenMP, CUDA counters,
+  and a load-time CUDA DLL SHA-256 without hashing the hot path.
 - Preserve the tiered-memory architecture and upstream Colibri attribution.

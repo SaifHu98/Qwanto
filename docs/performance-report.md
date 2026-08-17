@@ -38,10 +38,12 @@ Excluded conversion records are retained in the JSON report with their integrity
 | LittleBit | implemented/tested library path; not a QWN container dtype | EXPERIMENTAL |
 | TurboQuant | implemented/tested KV path; no complete model evidence | EXPERIMENTAL |
 
-## External GGUF evidence
+## Archived external GGUF evidence
 
-These measurements used the external local `llama-server` boundary. They
-are shown for provenance only and must not be read as native QWN results.
+These historical measurements used the external local `llama-server`
+boundary. They are retained for provenance only and must not be read as
+native QWN results or as a supported Qwanto runtime path. GGUF is a
+conversion input; native execution requires a validated QWN container.
 
 | Model | Cold load | TTFT mean | Decode mean | Decode median | Evidence |
 | --- | ---: | ---: | ---: | ---: | --- |

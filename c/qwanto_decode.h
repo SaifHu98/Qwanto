@@ -6,6 +6,7 @@
 #include "qwn_paged_kv.h"
 #include "tok.h"
 #include "qwanto_thinking.h"
+#include "qwn_runtime_config.h"
 #ifdef COLI_CUDA
 #include "backend_cuda.h"
 #endif
@@ -48,17 +49,37 @@ typedef int (*QwnCudaInitFn)(int gpu_id);
 typedef int (*QwnCudaGemvFn)(int rows, int cols, const void *weights,
                             const float *x, float *out);
 typedef void (*QwnCudaShutdownFn)(void);
+typedef struct {
+    uint64_t matmul_count;
+    uint64_t upload_bytes;
+    size_t resident_bytes;
+    int device_id;
+    char kernel[32];
+} QwnCudaMetricsSnapshot;
+typedef int (*QwnCudaGetMetricsFn)(QwnCudaMetricsSnapshot *metrics);
 
 #include "qwanto_turboquant.h"
 
 typedef struct {
     void *handle;
     QwnCudaInitFn init;
-    QwnCudaGemvFn gemv_hypervsq;
+    QwnCudaGemvFn gemv_hypervsq2;
     QwnCudaGemvFn gemv_q4_0;
+    QwnCudaGetMetricsFn get_metrics;
     QwnCudaShutdownFn shutdown;
     int available;
 } QwnCudaRuntime;
+
+typedef struct {
+    uint64_t cuda_matmul_count;
+    uint64_t cpu_fallback_count;
+    uint64_t cuda_upload_bytes;
+    size_t cuda_resident_bytes;
+    int cuda_device;
+    char backend[16];
+    char kernel[32];
+    char cuda_dll_hash[65];
+} QwnRuntimeMetrics;
 
 typedef struct QwnDecoder {
     QwnModel model;
@@ -94,6 +115,8 @@ typedef struct QwnDecoder {
     int rope_cache_ctx;
     int rope_cache_half;
     uint64_t rng_state;
+    QwnRuntimeConfig runtime_config;
+    QwnRuntimeMetrics runtime_metrics;
 #ifdef COLI_CUDA
     int cuda_devices[COLI_CUDA_MAX_DEVICES];
     int cuda_device_count;
@@ -107,6 +130,10 @@ typedef struct QwnDecoder {
 
 int qwn_decoder_open(QwnDecoder *d, const char *path, int ctx_size,
                      const char **error);
+int qwn_decoder_open_with_config(QwnDecoder *d, const char *path,
+                                 const QwnRuntimeConfig *config,
+                                 const char **error);
+const QwnRuntimeMetrics *qwn_decoder_metrics(const QwnDecoder *d);
 void qwn_decoder_close(QwnDecoder *d);
 void qwn_decoder_reset(QwnDecoder *d);
 

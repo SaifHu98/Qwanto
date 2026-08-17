@@ -1,4 +1,4 @@
-# 🔒 Qwanto Local-Only Profile Specification
+# Qwanto Native local-first runtime boundary
 
 ## 1. Overview
 
@@ -8,52 +8,37 @@ By default, Qwanto operates in a **production local-only profile**. This mode en
 
 ## 2. Permitted vs. Forbidden Operations
 
-| Operation Category | Default (Local-Only Profile) | With `--allow-external-runtime` |
-|---|:---:|:---:|
-| Native `.qwn` Model Inference (`qwnrun`) | ✅ **Permitted** (Local C SIMD) | ✅ **Permitted** |
-| Local Memory Tiering (VRAM / RAM / NVMe mmap) | ✅ **Permitted** (Zero-Copy) | ✅ **Permitted** |
-| Localhost HTTP Gateway (`127.0.0.1:8000`) | ✅ **Permitted** | ✅ **Permitted** |
-| Local Web Dashboard (`web/`) & Desktop Shell | ✅ **Permitted** | ✅ **Permitted** |
-| Automatic Download of `llama-server` Binaries | ❌ **Forbidden** (Fails Safely) | ✅ Allowed with explicit user authorization |
-| External Cloud Model Forwarding (`api.openai.com`) | ❌ **Forbidden** (Rejected) | ✅ Allowed with explicit user credentials |
-| Remote Ollama Pull Requests (`ollama pull`) | ❌ **Forbidden** | ✅ Allowed if Ollama is running locally |
-| Telemetry Export / Usage Analytics | ❌ **Forbidden** (Zero Egress) | ❌ **Forbidden** (Never Collected) |
+| Operation Category | Qwanto Native policy |
+|---|:---:|
+| Native `.qwn` Model Inference (`qwnrun`) | ✅ **Permitted** after container and hardware-fit validation |
+| Local Memory Tiering (RAM / NVMe mmap; CUDA only with measured kernel work) | ✅ **Permitted** |
+| Localhost HTTP Gateway (`127.0.0.1`) | ✅ **Permitted** |
+| Local Web Console and Qwanto Code | ✅ **Permitted** |
+| GGUF, Safetensors, and PyTorch inference | ❌ **Forbidden**; conversion inputs only |
+| Automatic external runtime download or fallback | ❌ **Forbidden** |
+| Cloud model forwarding and Ollama inference | ❌ **Forbidden** |
+| Optional web search and GitHub actions | ✅ Explicit external tool approval required |
+| Telemetry export / usage analytics | ❌ **Forbidden** by default |
 
 ---
 
 ## 3. Runtime Contract & Error Responses
 
-When an external runtime feature is requested while running under the default local-only profile, Qwanto returns a structured error rather than attempting automatic network downloads:
+When a source artifact is sent to the runtime, Qwanto returns a structured error rather than attempting a fallback:
 
 ```json
 {
   "error": {
-    "message": "[local-only] Automatic download of external runtimes is disabled in default local-only profile. Use native .qwn models with qwnrun or supply local llama-server on PATH.",
+    "message": "Only a validated .qwn model can serve requests; source artifacts are conversion inputs only.",
     "type": "permission_error",
-    "code": "external_runtime_disabled"
+    "code": "qwn_required"
   }
 }
 ```
 
 ---
 
-## 4. Enabling External Runtime (Opt-In)
-
-If external runtime compatibility (such as downloading GGUF helper binaries) is explicitly desired:
-
-### CLI Flag:
-```bash
-python c/openai_server.py --model models/model.gguf --allow-external-runtime
-```
-
-### Environment Variable:
-```bash
-export QWANTO_ALLOW_EXTERNAL_RUNTIME=1
-```
-
----
-
-## 5. Network Interface Binding
+## Network Interface Binding
 
 - Default binding is strictly `127.0.0.1`.
 - To bind across a private local area network, explicitly specify:

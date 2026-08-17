@@ -32,6 +32,7 @@ CLASSIFICATIONS = {"MEASURED", "UNAVAILABLE", "INVALID", "TEST_FIXTURE", "EXPERI
 _STATUS_RE = re.compile(r"status=(?P<status>ok|error)\b(?:\s+tokens=(?P<tokens>-?\d+))?")
 _GENERATED_RE = re.compile(r"Generated\s+Tokens\s*:\s*(?P<tokens>-?\d+)", re.IGNORECASE)
 _TTFT_RE = re.compile(r"ttft_ms=(?P<ttft>[+-]?(?:\d+(?:\.\d*)?|\.\d+))")
+_RUNTIME_FIELD_RE = re.compile(r"\b(?P<key>backend|kernel|gpu_device|gpu_matmul_count|cpu_fallback_count|cuda_upload_bytes|cuda_resident_bytes|cuda_dll_sha256)=([A-Za-z0-9_.-]+)")
 
 
 def compute_file_sha256(path: Path) -> str:
@@ -162,6 +163,21 @@ def resolve_qwnrun_executable(custom_path: str | None = None) -> Path | None:
     return Path(found).resolve() if found else None
 
 
+def resolve_cuda_library(executable: Path | None) -> Path | None:
+    """Resolve the adjacent CUDA sidecar using the runtime's deterministic path."""
+    configured = os.environ.get("QWANTO_CUDA_DLL")
+    if configured:
+        candidate = Path(configured).expanduser()
+        return candidate.resolve() if candidate.is_file() else None
+    if executable:
+        names = ("qwn_cuda.dll", "qwn_cuda.so", "qwn_cuda.dylib")
+        for name in names:
+            candidate = executable.parent / name
+            if candidate.is_file():
+                return candidate.resolve()
+    return None
+
+
 def parse_runtime_output(stdout: str, stderr: str) -> tuple[int | None, str | None]:
     """Parse qwnrun's one-shot result line without accepting guessed values."""
     matches = list(_STATUS_RE.finditer(stderr)) + list(_STATUS_RE.finditer(stdout))
@@ -196,7 +212,23 @@ def parse_ttft_ms(stdout: str, stderr: str) -> tuple[float | None, str | None]:
     return values[0], None
 
 
+def parse_runtime_metrics(stdout: str, stderr: str) -> dict:
+    """Read only counters emitted by qwnrun; absent counters stay unavailable."""
+    values = {}
+    for match in _RUNTIME_FIELD_RE.finditer(stderr + "\n" + stdout):
+        key, raw = match.group("key"), match.group(2)
+        if key in {"backend", "kernel", "cuda_dll_sha256"}:
+            values[key] = raw
+        else:
+            try:
+                values[key] = int(raw)
+            except ValueError:
+                values[key] = None
+    return values
+
+
 def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable: Path | None, cmd: list[str]) -> dict:
+    cuda_library = resolve_cuda_library(executable)
     return {
         "schema_version": SCHEMA_VERSION,
         "benchmark_id": f"qwn-bench-{time.time_ns()}",
@@ -207,6 +239,8 @@ def _report_base(timestamp_utc: str, host_hw: dict, model_file: Path, executable
         "runtime_metadata": {
             "executable_path": str(executable) if executable else None,
             "executable_sha256": compute_file_sha256(executable) if executable else "file_not_found",
+            "cuda_library_path": str(cuda_library) if cuda_library else None,
+            "cuda_dll_sha256": compute_file_sha256(cuda_library) if cuda_library else "Unavailable",
         },
         "model_metadata": {
             "path": str(model_file),
@@ -248,16 +282,33 @@ def execute_real_benchmark(
     max_tokens: int = 64,
     custom_executable: str | None = None,
     timeout_seconds: float = 60.0,
+    backend: str = "cpu",
+    threads: int | None = None,
+    context_size: int = 4096,
+    seed: int = 0,
+    warmup_tokens: int = 8,
 ) -> dict:
     timestamp_utc = datetime.now(timezone.utc).isoformat()
     host_hw = detect_host_hardware()
     model_file = Path(model_path).expanduser().resolve()
     executable = resolve_qwnrun_executable(custom_executable)
-    cmd = [str(executable) if executable else "qwnrun", str(model_file), prompt, str(max_tokens), "4096"]
+    if backend not in {"cpu", "cuda", "auto"}:
+        raise ValueError("backend must be cpu, cuda, or auto")
+    cmd = [str(executable) if executable else "qwnrun", str(model_file), prompt,
+           str(max_tokens), str(context_size), "--backend", backend,
+           "--ctx-size", str(context_size), "--max-tokens", str(max_tokens),
+           "--seed", str(seed)]
+    if threads is not None:
+        cmd += ["--threads", str(threads)]
     report = _report_base(timestamp_utc, host_hw, model_file, executable, cmd)
     report["benchmark_parameters"].update({
         "prompt_length_chars": len(prompt),
         "max_tokens_requested": max_tokens,
+        "backend_requested": backend,
+        "context_size": context_size,
+        "seed": seed,
+        "warmup_tokens": warmup_tokens,
+        "cpu_threads_requested": threads,
     })
 
     if max_tokens <= 0 or not prompt:
@@ -267,26 +318,46 @@ def execute_real_benchmark(
     if not model_file.is_file():
         return _finish_report(report, "UNAVAILABLE", f"model container file not found: {model_file}")
 
+    def run_command(command: list[str], timeout: float):
+        started = time.perf_counter()
+        try:
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       text=True, encoding="utf-8", errors="replace")
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                process.kill()
+                stdout, stderr = process.communicate()
+            return process, stdout or "", stderr or "", time.perf_counter() - started, timed_out
+        except OSError as error:
+            return None, "", str(error), 0.0, False
+
+    build_process, build_stdout, build_stderr, _, _ = run_command([str(executable), "--build-info"], 10.0)
+    report["runtime_metadata"]["build_info"] = (build_stdout + "\n" + build_stderr).strip() or None
+    report["runtime_metadata"]["build_info_returncode"] = build_process.returncode if build_process else None
+
+    if warmup_tokens > 0:
+        warmup_cmd = list(cmd)
+        max_index = warmup_cmd.index("--max-tokens") + 1
+        warmup_cmd[max_index] = str(warmup_tokens)
+        warmup_cmd[3] = str(warmup_tokens)
+        warmup_process, _, warmup_stderr, _, warmup_timed_out = run_command(warmup_cmd, timeout_seconds)
+        report["benchmark_parameters"]["warmup_returncode"] = warmup_process.returncode if warmup_process else None
+        report["benchmark_parameters"]["warmup_timed_out"] = warmup_timed_out
+        if warmup_process is None:
+            return _finish_report(report, "UNAVAILABLE", "warmup qwnrun process could not be started")
+        if warmup_timed_out:
+            return _finish_report(report, "UNAVAILABLE", "warmup qwnrun execution timed out")
+        if warmup_process.returncode != 0:
+            return _finish_report(report, "INVALID", f"warmup qwnrun exited with status {warmup_process.returncode}")
+
     start_monotonic = time.perf_counter()
     timed_out = False
-    try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            process.kill()
-            stdout, stderr = process.communicate()
-        wall_seconds = time.perf_counter() - start_monotonic
-    except OSError as error:
-        return _finish_report(report, "UNAVAILABLE", f"qwnrun process could not be started: {error}")
+    process, stdout, stderr, wall_seconds, timed_out = run_command(cmd, timeout_seconds)
+    if process is None:
+        return _finish_report(report, "UNAVAILABLE", f"qwnrun process could not be started: {stderr}")
 
     stdout = stdout or ""
     stderr = stderr or ""
@@ -302,6 +373,22 @@ def execute_real_benchmark(
     if process.returncode != 0:
         return _finish_report(report, "INVALID", f"qwnrun exited with status {process.returncode}")
 
+    runtime_metrics = parse_runtime_metrics(stdout, stderr)
+    report["measured_evidence"] = {
+        "backend": runtime_metrics.get("backend", "Unavailable"),
+        "kernel": runtime_metrics.get("kernel", "Unavailable"),
+        "gpu_matmul_count": runtime_metrics.get("gpu_matmul_count", "Unavailable"),
+        "cpu_fallback_count": runtime_metrics.get("cpu_fallback_count", "Unavailable"),
+        "cuda_upload_bytes": runtime_metrics.get("cuda_upload_bytes", "Unavailable"),
+        "cuda_resident_bytes": runtime_metrics.get("cuda_resident_bytes", "Unavailable"),
+        "gpu_device": runtime_metrics.get("gpu_device", "Unavailable"),
+        "cuda_dll_sha256": runtime_metrics.get("cuda_dll_sha256", report["runtime_metadata"]["cuda_dll_sha256"]),
+    }
+    if backend == "cuda" and (runtime_metrics.get("backend") != "cuda" or
+                               runtime_metrics.get("gpu_matmul_count", 0) <= 0 or
+                               runtime_metrics.get("cpu_fallback_count", 0) != 0):
+        return _finish_report(report, "INVALID", "CUDA benchmark did not prove GPU matmul-only execution")
+
     generated_tokens, parse_error = parse_runtime_output(stdout, stderr)
     if parse_error:
         return _finish_report(report, "INVALID", parse_error)
@@ -313,12 +400,15 @@ def execute_real_benchmark(
     if wall_seconds <= 0:
         return _finish_report(report, "INVALID", "monotonic wall time was not positive")
 
-    report["measured_evidence"] = {
+    report["measured_evidence"].update({
         "generated_tokens": generated_tokens,
         "wall_seconds": round(wall_seconds, 6),
         "tok_per_sec": round(generated_tokens / wall_seconds, 6),
         "ttft_ms": ttft_ms,
-    }
+        "prompt_prefill_tok_s": "Unavailable",
+        "gpu_utilization": "Unavailable",
+        "vram_measured_bytes": runtime_metrics.get("cuda_resident_bytes", "Unavailable"),
+    })
     return _finish_report(report, "MEASURED", None)
 
 
@@ -330,6 +420,11 @@ def main() -> None:
     parser.add_argument("--executable", default=None, help="Custom local qwnrun path")
     parser.add_argument("--output", default="benchmark_evidence.json", help="Evidence JSON output path")
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--backend", choices=("cpu", "cuda", "auto"), default="cpu")
+    parser.add_argument("--threads", type=int, default=None)
+    parser.add_argument("--context-size", type=int, default=4096)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--warmup-tokens", type=int, default=8)
     args = parser.parse_args()
 
     report = execute_real_benchmark(
@@ -338,6 +433,11 @@ def main() -> None:
         max_tokens=args.max_tokens,
         custom_executable=args.executable,
         timeout_seconds=args.timeout,
+        backend=args.backend,
+        threads=args.threads,
+        context_size=args.context_size,
+        seed=args.seed,
+        warmup_tokens=args.warmup_tokens,
     )
     output_path = Path(args.output)
     output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

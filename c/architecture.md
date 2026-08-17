@@ -1,6 +1,9 @@
-# Universal Backend Architecture
+# QWN-native gateway architecture
 
-The Colibri Universal Backend Layer decouples the monolithic engine runtime from the HTTP presentation layer, enabling multiple model-execution backends while retaining identical API contracts.
+The gateway decouples the HTTP presentation layer from the native runtime
+while retaining the OpenAI-compatible API contract. It deliberately exposes
+one model-execution boundary: a supervised `qwnrun` process loading a
+validated `.qwn` container.
 
 ## Core Components
 
@@ -21,17 +24,18 @@ The universal interface defining the contract:
 - `health_check()`
 - `unload()`
 
-## Included Adapters
+## Runtime boundary
 
-1. **`NativeBackend`**: 
-   - Wraps the high-performance Colibri C engine (`Engine`).
-   - Retains direct process pipeline reading, zero-copy overhead, and memory pinning.
-2. **`OpenAICompatibleBackend`**:
-   - HTTP-based connection-pooling adapter.
-   - Forwards JSON payloads transparently while bubbling up exact upstream OpenAI error schemas.
-3. **`OllamaBackend` & `LlamaCppBackend`**:
-   - Subclasses of the OpenAI adapter enforcing specific capabilities (e.g., overriding `tool_calls=False` for Ollama default).
+`NativeBackend` supervises `qwnrun` and reports its measured runtime
+telemetry. Legacy adapter types may remain in the Python library for API
+compatibility and unit-test coverage, but the gateway does not instantiate,
+download, or forward to them. GGUF and other source formats must pass through
+the local converter before activation.
 
 ## Safety Controls
-- **Recursive Routing Prevention**: The gateway blocks downstream backend URLs that resolve to the gateway's own bound IP and port via DNS and loopback validation.
-- **Connection Polling**: `http.client` timeouts are enforced to prevent hanging the gateway if an external backend freezes.
+- **Validated model boundary**: QWN metadata, descriptor bounds, payload bounds,
+  and hardware fit are checked before activation.
+- **Supervised process**: `qwnrun` uses piped protocol streams and is stopped
+  with the gateway; no external model process is spawned.
+- **Loopback policy**: the API binds to loopback by default and retains its
+  authentication and HTTP defense-header controls.

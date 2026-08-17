@@ -50,6 +50,8 @@ typedef struct {
 } QwnCpuFeatures;
 
 const QwnCpuFeatures *qwn_get_cpu_features(void);
+const char *qwn_cpu_kernel_name(void);
+int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size);
 
 /* Scalar Golden Reference for HyperVSQ-2 GEMV */
 void qwn_gemv_hypervsq2_scalar(const uint8_t *raw_blocks, const int8_t *q8,

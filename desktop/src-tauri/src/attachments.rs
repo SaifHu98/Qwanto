@@ -14,6 +14,23 @@ pub struct StoredAttachment {
     pub size: usize,
     pub relative_path: String,
     pub previewable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_data_url: Option<String>,
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let a = chunk[0] as usize;
+        let b = chunk.get(1).copied().unwrap_or(0) as usize;
+        let c = chunk.get(2).copied().unwrap_or(0) as usize;
+        output.push(TABLE[a >> 2] as char);
+        output.push(TABLE[((a & 3) << 4) | (b >> 4)] as char);
+        output.push(if chunk.len() > 1 { TABLE[((b & 15) << 2) | (c >> 6)] as char } else { '=' });
+        output.push(if chunk.len() > 2 { TABLE[c & 63] as char } else { '=' });
+    }
+    output
 }
 
 fn safe_name(input: &str) -> Result<String, String> {
@@ -67,6 +84,12 @@ pub fn store(root: &Path, name: &str, mime: &str, bytes: &[u8]) -> Result<Stored
     }
     fs::write(&path, bytes).map_err(|error| format!("Could not store attachment: {error}"))?;
 
+    let preview_data_url = if mime.starts_with("image/") && bytes.len() <= 2 * 1024 * 1024 {
+        Some(format!("data:{mime};base64,{}", base64(bytes)))
+    } else {
+        None
+    };
+
     Ok(StoredAttachment {
         id,
         name,
@@ -78,6 +101,7 @@ pub fn store(root: &Path, name: &str, mime: &str, bytes: &[u8]) -> Result<Stored
             .to_string_lossy()
             .replace('\\', "/"),
         previewable: mime.starts_with("image/") || mime.starts_with("text/"),
+        preview_data_url,
     })
 }
 

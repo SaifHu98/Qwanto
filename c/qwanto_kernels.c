@@ -43,6 +43,18 @@ static void aligned_free64(void *p) {
 static QwnCpuFeatures g_cpu_features;
 static int g_cpu_features_initialized = 0;
 
+static uint64_t qwn_xgetbv0(void) {
+#if defined(_MSC_VER)
+    return (uint64_t)_xgetbv(0);
+#elif defined(__x86_64__) || defined(__i386__)
+    uint32_t eax, edx;
+    __asm__ volatile("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+    return ((uint64_t)edx << 32) | eax;
+#else
+    return 0;
+#endif
+}
+
 static void qwn_init_cpu_features(void) {
     if (g_cpu_features_initialized) return;
     memset(&g_cpu_features, 0, sizeof(g_cpu_features));
@@ -51,32 +63,42 @@ static void qwn_init_cpu_features(void) {
     int info[4];
     __cpuid(info, 0);
     int max_ids = info[0];
+    int os_avx = 0;
+    int os_avx512 = 0;
     if (max_ids >= 1) {
         __cpuid(info, 1);
-        g_cpu_features.has_f16c = (info[2] & (1 << 29)) != 0;
-        g_cpu_features.has_fma  = (info[2] & (1 << 12)) != 0;
+        os_avx = (info[2] & (1 << 27)) != 0 && (info[2] & (1 << 28)) != 0;
+        os_avx = os_avx && ((qwn_xgetbv0() & 0x6) == 0x6);
+        g_cpu_features.has_f16c = os_avx && (info[2] & (1 << 29)) != 0;
+        g_cpu_features.has_fma  = os_avx && (info[2] & (1 << 12)) != 0;
     }
     if (max_ids >= 7) {
         __cpuidex(info, 7, 0);
-        g_cpu_features.has_avx2    = (info[1] & (1 << 5)) != 0;
-        g_cpu_features.has_avx512f = (info[1] & (1 << 16)) != 0;
-        if (info[2] & (1 << 11)) g_cpu_features.has_vnni = 1; /* AVX512_VNNI */
+        g_cpu_features.has_avx2    = os_avx && (info[1] & (1 << 5)) != 0;
+        os_avx512 = os_avx && ((qwn_xgetbv0() & 0xE0) == 0xE0);
+        g_cpu_features.has_avx512f = os_avx512 && (info[1] & (1 << 16)) != 0;
+        if (os_avx512 && (info[2] & (1 << 11))) g_cpu_features.has_vnni = 1; /* AVX512_VNNI */
         __cpuidex(info, 7, 1);
-        if (info[0] & (1 << 4)) g_cpu_features.has_vnni = 1;  /* AVX_VNNI */
+        if (g_cpu_features.has_avx2 && (info[0] & (1 << 4))) g_cpu_features.has_vnni = 1;  /* AVX_VNNI */
     }
 #elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+    int os_avx = 0;
+    int os_avx512 = 0;
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
-        g_cpu_features.has_f16c = (ecx & (1 << 29)) != 0;
-        g_cpu_features.has_fma  = (ecx & (1 << 12)) != 0;
+        os_avx = (ecx & (1 << 27)) != 0 && (ecx & (1 << 28)) != 0;
+        os_avx = os_avx && ((qwn_xgetbv0() & 0x6) == 0x6);
+        g_cpu_features.has_f16c = os_avx && (ecx & (1 << 29)) != 0;
+        g_cpu_features.has_fma  = os_avx && (ecx & (1 << 12)) != 0;
     }
     if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
-        g_cpu_features.has_avx2    = (ebx & (1 << 5)) != 0;
-        g_cpu_features.has_avx512f = (ebx & (1 << 16)) != 0;
-        if (ecx & (1 << 11)) g_cpu_features.has_vnni = 1; /* AVX512_VNNI */
+        g_cpu_features.has_avx2    = os_avx && (ebx & (1 << 5)) != 0;
+        os_avx512 = os_avx && ((qwn_xgetbv0() & 0xE0) == 0xE0);
+        g_cpu_features.has_avx512f = os_avx512 && (ebx & (1 << 16)) != 0;
+        if (os_avx512 && (ecx & (1 << 11))) g_cpu_features.has_vnni = 1; /* AVX512_VNNI */
     }
     if (__get_cpuid_count(7, 1, &eax, &ebx, &ecx, &edx)) {
-        if (eax & (1 << 4)) g_cpu_features.has_vnni = 1;  /* AVX_VNNI */
+        if (g_cpu_features.has_avx2 && (eax & (1 << 4))) g_cpu_features.has_vnni = 1;  /* AVX_VNNI */
     }
 #endif
 
@@ -108,6 +130,44 @@ static void qwn_init_cpu_features(void) {
 const QwnCpuFeatures *qwn_get_cpu_features(void) {
     if (!g_cpu_features_initialized) qwn_init_cpu_features();
     return &g_cpu_features;
+}
+
+const char *qwn_cpu_kernel_name(void) {
+    const QwnCpuFeatures *cpu = qwn_get_cpu_features();
+    if (cpu->forced_mode == 1) return "scalar-forced";
+    if (cpu->forced_mode == 2 && cpu->has_avx2) return "avx2-fma-f16c-forced";
+    if (cpu->forced_mode == 3 && cpu->has_vnni) return "vnni-forced";
+    if (cpu->has_vnni) return "vnni";
+    if (cpu->has_avx2 && cpu->has_fma && cpu->has_f16c) return "avx2-fma-f16c";
+    if (cpu->has_avx2) return "avx2";
+    return "scalar";
+}
+
+int qwn_select_cpu_kernel(const char *kernel, char *error, size_t error_size) {
+    const QwnCpuFeatures *cpu = qwn_get_cpu_features();
+    if (!kernel || strcmp(kernel, "auto") == 0) return 0;
+    if (strcmp(kernel, "scalar") == 0) {
+        g_cpu_features.forced_mode = 1;
+        return 0;
+    }
+    if (strcmp(kernel, "avx2") == 0) {
+        if (!cpu->has_avx2) {
+            if (error && error_size) snprintf(error, error_size, "AVX2 kernel requested but CPU support is unavailable");
+            return -1;
+        }
+        g_cpu_features.forced_mode = 2;
+        return 0;
+    }
+    if (strcmp(kernel, "vnni") == 0) {
+        if (!cpu->has_vnni) {
+            if (error && error_size) snprintf(error, error_size, "VNNI kernel requested but AVX-VNNI/AVX512-VNNI support is unavailable");
+            return -1;
+        }
+        g_cpu_features.forced_mode = 3;
+        return 0;
+    }
+    if (error && error_size) snprintf(error, error_size, "unsupported CPU kernel selection: %s", kernel);
+    return -1;
 }
 
 int qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k) {

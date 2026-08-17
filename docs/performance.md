@@ -61,12 +61,13 @@ not inference tokens/s.
 - The conversion workflow turns user-managed source models into validated
   `.qwn` artifacts without bundling weights in the application.
 
-## External GGUF evidence
+## Archived external evidence
 
-The report also lists the existing local `llama-server` measurements as
-`EXPERIMENTAL_EXTERNAL`. They are retained for provenance, but they are not
-QWN or native `qwnrun` claims. The models, runtime, host, and measurement
-protocol differ, so no direct speedup or compression comparison is implied.
+The generated report may retain historical local `llama-server` measurements
+as `EXPERIMENTAL_EXTERNAL` for provenance. They are not part of the supported
+runtime path: GGUF is a conversion input, and Qwanto executes validated QWN
+containers only. The models, runtime, host, and measurement protocol differ,
+so no direct speedup or compression comparison is implied.
 
 For the evidence classification rules and reproducibility requirements, see
 [`benchmark-methodology.md`](benchmark-methodology.md).

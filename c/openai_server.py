@@ -45,11 +45,24 @@ from model_acquisition import (
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.resolve()
 GATEWAY_API_VERSION = "1"
-GATEWAY_VERSION = "0.1.0-beta.3"
+GATEWAY_VERSION = "0.1.0-beta.4"
 _QWN_DISCOVERY_CACHE = {}
 _EVIDENCE_HASH_CACHE = {}
-MODEL_ROOT = Path(os.environ.get("QWANTO_MODEL_ROOT", PROJECT_ROOT / "models")).expanduser().resolve()
-MODEL_PATHS_FILE = Path(os.environ.get("QWANTO_MODEL_PATHS_FILE", PROJECT_ROOT / ".qwanto_model_paths.json")).expanduser().resolve()
+
+
+def _default_model_root():
+    """Return the per-user managed library; never use the install directory."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        return Path(base) / "Qwanto" / "models"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Qwanto" / "models"
+    base = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
+    return Path(base) / "qwanto" / "models"
+
+
+MODEL_ROOT = Path(os.environ.get("QWANTO_MODEL_ROOT", _default_model_root())).expanduser().resolve()
+MODEL_PATHS_FILE = Path(os.environ.get("QWANTO_MODEL_PATHS_FILE", MODEL_ROOT.parent / "model-paths.json")).expanduser().resolve()
 
 
 def _hidden_process_kwargs():
@@ -96,7 +109,7 @@ def _measured_evidence():
     return None, None
 
 
-def _qwn_hardware_fit(size_bytes):
+def _qwn_hardware_fit(size_bytes, info=None):
     try:
         from resource_plan import memory_available
         import shutil
@@ -106,11 +119,29 @@ def _qwn_hardware_fit(size_bytes):
         return {"status": "unavailable", "reason": f"Hardware inspection unavailable: {exc}"}
     if size_bytes > available_disk:
         return {"status": "failed", "reason": "The model is larger than the free local disk space."}
+    arch_dims = tuple(info.get("arch_dims") or ()) if isinstance(info, dict) else ()
+    estimated_kv = 0
+    if len(arch_dims) >= 8:
+        _, _, layers, _, head_dim, kv_heads, _, context = (int(value) for value in arch_dims[:8])
+        if layers > 0 and head_dim > 0 and kv_heads > 0 and context > 0:
+            estimated_kv = layers * context * kv_heads * head_dim * 2 * 2
+    required_ram = size_bytes + estimated_kv
+    if estimated_kv and required_ram > available_ram:
+        return {
+            "status": "failed",
+            "reason": "The model plus its configured FP16 KV cache exceeds available RAM.",
+            "available_ram_bytes": available_ram,
+            "available_disk_bytes": available_disk,
+            "estimated_kv_cache_bytes": estimated_kv,
+            "required_ram_bytes": required_ram,
+        }
     return {
         "status": "fit",
-        "reason": "The model fits the currently reported local disk budget; QWN uses mapped storage with available RAM as a cache tier.",
+        "reason": "The model and estimated KV cache fit the currently reported local RAM/disk budget; QWN uses mapped storage with available RAM as a cache tier.",
         "available_ram_bytes": available_ram,
         "available_disk_bytes": available_disk,
+        "estimated_kv_cache_bytes": estimated_kv,
+        "required_ram_bytes": required_ram,
     }
 
 
@@ -142,7 +173,7 @@ def _describe_qwn(path):
             "n_tensors": info.get("n_tensors"),
             "arch_dims": info.get("arch_dims"),
             "supported_by_qwnrun": bool(_qwnrun_path()),
-            "hardware_fit": _qwn_hardware_fit(stat.st_size),
+            "hardware_fit": _qwn_hardware_fit(stat.st_size, info),
             "format": ".qwn container",
         }
         descriptor.update(_model_file_metadata(path))
@@ -239,6 +270,24 @@ def _is_safe_path(target_path: Union[str, Path], allowed_dirs: List[Path] = None
         return False
 
 
+def _configured_model_dirs() -> list[Path]:
+    """Return only explicitly managed model directories for source conversion."""
+    roots = [MODEL_ROOT]
+    raw_paths = os.environ.get("QWANTO_MODEL_PATHS", "")
+    roots.extend(Path(value).expanduser() for value in raw_paths.split(";") if value.strip())
+    if MODEL_PATHS_FILE.is_file():
+        try:
+            configured = json.loads(MODEL_PATHS_FILE.read_text(encoding="utf-8"))
+            roots.extend(Path(value).expanduser() for value in configured if isinstance(value, str))
+        except (OSError, TypeError, json.JSONDecodeError):
+            pass
+    return [root.resolve() for root in roots if root.exists() and root.is_dir()]
+
+
+def _is_managed_model_source(path: Path) -> bool:
+    return _is_safe_path(path.resolve(), allowed_dirs=_configured_model_dirs())
+
+
 def _qwn_executable(engine):
     configured = Path(engine)
     if configured.is_file():
@@ -249,7 +298,11 @@ def _qwn_executable(engine):
 
 
 def _ensure_llama_server(allow_download: bool = False) -> str | None:
-    """Find llama-server in PATH or project dir; downloads are strictly opt-in."""
+    """Legacy compatibility hook; Qwanto never starts or downloads an external runtime."""
+    print("[qwn-only] External llama-server runtimes are disabled; use a validated .qwn model.", file=sys.stderr)
+    return None
+    # Kept below only for source compatibility with older development tooling;
+    # it is unreachable by design and must never be used by the gateway.
     import shutil
     # 1. Check PATH
     exe = shutil.which("llama-server")
@@ -1180,11 +1233,34 @@ def read_engine_turn(stream, sentinel, on_bytes):
 
 
 class Engine:
-    def __init__(self, executable, model, cap=8, max_tokens=1024, env=None, kv_slots=1):
+    def __init__(self, executable, model, cap=8, max_tokens=1024, env=None, kv_slots=1,
+                 runtime_config=None, ctx_size=4096):
+        runtime_config = dict(runtime_config or {})
+        backend = str(runtime_config.get("backend", "auto"))
+        if backend not in ("cpu", "cuda", "auto"):
+            raise ValueError("runtime backend must be cpu, cuda, or auto")
+        if runtime_config.get("speculative_decoding"):
+            raise ValueError("speculative decoding is not implemented by qwnrun")
+        if runtime_config.get("fused_kernel"):
+            raise ValueError("fused kernel execution is not implemented by qwnrun")
+        runtime_config["backend"] = backend
+        runtime_config.setdefault("context_size", int(ctx_size))
+        runtime_config.setdefault("max_tokens", int(max_tokens))
         child_env = dict(env or os.environ, SNAP=str(model), SERVE="1", SERVE_BATCH="1",
-                         NGEN=str(max_tokens), KV_SLOTS=str(kv_slots))
+                         CTX=str(runtime_config["context_size"]),
+                         NGEN=str(runtime_config["max_tokens"]), KV_SLOTS=str(kv_slots))
+        command = [str(executable), str(cap), "--backend", backend,
+                   "--ctx-size", str(runtime_config["context_size"]),
+                   "--max-tokens", str(runtime_config["max_tokens"])]
+        option_map = (("gpu_device", "--gpu-device"), ("threads", "--threads"),
+                      ("kv_cache_mode", "--kv-cache"), ("quantization", "--quantization"),
+                      ("kernel", "--kernel"), ("seed", "--seed"))
+        for key, flag in option_map:
+            value = runtime_config.get(key)
+            if value is not None:
+                command += [flag, str(value)]
         self.process = subprocess.Popen(
-            [str(executable), str(cap)], env=child_env, stdin=subprocess.PIPE,
+            command, env=child_env, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, bufsize=0,
             **_hidden_process_kwargs(),
         )
@@ -1195,6 +1271,7 @@ class Engine:
         self.closed = False
         self.dispatcher_error = None
         self.kv_slots = kv_slots
+        self.runtime_config = runtime_config
         self.tiers = None
         self.hwinfo = None
         self.emap = None
@@ -1426,8 +1503,10 @@ class ConversionManager:
         try:
             source_path = Path(self.source).resolve()
             output_path = Path(self.output).resolve()
-            if not _is_safe_path(output_path, allowed_dirs=[MODEL_ROOT, source_path.parent]):
-                raise AcquisitionError("Conversion output must remain in the model library or selected source directory.")
+            if not _is_managed_model_source(source_path):
+                raise AcquisitionError("Conversion sources must be inside the Qwanto model library or an explicitly managed folder.")
+            if not _is_safe_path(output_path, allowed_dirs=[MODEL_ROOT]):
+                raise AcquisitionError("Conversion output must remain inside the per-user Qwanto model library.")
             if self.cancel_event.is_set():
                 raise AcquisitionError("Conversion cancelled by user")
             self.stage = "convert"
@@ -1697,7 +1776,24 @@ class APIServer(ThreadingHTTPServer):
             print(f"[settings] Error loading settings: {e}", file=sys.stderr)
             return {}
 
-    def reload_backend(self, model_path, backend_type, backend_url=None, ctx_size=None, accel=None):
+    def reload_backend(self, model_path, backend_type, backend_url=None, ctx_size=None,
+                       accel=None, runtime_config=None):
+        if backend_type in ("native", "qwn"):
+            backend_type = "qwn"
+        if backend_type not in ("qwn", "none"):
+            raise ValueError(
+                "Qwanto Native supports only validated .qwn containers; external model backends are disabled."
+            )
+        if backend_type == "qwn":
+            candidate = Path(model_path)
+            if candidate.suffix.lower() != ".qwn":
+                raise ValueError("Only validated .qwn containers can be activated by the native gateway.")
+            try:
+                validate_qwn(candidate, include_hash=False)
+            except Exception as exc:
+                raise ValueError(f"QWN validation failed: {exc}") from exc
+        if accel and any(key in accel for key in ("flash_attention", "kv_cache_quant", "speculative_decoding", "draft_model_path")):
+            raise ValueError("The QWN runtime exposes only its typed runtime_config; legacy acceleration flags are unsupported.")
         # 1. Gracefully close/terminate active backend runtime process
         if self.runtime_proc is not None:
             try:
@@ -1724,6 +1820,15 @@ class APIServer(ThreadingHTTPServer):
             self.ctx_size = int(ctx_size)
         elif not hasattr(self, "ctx_size"):
             self.ctx_size = 16384
+        if runtime_config is not None:
+            self.runtime_config = dict(runtime_config)
+        else:
+            self.runtime_config = getattr(self, "runtime_config", {
+                "backend": "auto", "context_size": self.ctx_size,
+                "max_tokens": self.max_tokens,
+            })
+        self.runtime_config["context_size"] = self.ctx_size
+        self.runtime_config.setdefault("max_tokens", self.max_tokens)
         if accel:
             if "flash_attention" in accel:
                 self.flash_attention = bool(accel["flash_attention"])
@@ -1739,84 +1844,12 @@ class APIServer(ThreadingHTTPServer):
             executable = _qwn_executable(self.engine_executable) if backend_type == "qwn" else self.engine_executable
             if backend_type == "qwn" and not Path(executable).exists():
                 raise RuntimeError("qwnrun is not built; run: make -C c qwnrun")
-            self.engine = Engine(executable, model_path, self.cap, self.max_tokens, self.env, self.kv_slots)
+            self.engine = Engine(executable, model_path, self.cap, self.max_tokens, self.env,
+                                 self.kv_slots, self.runtime_config, self.ctx_size)
             self.runtime_proc = self.engine
             self.active_backend = NativeBackend("native", self)
-        elif backend_type in ("llama-cpp", "llama.cpp"):
-            self.proxy_url = backend_url or f"http://127.0.0.1:8080"
-            import urllib.request
-            try:
-                urllib.request.urlopen(f"{self.proxy_url.rstrip('/')}/v1/models", timeout=1)
-                print("Found existing llama-server running", file=sys.stderr)
-            except Exception:
-                if not backend_url:
-                    from resource_plan import physical_cpu_count
-                    num_threads = physical_cpu_count()
-                    resources = getattr(self, "resources", {"cpu": 100, "ram": 100, "vram": 100, "disk": 100})
-                    limited_threads = max(1, int(num_threads * resources["cpu"] / 100))
-                    print(f"Starting llama-server for GGUF model: {model_path} ({limited_threads} threads, ctx={self.ctx_size})...", file=sys.stderr)
-                    exe = _ensure_llama_server()
-                    if not exe:
-                        print("Could not obtain llama-server. Install llama.cpp or use --backend-url.", file=sys.stderr)
-                        self.runtime_proc = None
-                        cmd = None
-                    else:
-                        cmd = _build_llama_cmd(exe, model_path, self.ctx_size, limited_threads, server=self)
-                    try:
-                        if cmd:
-                            _llama_log = open(HERE / "llama_server.log", "w")
-                            self.runtime_proc = subprocess.Popen(
-                                cmd, stdout=_llama_log, stderr=subprocess.STDOUT,
-                                **_hidden_process_kwargs(),
-                            )
-                    except OSError as e:
-                        if e.winerror == 4551:
-                            print(f"WARNING: Windows AppLocker/WDAC blocked llama-server (WinError 4551).", file=sys.stderr)
-                            print("  Solutions:", file=sys.stderr)
-                            print("  1. Start llama-server manually: llama-server -m <model> -ngl 999 --port 8080", file=sys.stderr)
-                            print("  2. Use --backend-url http://127.0.0.1:8080 to connect to it", file=sys.stderr)
-                            print("  3. Contact your admin to allow llama-server in AppLocker/WDAC policy", file=sys.stderr)
-                        else:
-                            print(f"WARNING: Failed to start llama-server: {e}", file=sys.stderr)
-                        self.runtime_proc = None
-                    except Exception as e:
-                        print(f"WARNING: Failed to start llama-server: {e}", file=sys.stderr)
-                        self.runtime_proc = None
-                    if self.runtime_proc is not None:
-                        llama_ready = False
-                        for i in range(60):
-                            time.sleep(1)
-                            try:
-                                urllib.request.urlopen(f"{self.proxy_url.rstrip('/')}/health", timeout=2)
-                                print("llama-server started successfully", file=sys.stderr)
-                                llama_ready = True
-                                break
-                            except Exception:
-                                if (i + 1) % 10 == 0:
-                                    print(f"Waiting for llama-server... ({i+1}s)", file=sys.stderr)
-                                pass
-                        if not llama_ready:
-                            print("WARNING: llama-server did not become ready within 60 seconds.", file=sys.stderr)
-                            print("  Check llama_server.log for errors.", file=sys.stderr)
-                            try:
-                                with open(HERE / "llama_server.log") as f:
-                                    log_tail = f.read()[-2000:]
-                                if log_tail.strip():
-                                    print(f"  Last log output:\n{log_tail}", file=sys.stderr)
-                            except Exception:
-                                pass
-            backends.prevent_recursive_routing(self.proxy_url, self.host, self.port)
-            self.active_backend = backends.LlamaCppBackend(base_url=f"{self.proxy_url.rstrip('/')}/v1/")
-        elif backend_type == "ollama":
-            self.proxy_url = backend_url or "http://127.0.0.1:11434"
-            backends.prevent_recursive_routing(self.proxy_url, self.host, self.port)
-            self.active_backend = backends.OllamaBackend(base_url=f"{self.proxy_url.rstrip('/')}/v1/")
-        elif backend_type == "openai":
-            self.proxy_url = backend_url or "https://api.openai.com/v1"
-            backends.prevent_recursive_routing(self.proxy_url, self.host, self.port)
-            self.active_backend = backends.OpenAICompatibleBackend("openai", base_url=self.proxy_url, api_key=self.api_key)
         else:
-            self.active_backend = NoneBackend(str(backend_type or "none"), self)
+            self.active_backend = NoneBackend("none", self)
         self._save_settings()
 
 
@@ -2001,11 +2034,7 @@ class APIHandler(BaseHTTPRequestHandler):
         model_basename = os.path.basename(model.rstrip("/\\"))
         if model_basename != self.server.model_id and model != self.server.model_id and model != self.server.model_path:
             raise APIError(404, f"The model `{model}` does not exist. Available: {self.server.model_id}", "model", "model_not_found")
-        # Use model_path for llama-cpp backends (llama-server expects full path), model_id for others
-        if self.server.backend in ("llama-cpp", "llama.cpp") and self.server.model_path:
-            body["model"] = self.server.model_path
-        else:
-            body["model"] = self.server.model_id
+        body["model"] = self.server.model_id
 
     WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
@@ -2058,7 +2087,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     "model_path": getattr(self.server, "model_path", ""),
                     "backend": self.server.backend,
                     "ctx_size": getattr(self.server, "ctx_size", 16384),
-                    "proxy_url": getattr(self.server, "proxy_url", "") if self.server.backend in ("llama-cpp", "llama.cpp", "ollama") else "",
+                    "proxy_url": "",
                     "kv_slots": self.server.kv_slots,
                     "max_tokens": self.server.max_tokens,
                     "resources": resources,
@@ -2137,9 +2166,9 @@ class APIHandler(BaseHTTPRequestHandler):
                                 elif lower.endswith(".gguf"):
                                     model = {
                                         "name": entry.name, "path": str(entry), "type": "gguf",
-                                        "compatibility_state": "external_runtime_only",
-                                        "qwn_validation": {"status": "not_applicable", "reason": "GGUF is outside the native qwnrun boundary."},
-                                        "format": "GGUF",
+                                        "compatibility_state": "conversion_source",
+                                        "qwn_validation": {"status": "not_applicable", "reason": "GGUF is a conversion input; convert and validate QWN before activation."},
+                                        "format": "GGUF source artifact",
                                     }
                                     model.update(_model_file_metadata(entry))
                                     models.append(model)
@@ -2331,45 +2360,6 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_json(200, result, request_id)
                 return
             if path == "/health":
-                if self.server.backend in ("ollama", "llama.cpp"):
-                    from resource_plan import memory_available, discover_gpus, physical_cpu_count
-                    gpus = discover_gpus()
-                    avail_mem = memory_available()
-                    payload = {
-                        "status": "ok",
-                        "gateway": "qwanto",
-                        "api_version": GATEWAY_API_VERSION,
-                        "gateway_version": GATEWAY_VERSION,
-                        "model_state": "running" if self.server.model_path else "model_required",
-                        "desktop_sidecar": os.environ.get("QWANTO_DESKTOP_SIDECAR") == "1",
-                        "endpoints": {
-                            "health": "/health",
-                            "models": "/v1/models",
-                            "config": "/v1/qwanto/config",
-                            "telemetry": "/v1/qwanto/telemetry",
-                        },
-                        "scheduler": {
-                            "active": 0, "queued": 0, "max_queue": self.server.max_queue,
-                            "queue_timeout_seconds": self.server.queue_timeout
-                        },
-                        "kv_slots": self.server.kv_slots,
-                        "hwinfo": {
-                            "cores": physical_cpu_count(),
-                            "ram_total_gb": round(avail_mem / 1e9, 1),
-                            "ram_avail_gb": round(avail_mem / 1e9, 1),
-                            "gpus": len(gpus),
-                            "vram_total_gb": round(sum(gpu["total_bytes"] for gpu in gpus) / 1e9, 1) if gpus else 0,
-                            "cpu": "Generic CPU",
-                            "gpu": gpus[0]["name"] if gpus else "None"
-                        },
-                        "tiers": {
-                            "vram": len(gpus), "ram": 1, "disk": 0,
-                            "vram_gb": round(sum(gpu["free_bytes"] for gpu in gpus) / 1e9, 1) if gpus else 0,
-                            "ram_gb": round(avail_mem / 1e9, 1)
-                        }
-                    }
-                    self.send_json(200, payload, request_id)
-                    return
                 payload = {
                     "status": "running" if self.server.model_path and self.server.active_backend else "model_required",
                     "gateway": "qwanto",
@@ -2391,9 +2381,6 @@ class APIHandler(BaseHTTPRequestHandler):
                 hwinfo = getattr(self.server.engine, "hwinfo", None) if self.server.engine else None
                 if hwinfo: payload["hwinfo"] = hwinfo
                 self.send_json(200, payload, request_id)
-                return
-            if self.server.backend in ("ollama", "llama.cpp", "llama-cpp") and path not in ("/v1/models", "/experts") and not self.serve_static(path):
-                self.proxy_request(self.server.proxy_url)
                 return
             if path == "/experts":
                 eng = self.server.engine
@@ -2465,6 +2452,8 @@ class APIHandler(BaseHTTPRequestHandler):
             return False
 
     def _forward_to_backend(self, body, request_id, chat=True):
+        raise APIError(400, "External model backends are disabled; activate a validated .qwn model.", code="qwn_required")
+        # The legacy forwarding implementation below is intentionally unreachable.
         stream = body.get("stream", False)
         backend_name = getattr(self.server.active_backend, 'name', 'unknown') if self.server.active_backend else 'none'
         proxy = getattr(self.server, 'proxy_url', '')
@@ -2655,35 +2644,68 @@ class APIHandler(BaseHTTPRequestHandler):
                 p = Path(model_path)
                 if not p.exists():
                     raise APIError(404, f"Path does not exist: {model_path}", "model_path")
-                if p.is_file() and p.suffix.lower() == ".qwn":
-                    try:
-                        validate_qwn(p, include_hash=False)
-                    except Exception as exc:
-                        raise APIError(400, f"QWN validation failed: {exc}", "model_path", "invalid_model")
-                    qwn_exe = _qwn_executable(self.server.engine_executable)
-                    if not qwn_exe.is_file():
-                        raise APIError(503, f"qwnrun is not available at {qwn_exe}", "model_path", "runtime_unavailable")
+                if not p.is_file() or p.suffix.lower() != ".qwn":
+                    raise APIError(
+                        400,
+                        "Source artifacts are conversion inputs only. Convert and validate a .qwn container before activation.",
+                        "model_path",
+                        "qwn_required",
+                    )
+                runtime_config = body.get("runtime_config", {})
+                if runtime_config is None:
+                    runtime_config = {}
+                if not isinstance(runtime_config, dict):
+                    raise APIError(400, "runtime_config must be an object.", "runtime_config")
+                runtime_config = dict(runtime_config)
+                if "runtime_backend" in body:
+                    runtime_config["backend"] = body["runtime_backend"]
+                runtime_config.setdefault("context_size", ctx_size or 4096)
+                runtime_config.setdefault("max_tokens", body.get("max_tokens", self.server.max_tokens))
+                if runtime_config.get("backend", "auto") not in ("cpu", "cuda", "auto"):
+                    raise APIError(400, "runtime_config.backend must be cpu, cuda, or auto.", "runtime_config.backend")
+                for key in ("gpu_device", "threads", "seed"):
+                    if key in runtime_config and (isinstance(runtime_config[key], bool) or int(runtime_config[key]) < 0):
+                        raise APIError(400, f"runtime_config.{key} must be non-negative.", f"runtime_config.{key}")
+                for key in ("context_size", "max_tokens"):
+                    if isinstance(runtime_config.get(key), bool) or int(runtime_config.get(key, 0)) <= 0:
+                        raise APIError(400, f"runtime_config.{key} must be positive.", f"runtime_config.{key}")
+                if runtime_config.get("kv_cache_mode", "fp16") not in ("fp16", "auto"):
+                    raise APIError(400, "Only fp16 or auto KV cache mode is implemented by qwnrun.", "runtime_config.kv_cache_mode")
+                if runtime_config.get("quantization", "auto") not in ("auto", "q4_0", "hyper_vsq2", "fp16", "fp32"):
+                    raise APIError(400, "Unsupported native quantization selection.", "runtime_config.quantization")
+                if runtime_config.get("kernel", "auto") not in ("auto", "scalar", "avx2", "vnni"):
+                    raise APIError(400, "Unsupported native CPU kernel selection.", "runtime_config.kernel")
+                if runtime_config.get("speculative_decoding"):
+                    raise APIError(400, "Speculative decoding is not implemented by qwnrun.", "runtime_config.speculative_decoding")
+                if runtime_config.get("fused_kernel"):
+                    raise APIError(400, "Fused kernel execution is not implemented by qwnrun.", "runtime_config.fused_kernel")
+                try:
+                    validate_qwn(p, include_hash=False)
+                except Exception as exc:
+                    raise APIError(400, f"QWN validation failed: {exc}", "model_path", "invalid_model")
+                fit = _describe_qwn(p).get("hardware_fit", {})
+                if fit.get("status") != "fit":
+                    raise APIError(409, f"Model hardware-fit check failed: {fit.get('reason', 'Unavailable')}", "model_path", "hardware_fit_failed")
+                qwn_exe = _qwn_executable(self.server.engine_executable)
+                if not qwn_exe.is_file():
+                    raise APIError(503, f"qwnrun is not available at {qwn_exe}", "model_path", "runtime_unavailable")
                 accel = {}
                 for key in ("flash_attention", "kv_cache_quant",
                             "speculative_decoding", "draft_model_path"):
                     if key in body:
                         accel[key] = body[key]
-                if "kv_cache_quant" in accel and accel["kv_cache_quant"] not in ALLOWED_KV_QUANTS:
-                    raise APIError(400, f"kv_cache_quant must be one of: {', '.join(ALLOWED_KV_QUANTS)}", "kv_cache_quant")
-                draft_p = accel.get("draft_model_path")
-                if accel.get("speculative_decoding") and draft_p and not os.path.exists(draft_p):
-                    raise APIError(404, f"Draft model does not exist: {draft_p}", "draft_model_path")
-                if backend_type == "auto":
-                    if model_path.endswith(".gguf") or (p.is_file() and model_path.lower().endswith(".gguf")):
-                        backend_type = "llama-cpp"
-                    elif p.is_file() and model_path.lower().endswith(".qwn"):
-                        backend_type = "qwn"
-                    elif p.is_dir():
-                        backend_type = "native"
-                    else:
-                        backend_type = "native"
+                if accel:
+                    raise APIError(
+                        400,
+                        "Legacy acceleration flags are unsupported; use the typed runtime_config contract.",
+                        "runtime_config",
+                        "unsupported_runtime_option",
+                    )
+                if backend_type in ("auto", "native"):
+                    backend_type = "qwn"
                 try:
-                    self.server.reload_backend(model_path, backend_type, backend_url, ctx_size=ctx_size, accel=accel or None)
+                    self.server.reload_backend(model_path, backend_type, backend_url, ctx_size=ctx_size,
+                                               accel=accel or None, runtime_config=runtime_config)
                     self.send_json(200, {
                         "status": "success",
                         "model_id": self.server.model_id,
@@ -2742,6 +2764,9 @@ class APIHandler(BaseHTTPRequestHandler):
                         if requested.is_dir() or not requested.suffix:
                             requested = requested / inferred_name
                         dest_path = requested
+                    dest_path = dest_path.resolve()
+                    if not _is_safe_path(dest_path, allowed_dirs=[library]):
+                        raise AcquisitionError("Downloaded artifacts must remain inside the per-user Qwanto model library.")
                     download_manager.start_download(
                         manifest, dest_path,
                         overwrite=bool(body.get("overwrite", False)),
@@ -2789,16 +2814,17 @@ class APIHandler(BaseHTTPRequestHandler):
                 if not p.exists():
                     raise APIError(404, f"Source model does not exist: {source}", "source")
                 if not output:
-                    if p.is_file():
-                        output = str(p.parent / f"{p.stem}.qwn")
-                    else:
-                        output = str(p.parent / f"{p.name}.qwn")
+                    output = str(MODEL_ROOT / f"{p.stem if p.is_file() else p.name}.qwn")
                 try:
                     from model_acquisition import detect_source_format
+                    if not _is_managed_model_source(p):
+                        raise AcquisitionError("Select a source from the Qwanto library or add its folder under Managed model folders first.")
                     detect_source_format(p)
                     output_path = Path(output).resolve()
-                    if not _is_safe_path(output_path, allowed_dirs=[MODEL_ROOT, p.resolve().parent]):
-                        raise AcquisitionError("Conversion output must remain in the model library or selected source directory.")
+                    if not _is_safe_path(output_path, allowed_dirs=[MODEL_ROOT]):
+                        raise AcquisitionError("Conversion output must remain inside the per-user Qwanto model library.")
+                    if output_path.suffix.lower() != ".qwn":
+                        raise AcquisitionError("Conversion output must use the .qwn extension.")
                     if output_path.exists() and not body.get("overwrite", False):
                         raise AcquisitionError("Refusing to overwrite an existing .qwn output without confirmation.")
                     conversion_manager.start_conversion(source, output, quant, overwrite=bool(body.get("overwrite", False)))
@@ -2832,8 +2858,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 if not model_path:
                     raise APIError(400, "Missing path parameter.", "path")
                 target = Path(model_path)
-                if not _is_safe_path(target):
-                    raise APIError(403, "Access denied: Path traversal or unauthorized directory modification blocked.", "path")
+                if not _is_safe_path(target, allowed_dirs=[MODEL_ROOT]):
+                    raise APIError(403, "Only files in the per-user Qwanto model library can be removed.", "path")
                 if not target.exists():
                     raise APIError(404, "Model path not found.", "path")
                 try:
@@ -2854,8 +2880,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     new_path = body.get("path")
                     if not new_path:
                         raise APIError(400, "Missing path parameter.", "path")
-                    p = Path(new_path)
-                    if not p.exists():
+                    p = Path(new_path).expanduser().resolve()
+                    if not p.exists() or not p.is_dir():
                         raise APIError(404, f"Path does not exist: {new_path}", "path")
                     existing = []
                     if custom_paths_file.exists():
@@ -2908,7 +2934,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 if be and be.name == "native":
                     self.chat_completion(body, request_id)
                 elif be:
-                    self._forward_to_backend(body, request_id, chat=True)
+                    raise APIError(400, "Only a validated .qwn model can serve requests; source artifacts are conversion inputs only.", code="qwn_required")
                 else:
                     raise APIError(503, "No active backend loaded. Load a model first.", code="no_backend")
             elif path == "/v1/completions":
@@ -2916,7 +2942,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 if be and be.name == "native":
                     self.completion(body, request_id)
                 elif be:
-                    self._forward_to_backend(body, request_id, chat=False)
+                    raise APIError(400, "Only a validated .qwn model can serve requests; source artifacts are conversion inputs only.", code="qwn_required")
                 else:
                     raise APIError(503, "No active backend loaded. Load a model first.", code="no_backend")
             else:
@@ -3282,33 +3308,27 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
             if os.path.exists(model):
                 model_exists = True
 
-    # Normalize backend name (coli detect_backend uses dot, serve uses hyphen)
     if backend is None:
         backend = "auto"
-    elif backend == "llama.cpp":
-        backend = "llama-cpp"
+    if backend == "native":
+        backend = "qwn"
+    if backend not in ("auto", "qwn", "none"):
+        raise ValueError("Qwanto Native gateway accepts only backend=auto, qwn, or none.")
 
-    # If auto, re-detect based on the (possibly restored) model path
+    # Auto detection deliberately recognizes only native containers. Source
+    # formats remain visible to the model manager, but never become runtime
+    # candidates or external-backend fallbacks.
     if backend == "auto":
-        if not model or not model_exists:
-            detected = "none"
-        elif model.endswith(".gguf") or model.lower().endswith(".gguf"):
-            detected = "llama-cpp"
-        elif model.lower().endswith(".qwn"):
-            detected = "qwn"
-        elif model.startswith("hf.co/"):
-            detected = "ollama"
-        elif "/" in model or "\\" in model or model.startswith("."):
-            detected = "native"
-        elif not os.path.isdir(model):
-            detected = "ollama"
-        else:
-            detected = "native"
+        detected = "qwn" if model and model_exists and model.lower().endswith(".qwn") else "none"
     else:
         detected = backend
 
-    if detected in ("native", "qwn", "llama-cpp") and not model_exists:
+    if detected == "qwn" and not model_exists:
         print(f"Warning: Model path '{model}' not found. Starting in standby mode with no active model.", file=sys.stderr)
+        detected = "none"
+    if model and model_exists and not model.lower().endswith(".qwn"):
+        print("Model Required — add or convert a compatible model to Qwanto Native .qwn before starting inference.", file=sys.stderr)
+        model = ""
         detected = "none"
 
     origins = DEFAULT_CORS_ORIGINS if cors_origins is None else tuple(cors_origins)
@@ -3339,6 +3359,13 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
     server.kv_cache_quant = str(settings.get("kv_cache_quant", "q4_0"))
     server.speculative_decoding = bool(settings.get("speculative_decoding", False))
     server.draft_model_path = str(settings.get("draft_model_path", "") or "")
+    if server.speculative_decoding or server.draft_model_path:
+        raise RuntimeError("Speculative decoding is not implemented by qwnrun.")
+    server.runtime_config = {
+        "backend": str(settings.get("runtime_backend", "auto")),
+        "context_size": int(server.ctx_size),
+        "max_tokens": int(max_tokens),
+    }
     
     server.engine_executable = engine
     server.env = env
@@ -3352,75 +3379,14 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
     try:
         if detected == "none":
             server.active_backend = NoneBackend("none", server)
-        elif detected in ("native", "qwn"):
-            executable = _qwn_executable(engine) if detected == "qwn" else engine
-            if detected == "qwn" and not Path(executable).exists():
+        elif detected == "qwn":
+            executable = _qwn_executable(engine)
+            if not Path(executable).exists():
                 raise RuntimeError("qwnrun is not built; run: make -C c qwnrun")
-            runtime = Engine(executable,model,cap,max_tokens,env,kv_slots)
+            runtime = Engine(executable, model, cap, max_tokens, env, kv_slots,
+                              server.runtime_config, server.ctx_size)
             server.engine = runtime
             server.active_backend = NativeBackend("native", server)
-        elif detected == "ollama":
-            server.proxy_url = backend_url or "http://127.0.0.1:11434"
-            import urllib.request
-            try:
-                urllib.request.urlopen(f"{server.proxy_url.rstrip('/')}/", timeout=2)
-            except Exception:
-                print("Ollama is not running. Attempting to start Ollama...", file=sys.stderr)
-                try:
-                    subprocess.Popen(
-                        ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        **_hidden_process_kwargs(),
-                    )
-                    time.sleep(3)
-                except Exception as e:
-                    print(f"Warning: Could not start Ollama: {e}", file=sys.stderr)
-            print(f"Ensuring Ollama model '{model}' is available...", file=sys.stderr)
-            try:
-                subprocess.run(["ollama", "pull", model], check=True, **_hidden_process_kwargs())
-            except Exception as e:
-                print(f"Warning: 'ollama pull' failed: {e}", file=sys.stderr)
-            
-            backends.prevent_recursive_routing(server.proxy_url, host, port)
-            server.active_backend = backends.OllamaBackend(base_url=f"{server.proxy_url.rstrip('/')}/v1/")
-        elif detected == "llama-cpp":
-            server.proxy_url = backend_url or "http://127.0.0.1:8080"
-            import urllib.request
-            try:
-                urllib.request.urlopen(f"{server.proxy_url.rstrip('/')}/", timeout=1)
-                print("Found existing llama-server running", file=sys.stderr)
-            except Exception:
-                if not backend_url:
-                    from resource_plan import physical_cpu_count
-                    num_threads = physical_cpu_count()
-                    print(f"Starting llama-server for GGUF model: {model} ({num_threads} threads)...", file=sys.stderr)
-                    llm_exe = _ensure_llama_server()
-                    if llm_exe:
-                        cmd = _build_llama_cmd(llm_exe, model, server.ctx_size, num_threads, server=server)
-                        try:
-                            _llama_log = open(HERE / "llama_server.log", "w")
-                            runtime = subprocess.Popen(
-                                cmd, stdout=_llama_log, stderr=subprocess.STDOUT,
-                                **_hidden_process_kwargs(),
-                            )
-                            server.runtime_proc = runtime
-                            for _ in range(30):
-                                time.sleep(1)
-                                try:
-                                    urllib.request.urlopen("http://127.0.0.1:8080/v1/models", timeout=1)
-                                    print("llama-server started successfully", file=sys.stderr)
-                                    break
-                                except Exception:
-                                    pass
-                        except Exception as e:
-                            print(f"Error: Could not spawn llama-server: {e}", file=sys.stderr)
-                    else:
-                        print("Could not obtain llama-server. Install llama.cpp or use --backend-url.", file=sys.stderr)
-            backends.prevent_recursive_routing(server.proxy_url, host, port)
-            server.active_backend = backends.LlamaCppBackend(base_url=f"{server.proxy_url.rstrip('/')}/v1/")
-        elif detected == "openai":
-            server.proxy_url = backend_url or "https://api.openai.com/v1"
-            backends.prevent_recursive_routing(server.proxy_url, host, port)
-            server.active_backend = backends.OpenAICompatibleBackend("openai", base_url=server.proxy_url, api_key=api_key)
                     
         server.runtime_proc = runtime
         server._save_settings()
@@ -3451,22 +3417,16 @@ def main():
     parser.add_argument("--queue-timeout", type=float,
                         default=float(os.environ.get("QWANTO_QUEUE_TIMEOUT", "300")))
     parser.add_argument("--kv-slots", type=int, default=int(os.environ.get("QWANTO_KV_SLOTS", "1")))
-    parser.add_argument("--backend", choices=("native", "ollama", "llama-cpp", "llama.cpp", "openai", "auto"), default="auto")
-    parser.add_argument("--backend-url", default=None, help="Explicit URL for openai, ollama, or llama-cpp backends")
+    parser.add_argument("--backend", choices=("qwn", "native", "none", "auto"), default="auto",
+                        help="Native runtime selection; only validated .qwn containers are executable")
     parser.add_argument("--ready-file", default=os.environ.get("QWANTO_READY_FILE"),
                         help="Write the structured readiness payload to this path")
     args = parser.parse_args()
     
-    # normalize legacy names
-    if args.backend == "colibri":
-        args.backend = "native"
-    elif args.backend == "llama.cpp":
-        args.backend = "llama-cpp"
-
     serve(args.model, args.host, args.port, args.model_id, args.api_key,
           args.cap,args.max_tokens,args.engine,cors_origins=args.cors_origin,
           max_queue=args.max_queue,queue_timeout=args.queue_timeout,kv_slots=args.kv_slots,
-          backend=args.backend, backend_url=args.backend_url, ready_file=args.ready_file)
+           backend=args.backend, ready_file=args.ready_file)
 
 
 if __name__ == "__main__":

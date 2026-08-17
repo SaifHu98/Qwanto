@@ -27,9 +27,9 @@ gateway, Qwanto Web, and Qwanto Code.
   tests; TWLA, LittleBit, and TurboQuant remain explicitly scoped to their
   implemented/tested kernel or KV paths until complete model evidence exists.
 - **Memory-aware runtime:** the QWN loader uses memory mapping and layer-ahead
-  prefetching. The runtime also contains CPU/RAM/NVMe residency planning and an
-  optional dynamically probed CUDA VRAM path; actual placement depends on the
-  selected model, build, and hardware.
+  prefetching. CPU/RAM/NVMe residency planning is implemented; CUDA execution
+  is reported only when a compatible `qwn_cuda.dll` completes a supported
+  matmul on the selected device.
 - **Loopback gateway:** `c/openai_server.py` serves local health, model,
   telemetry, and OpenAI-compatible `/v1` endpoints. It supervises the native
   process and binds to loopback by default.
@@ -58,8 +58,9 @@ machine-readable evidence and generator are in
 [`docs/performance-report.json`](docs/performance-report.json), and
 [`benchmarks/generate_performance_report.py`](benchmarks/generate_performance_report.py).
 Unknown values remain `Unavailable`; the report never substitutes zeros,
-host guesses, or projections. External GGUF/`llama-server` measurements are
-kept in a separate `EXPERIMENTAL_EXTERNAL` section.
+host guesses, or projections. Archived GGUF/`llama-server` measurements are
+kept in a separate `EXPERIMENTAL_EXTERNAL` section for provenance only; GGUF
+is not an executable Qwanto runtime format.
 
 ## QWN Quantization and Container Formats
 
@@ -141,8 +142,9 @@ The desktop surface provides:
 - validated local model library actions, focused conversion/download dialogs,
   activation only after QWN metadata and hardware-fit checks;
 - Fast, Balanced, and Deep profiles mapped only to supported runtime
-  parameters such as context, maximum output, sampling, CPU threads, GPU
-  offload, KV mode, batching, and speculative decoding;
+  parameters such as context, maximum output, and sampling. CPU threads,
+  GPU offload, KV mode, batching, and speculative decoding remain unavailable
+  until the runtime reports an implementation;
 - live prompt/completion/total token, TTFT, tokens/s, elapsed, context, tool,
   and queue metrics, with `Unavailable` for metrics not reported by runtime;
 - workspace-safe attachments with previews, size limits, explicit removal,
@@ -165,8 +167,10 @@ The desktop surface provides:
 5. Start the shared loopback gateway and persistent `qwnrun` service on demand.
 6. Run local Web or Code sessions while telemetry and approvals remain visible.
 
-Installers never contain model weights, and GGUF remains an external local
-runtime boundary rather than a native QWN performance claim.
+Installers never contain model weights. GGUF, Safetensors, and PyTorch files
+are source artifacts only; they must be converted and validated into QWN
+before qwnrun, the gateway, or Qwanto Code can activate them. There is no
+llama-server, Ollama, cloud, or other external inference fallback.
 
 ## Installation and quick start
 

@@ -14,6 +14,7 @@ export interface StoredAttachment {
   size: number
   relative_path: string
   previewable: boolean
+  preview_data_url?: string
 }
 
 export interface FeedbackBundle {
@@ -21,6 +22,11 @@ export interface FeedbackBundle {
   category: string
   includes_logs: boolean
   includes_screenshot: boolean
+}
+
+export interface PickedFileBytes {
+  name: string
+  bytes: number[]
 }
 
 export interface DesktopModelInfo {
@@ -105,4 +111,32 @@ export async function desktopInvoke<T>(command: string, args?: Record<string, un
   const api = internals()
   if (!api) throw new Error("This action is available in Qwanto Code only.")
   return api.invoke<T>(command, args)
+}
+
+export function pickModelSource(): Promise<string | null> {
+  return desktopInvoke<string | null>("pick_model_source")
+}
+
+export function pickQwnModel(): Promise<string | null> {
+  return desktopInvoke<string | null>("pick_qwn_model")
+}
+
+export function pickModelLibraryFolder(): Promise<string | null> {
+  return desktopInvoke<string | null>("pick_model_library_folder")
+}
+
+export function pickWorkspaceFolder(): Promise<string | null> {
+  return desktopInvoke<string | null>("pick_workspace_folder")
+}
+
+export function pickChatAttachment(): Promise<StoredAttachment | null> {
+  return desktopInvoke<StoredAttachment | null>("pick_chat_attachment")
+}
+
+export function pickPluginPackage(): Promise<PickedFileBytes | null> {
+  return desktopInvoke<PickedFileBytes | null>("pick_plugin_package")
+}
+
+export function pickFeedbackScreenshot(): Promise<PickedFileBytes | null> {
+  return desktopInvoke<PickedFileBytes | null>("pick_feedback_screenshot")
 }

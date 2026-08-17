@@ -31,5 +31,6 @@ when it comes from the container descriptor or a conversion artifact.
 
 `qwnrun` memory-maps the container and uses the project’s VRAM → RAM → NVMe
 residency model. The Tauri package includes the executable, not the container.
-The model registry marks malformed containers invalid and marks GGUF as an
-external-runtime format rather than silently treating it as native QWN.
+The model registry marks malformed containers invalid and marks GGUF,
+Safetensors, and PyTorch files as conversion sources rather than silently
+treating them as native QWN.

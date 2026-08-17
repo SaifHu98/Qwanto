@@ -32,12 +32,14 @@ impl ModelRegistry {
         let candidate_dirs: Vec<PathBuf> = if !directories.is_empty() {
             directories.into_iter().map(PathBuf::from).collect()
         } else {
-            vec![
-                PathBuf::from("models"),
-                PathBuf::from("../models"),
-                PathBuf::from("experiments/results"),
-                PathBuf::from("../experiments/results"),
-            ]
+            let mut configured = Vec::new();
+            if let Ok(root) = std::env::var("QWANTO_MODEL_ROOT") {
+                configured.push(PathBuf::from(root));
+            }
+            if let Ok(paths) = std::env::var("QWANTO_MODEL_PATHS") {
+                configured.extend(paths.split(';').filter(|path| !path.is_empty()).map(PathBuf::from));
+            }
+            configured
         };
 
         for dir in candidate_dirs {
@@ -60,7 +62,7 @@ impl ModelRegistry {
                             let metadata = Self::inspect_qwn_file(&path);
                             results.push(metadata);
                         } else if name.ends_with(".gguf") {
-                            // Isolated external runtime format - labeled unavailable by default
+                            // Source artifact only; the desktop never activates GGUF directly.
                             let metadata = Self::inspect_gguf_file(&path);
                             results.push(metadata);
                         }
@@ -186,13 +188,13 @@ impl ModelRegistry {
             id: name.clone(),
             name,
             path: path.to_string_lossy().to_string(),
-            path_alias: format!("external://{}", path.file_name().unwrap_or_default().to_string_lossy()),
+            path_alias: format!("source://{}", path.file_name().unwrap_or_default().to_string_lossy()),
             size_formatted: format!("{:.2} GB", size_gb),
             size_bytes,
-            format: "GGUF (External Runtime)".into(),
-            quantization: "External Quantization".into(),
-            compatibility_state: "unavailable_by_default".into(),
-            metadata_status: "External runtime disabled by default (--allow-external-runtime required)".into(),
+            format: "GGUF source artifact".into(),
+            quantization: "Source quantization (inspect during conversion)".into(),
+            compatibility_state: "conversion_source".into(),
+            metadata_status: "Conversion input only; convert and validate QWN before activation".into(),
             n_tensors: None,
             n_layers: None,
         }
@@ -278,10 +280,10 @@ mod tests {
     }
 
     #[test]
-    fn test_gguf_marked_unavailable_by_default() {
+    fn test_gguf_marked_conversion_source() {
         let path = Path::new("test_model.gguf");
         let info = ModelRegistry::inspect_gguf_file(path);
-        assert_eq!(info.compatibility_state, "unavailable_by_default");
-        assert!(info.metadata_status.contains("--allow-external-runtime required"));
+        assert_eq!(info.compatibility_state, "conversion_source");
+        assert!(info.metadata_status.contains("convert and validate QWN"));
     }
 }

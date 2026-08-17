@@ -179,6 +179,7 @@ PYTHON    ?= python3
 endif
 CUDA_OBJ  =
 TEST_BINS = tests/test_json$(EXE) tests/test_st$(EXE) tests/test_tier$(EXE) tests/test_grammar$(EXE) tests/test_schema_gbnf$(EXE) tests/test_decode_batch$(EXE) tests/test_idot$(EXE) tests/test_kv_alloc$(EXE) tests/test_i4_acc512$(EXE) tests/test_compat_direct$(EXE) tests/test_scheduler$(EXE) tests/test_qwanto_arch$(EXE) tests/test_qwanto_native$(EXE)
+TEST_BINS += tests/test_hypervsq2_kernels$(EXE)
 ifneq (,$(LINUX))
 TEST_BINS += tests/test_uring$(EXE)
 endif
@@ -227,7 +228,7 @@ glm: glm$(EXE)
 glm$(EXE): glm.c st.h uring.h json.h tok.h tok_unicode.h compat.h grammar.h $(CUDA_OBJ) $(METAL_OBJ)
 	$(CC) $(CFLAGS) glm.c $(CUDA_OBJ) $(METAL_OBJ) -o glm$(EXE) $(LDFLAGS)
 
-QWNRUN_SRCS = qwnrun.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c
+QWNRUN_SRCS = qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c
 
 qwnrun$(EXE): $(QWNRUN_SRCS) $(CUDA_OBJ)
 	$(CC) $(CFLAGS) $(QWNRUN_SRCS) $(CUDA_OBJ) -o qwnrun$(EXE) $(LDFLAGS)
@@ -250,7 +251,7 @@ cuda-dll: backend_cuda.cu backend_cuda.h
 qwn-cuda-dll: cuda/qwn_hypervsq_cuda.cu cuda/qwn_hypervsq_cuda.h
 	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
 	$(NVCC) $(NVCCFLAGS) -shared -DQWN_CUDA_BUILDING_DLL \
-		-L"$(CUDA_LIBDIR)" -lcublas -lcudart \
+		-L"$(CUDA_LIBDIR)" -lcudart \
 		cuda/qwn_hypervsq_cuda.cu -o qwn_cuda.dll
 
 backend_cuda.o: backend_cuda.cu backend_cuda.h
@@ -273,6 +274,13 @@ cuda-bench: backend_cuda.cu backend_cuda.h tests/bench_tensor_core.cu
 	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
 	$(NVCC) $(NVCCFLAGS) backend_cuda.cu tests/bench_tensor_core.cu -o backend_cuda_bench$(EXE)
 	./backend_cuda_bench$(EXE)
+
+cuda-hypervsq2-test: cuda/qwn_hypervsq_cuda.cu cuda/qwn_hypervsq_cuda.h tests/test_qwn_hypervsq2_cuda.cu
+	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
+	$(NVCC) $(NVCCFLAGS) -DQWN_CUDA_ENABLED -I. \
+		cuda/qwn_hypervsq_cuda.cu tests/test_qwn_hypervsq2_cuda.cu \
+		-L"$(CUDA_LIBDIR)" -lcudart -o tests/test_qwn_hypervsq2_cuda$(EXE)
+	./tests/test_qwn_hypervsq2_cuda$(EXE)
 
 olmoe$(EXE): olmoe.c st.h json.h compat.h
 	$(CC) $(CFLAGS) olmoe.c -o olmoe$(EXE) $(LDFLAGS)
@@ -340,6 +348,9 @@ tests/test_qwanto_arch$(EXE): tests/test_qwanto_arch.c qwanto_core.c qwanto_rout
 tests/test_qwanto_native$(EXE): tests/test_qwanto_native.c qwanto_native.c qwanto_kernels.c qwanto_core.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+tests/test_hypervsq2_kernels$(EXE): tests/test_hypervsq2_kernels.c qwanto_native.c qwanto_kernels.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 test-c: $(TEST_BINS)
 	$(PYTHON) tools/run_tests.py $(TEST_BINS)
 
@@ -374,4 +385,4 @@ clean:
 
 bench: iobench$(EXE)
 	@if [ -n "$(ARGS)" ]; then ./iobench$(EXE) $(ARGS); else echo "built iobench$(EXE) — run: ./iobench$(EXE) <file> <MB> <iters> <threads> <direct 0|1>"; fi
-.PHONY: all glm qwnrun cuda-test cuda-bench cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench
+.PHONY: all glm qwnrun cuda-test cuda-bench cuda-hypervsq2-test cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench

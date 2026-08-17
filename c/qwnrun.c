@@ -5,7 +5,6 @@
 #include <math.h>
 
 #include "qwanto_decode.h"
-#include "qwanto_autopilot.h"
 #include "qwanto_gpu.h"
 
 #if defined(_OPENMP)
@@ -67,29 +66,42 @@ static void print_build_info(void) {
 #elif defined(_MSC_VER)
     compiler = "msvc";
 #endif
-    const char *isa = "scalar";
-#if defined(__AVX512F__)
-    isa = "avx512";
-#elif defined(__AVX2__)
-    isa = "avx2";
-#elif defined(__ARM_NEON)
-    isa = "neon";
+    const char *optimization_flags = "unknown";
+#if defined(__OPTIMIZE__)
+    optimization_flags = "optimized";
 #endif
 #if defined(_OPENMP)
-    omp_set_num_threads(omp_get_max_threads());
     fprintf(stderr, "qwnrun build: compiler=%s openmp_enabled=true "
-            "openmp_runtime=%d omp_max_threads=%d active_threads=%d isa_backend=%s\n",
-            compiler, _OPENMP, omp_get_max_threads(), runtime_active_threads(), isa);
+            "openmp_runtime=%d omp_max_threads=%d active_threads=%d "
+            "optimization_flags=%s selected_isa_kernel=%s model_dtype=Unavailable "
+            "backend=unselected gpu_kernel_coverage=hypervsq2-74,q4_0 cpu_fallback_count=0\n",
+            compiler, _OPENMP, omp_get_max_threads(), runtime_active_threads(),
+            optimization_flags, qwn_cpu_kernel_name());
 #else
     fprintf(stderr, "qwnrun build: compiler=%s openmp_enabled=false "
-            "openmp_runtime=none omp_max_threads=1 active_threads=1 isa_backend=%s\n",
-            compiler, isa);
+            "openmp_runtime=none omp_max_threads=1 active_threads=1 "
+            "optimization_flags=%s selected_isa_kernel=%s model_dtype=Unavailable "
+            "backend=unselected gpu_kernel_coverage=hypervsq2-74,q4_0 cpu_fallback_count=0\n",
+            compiler, optimization_flags, qwn_cpu_kernel_name());
 #endif
 }
 
 static void print_runtime_info(const QwnDecoder *decoder) {
-    fprintf(stderr, "qwnrun runtime detail: qwn_cuda_dll_loaded=%s\n",
-            decoder->qwn_cuda.available ? "true" : "false");
+    const QwnRuntimeMetrics *metrics = qwn_decoder_metrics(decoder);
+    const char *dtype = decoder->embed_weight ? qwn_dtype_name(decoder->embed_weight->dtype) : "Unavailable";
+    fprintf(stderr, "qwnrun runtime detail: qwn_cuda_dll_loaded=%s model_dtype=%s "
+            "selected_isa_kernel=%s backend=%s kernel=%s gpu_matmul_count=%llu "
+            "cpu_fallback_count=%llu gpu_device=%d cuda_upload_bytes=%llu "
+            "cuda_resident_bytes=%llu cuda_dll_sha256=%s\n",
+            decoder->qwn_cuda.available ? "true" : "false", dtype,
+            qwn_cpu_kernel_name(), metrics ? metrics->backend : "unknown",
+            metrics ? metrics->kernel : "unknown",
+            (unsigned long long)(metrics ? metrics->cuda_matmul_count : 0),
+            (unsigned long long)(metrics ? metrics->cpu_fallback_count : 0),
+            metrics ? metrics->cuda_device : -1,
+            (unsigned long long)(metrics ? metrics->cuda_upload_bytes : 0),
+            (unsigned long long)(metrics ? metrics->cuda_resident_bytes : 0),
+            metrics ? metrics->cuda_dll_hash : "Unavailable");
 #ifdef COLI_CUDA
     if (decoder->cuda_enabled) {
         fprintf(stderr, "qwnrun runtime: backend=CUDA cuda_compiled=true "
@@ -129,18 +141,21 @@ static void emit_mux(const char *s,int n,void *opaque){
     printf("DATA %s %d\n",o->id,n);fwrite(s,1,(size_t)n,stdout);putchar('\n');fflush(stdout);
 }
 
-static int serve_mode(const char *model){
-    int ctx=getenv("CTX")?atoi(getenv("CTX")):4096;
-    int default_max=getenv("NGEN")?atoi(getenv("NGEN")):512;
+static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config){
+    QwnRuntimeConfig config;
+    if (runtime_config) config = *runtime_config;
+    else qwn_runtime_config_default(&config);
+    if (getenv("CTX") && atoi(getenv("CTX")) > 0) config.context_size = atoi(getenv("CTX"));
+    if (getenv("NGEN") && atoi(getenv("NGEN")) > 0) config.max_tokens = atoi(getenv("NGEN"));
     QwnDecoder d;const char *error=NULL;
-    if(qwn_decoder_open(&d,model,ctx,&error)!=0){fprintf(stderr,"qwnrun: %s\n",error?error:"open");return 1;}
+    if(qwn_decoder_open_with_config(&d,model,&config,&error)!=0){fprintf(stderr,"qwnrun: %s\n",error?error:"open");return 1;}
     print_runtime_info(&d);
     if(getenv("SERVE")){
         printf("\x01\x01READY\x01\x01\nSTAT 0 0 0 0\n");fflush(stdout);
     }
     char line[512];
     while(fgets(line,sizeof(line),stdin)){
-        char id[64];int slot=0,bytes=0,max_tokens=default_max;float temp=0,top_p=1;int token_fwd=0;
+        char id[64];int slot=0,bytes=0,max_tokens=config.max_tokens;float temp=0,top_p=1;int token_fwd=0;
         if(strncmp(line,"PING",4)==0){
             printf("PONG\n");fflush(stdout);
         }else if(strncmp(line,"CONFIG",6)==0){
@@ -177,6 +192,7 @@ static int serve_mode(const char *model){
             }
             if(d.cfg.bos_id>=0&&count<effective_ctx){memmove(ids+1,ids,(size_t)count*sizeof(int));ids[0]=d.cfg.bos_id;count++;}
             qwn_decoder_reset(&d);ServeOut out={id};double start=wall_seconds();
+            if (max_tokens <= 0 || max_tokens > config.max_tokens) max_tokens = config.max_tokens;
             int generated=qwn_decoder_generate(&d,ids,count,max_tokens,temp,top_p,emit_mux,&out);free(ids);
             if(generated<0){
                 fprintf(stderr, "qwnrun result: status=error tokens=0\n");
@@ -206,106 +222,65 @@ int main(int argc,char **argv){
         return 0;
     }
     if (argc >= 3 && strcmp(argv[2], "--serve") == 0) {
-        return serve_mode(argv[1]);
+        QwnRuntimeConfig config; char config_error[256];
+        if (qwn_runtime_config_parse(&config, argc, argv, 2, config_error, sizeof(config_error)) != 0) {
+            fprintf(stderr, "qwnrun: %s\n", config_error); return 2;
+        }
+        return serve_mode(argv[1], &config);
     }
     if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
         const char *model = getenv("SNAP");
         if (!model || !*model) { fprintf(stderr, "SNAP missing\n"); return 2; }
-        return serve_mode(model);
+        QwnRuntimeConfig config; char config_error[256];
+        if (qwn_runtime_config_parse(&config, argc, argv, 2, config_error, sizeof(config_error)) != 0) {
+            fprintf(stderr, "qwnrun: %s\n", config_error); return 2;
+        }
+        return serve_mode(model, &config);
     }
 
     print_build_info();
     if(getenv("SERVE")){
         const char *model=getenv("SNAP");if(!model||!*model){fprintf(stderr,"SNAP missing\n");return 2;}
-        return serve_mode(model);
+        QwnRuntimeConfig config; char config_error[256];
+        if (qwn_runtime_config_parse(&config, argc, argv, 1, config_error, sizeof(config_error)) != 0) {
+            fprintf(stderr, "qwnrun: %s\n", config_error); return 2;
+        }
+        return serve_mode(model, &config);
     }
     if(argc<3){
-        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--mode balanced] [--auto-tune] [--gpu] [--gpu-device N] [--list-gpus]\n");
+        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--backend cpu|cuda|auto] [--gpu-device N] [--threads N] [--ctx-size N] [--max-tokens N] [--kv-cache fp16] [--quantization auto|q4_0|hyper_vsq2|fp16|fp32] [--kernel auto|scalar|avx2|vnni] [--seed N]\n");
         return 2;
     }
 
     const char *model_path = argv[1];
     const char *prompt_str = argv[2];
-    int max_tokens = 256;
-    int ctx = 4096;
-    const char *mode_str = "balanced";
-    bool auto_tune = false;
-    bool has_mode_arg = false;
-    bool use_spec = false;
-    bool use_fused = false;
-    int saguro_draft = 8;
-    int saguro_tier = 3;
-    int num_threads = 0;
-    bool force_gpu = false;
-    int gpu_device_idx = -1;
-    const char *gpu_backend_str = "auto";
-
+    QwnRuntimeConfig runtime_config;
+    char config_error[256];
+    if (qwn_runtime_config_parse(&runtime_config, argc, argv, 3,
+                                 config_error, sizeof(config_error)) != 0) {
+        fprintf(stderr, "qwnrun: %s\n", config_error);
+        return 2;
+    }
+    bool has_max_flag = false;
+    bool has_ctx_flag = false;
     for (int a = 3; a < argc; a++) {
-        if (strcmp(argv[a], "--mode") == 0 && a + 1 < argc) {
-            mode_str = argv[++a];
-            has_mode_arg = true;
-        } else if (strcmp(argv[a], "--max-tokens") == 0 && a + 1 < argc) {
-            max_tokens = atoi(argv[++a]);
-        } else if (strcmp(argv[a], "--auto-tune") == 0) {
-            auto_tune = true;
-        } else if (strcmp(argv[a], "--list-gpus") == 0) {
+        if (strcmp(argv[a], "--max-tokens") == 0) has_max_flag = true;
+        if (strcmp(argv[a], "--ctx-size") == 0) has_ctx_flag = true;
+        if (strcmp(argv[a], "--list-gpus") == 0) {
             qwn_gpu_list_all_devices();
             return 0;
-        } else if (strcmp(argv[a], "--speculative") == 0 || strcmp(argv[a], "--saguro") == 0) {
-            use_spec = true;
-        } else if (strcmp(argv[a], "--saguro-draft") == 0 && a + 1 < argc) {
-            use_spec = true;
-            saguro_draft = atoi(argv[++a]);
-        } else if (strcmp(argv[a], "--saguro-tier") == 0 && a + 1 < argc) {
-            use_spec = true;
-            saguro_tier = atoi(argv[++a]);
-        } else if (strcmp(argv[a], "--fused") == 0) {
-            use_fused = true;
-        } else if (strcmp(argv[a], "--threads") == 0 && a + 1 < argc) {
-            num_threads = atoi(argv[++a]);
-        } else if (strcmp(argv[a], "--gpu") == 0) {
-            force_gpu = true;
-        } else if (strcmp(argv[a], "--gpu-device") == 0 && a + 1 < argc) {
-            force_gpu = true;
-            gpu_device_idx = atoi(argv[++a]);
-        } else if (strcmp(argv[a], "--gpu-backend") == 0 && a + 1 < argc) {
-            force_gpu = true;
-            gpu_backend_str = argv[++a];
-        } else if (argv[a][0] != '-' && a == 3) {
-            max_tokens = atoi(argv[a]);
-        } else if (argv[a][0] != '-' && a == 4) {
-            ctx = atoi(argv[a]);
         }
     }
-
-#if defined(_OPENMP)
-    if (num_threads > 0) {
-        omp_set_num_threads(num_threads);
+    if (!has_max_flag && argc > 3 && argv[3][0] != '-') runtime_config.max_tokens = atoi(argv[3]);
+    if (!has_ctx_flag && argc > 4 && argv[4][0] != '-') runtime_config.context_size = atoi(argv[4]);
+    if (qwn_runtime_config_validate(&runtime_config, config_error, sizeof(config_error)) != 0) {
+        fprintf(stderr, "qwnrun: %s\n", config_error);
+        return 2;
     }
-#endif
-
-    /* Initialize GPU Context with Intelligent Auto-Selection or User Device Override */
-    QwnGPUContext gpu_ctx;
-    if (gpu_device_idx >= 0) {
-        qwn_gpu_init_device(&gpu_ctx, gpu_device_idx);
-    } else {
-        QwnGPUBackendType preferred_gpu = force_gpu ? qwn_gpu_parse_backend_name(gpu_backend_str) : QWN_GPU_BACKEND_AUTO;
-        qwn_gpu_init(&gpu_ctx, preferred_gpu);
-    }
-    if (force_gpu || auto_tune) {
-        qwn_gpu_print_diagnostics(&gpu_ctx);
-    }
-
-    QwnPerformanceMode perf_mode = QWN_MODE_BALANCED;
-    if (strstr(mode_str, "perf") || strstr(mode_str, "max-perf")) perf_mode = QWN_MODE_MAX_PERFORMANCE;
-    else if (strstr(mode_str, "qual") || strstr(mode_str, "max-qual")) perf_mode = QWN_MODE_MAX_QUALITY;
-
-    QwnTaskType task_type = qwn_autopilot_parse_task(prompt_str);
-    QwnAutoPilotConfig auto_cfg = qwn_autopilot_select_config(perf_mode, task_type);
-    if (use_spec) auto_cfg.use_speculative = true;
+    int max_tokens = runtime_config.max_tokens;
 
     QwnDecoder decoder;const char *error=NULL;
-    if(qwn_decoder_open(&decoder,model_path,ctx,&error)!=0){
+    if(qwn_decoder_open_with_config(&decoder,model_path,&runtime_config,&error)!=0){
         fprintf(stderr,"qwnrun open error: %s\n",error?error:"open failed");return 1;
     }
     print_runtime_info(&decoder);
@@ -336,7 +311,7 @@ int main(int argc,char **argv){
     const char *think_text = getenv("QWN_THINKING_LEVEL");
     if (!think_text || !*think_text) think_text = getenv("THINKING");
 
-    QwnThinkingLevel think_lvl = auto_cfg.thinking_level;
+    QwnThinkingLevel think_lvl = QWN_THINK_MEDIUM;
     if (think_text) think_lvl = qwn_thinking_parse_level(think_text);
     for (int a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--thinking") == 0 && a + 1 < argc) {
@@ -365,22 +340,13 @@ int main(int argc,char **argv){
                 "ttft_ms=%.3f tok_per_sec=%.6f thinking_level=%s\n", rc, elapsed, ttft,
                 tps, qwn_thinking_level_name(think_lvl));
 
-        if (has_mode_arg || auto_tune || use_spec || use_fused) {
-            printf("\n=================================================================\n");
-            printf(">> GENERATION TELEMETRY (configured mode)\n");
-            printf("   Generated Tokens : %d tokens\n", rc);
-            printf("   Wall Clock Time  : %.2f seconds\n", elapsed);
-            printf("   Raw Throughput   : %.2f tok/s\n", tps);
-            printf("   Configured target: %.1fx (not an empirical speedup)\n", auto_cfg.speedup_target);
-            printf("   Active Pipeline  : %s%s%s%s%sThinking (%s)\n",
-                   auto_cfg.use_turboquant ? "TurboQuant (3.5b), " : "",
-                   (auto_cfg.use_speculative || use_spec) ? "Saguaro 2.0 (PyramidSD), " : "",
-                   use_fused ? "Fused Kernel, " : "",
-                   auto_cfg.use_agentic_opt ? "Agentic Pipeline, " : "",
-                   "HyperVSQ-2 / TWLA SIMD, ",
-                   qwn_thinking_level_name(think_lvl));
-            printf("=================================================================\n");
-        }
+        const QwnRuntimeMetrics *metrics = qwn_decoder_metrics(&decoder);
+        fprintf(stderr, "qwnrun result detail: backend=%s kernel=%s gpu_matmul_count=%llu "
+                "cpu_fallback_count=%llu\n",
+                metrics ? metrics->backend : "unknown",
+                metrics ? metrics->kernel : "unknown",
+                (unsigned long long)(metrics ? metrics->cuda_matmul_count : 0),
+                (unsigned long long)(metrics ? metrics->cpu_fallback_count : 0));
     }
     free(ids);qwn_decoder_close(&decoder);return rc<0?1:0;
 }

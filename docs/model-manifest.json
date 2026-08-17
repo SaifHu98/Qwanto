@@ -23,11 +23,11 @@
       "architecture": "qwen2",
       "format": "gguf",
       "source_file": "models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-      "runtime_boundary": "external local llama-server only",
+      "runtime_boundary": "conversion input only",
+      "conversion_status": "supported dense qwen2 source; validate generated QWN before activation",
       "inference_evidence": {
-        "classification": "EXPERIMENTAL",
-        "artifact": "experiments/results/llama_15B.json",
-        "reason": "This is not a native qwnrun measurement and is not a QWN release claim."
+        "classification": "UNAVAILABLE",
+        "reason": "No current native QWN benchmark artifact is attached to this source."
       }
     },
     {
@@ -35,7 +35,8 @@
       "architecture": "qwen35",
       "format": "gguf",
       "source_file": "models/Qwen3.8-27B-UD-IQ2_M.gguf",
-      "runtime_boundary": "external runtime; native QWN path unavailable by default",
+      "runtime_boundary": "conversion input only",
+      "conversion_status": "blocked: Qwen3.5 hybrid SSM/MTP execution is not fully implemented",
       "inference_evidence": {
         "classification": "UNAVAILABLE",
         "reason": "Metadata may be inspected, but no supported native inference evidence is published."

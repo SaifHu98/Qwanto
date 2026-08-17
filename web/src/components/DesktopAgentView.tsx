@@ -20,11 +20,10 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { ChatAttachment, ChatMessage, DiscoveredModel } from "@/lib/api"
-import type { AgentSession, DesktopGatewayStatus, DesktopToolResult, StoredAttachment } from "@/lib/desktop"
-import { desktopInvoke } from "@/lib/desktop"
+import type { AgentSession, DesktopGatewayStatus, DesktopToolResult } from "@/lib/desktop"
+import { desktopInvoke, pickChatAttachment, pickWorkspaceFolder } from "@/lib/desktop"
 import type { GatewayConnectionState } from "@/lib/gateway"
 import { cn } from "@/lib/utils"
 import { modelIsSelectable } from "@/lib/gateway"
@@ -72,7 +71,6 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false)
   const [workspace, setWorkspace] = useState("")
-  const [workspaceInput, setWorkspaceInput] = useState("")
   const [fileOutput, setFileOutput] = useState("")
   const [filePath, setFilePath] = useState("")
   const [fileTree, setFileTree] = useState<string[]>([])
@@ -124,11 +122,11 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
   }
 
   const setWorkspaceRoot = async () => {
-    if (!workspaceInput.trim()) return
     try {
-      const canonical = await desktopInvoke<string>("set_workspace_root", { rootPath: workspaceInput.trim() })
+      const selected = await pickWorkspaceFolder()
+      if (!selected) return
+      const canonical = await desktopInvoke<string>("set_workspace_root", { rootPath: selected })
       setWorkspace(canonical)
-      setWorkspaceInput(canonical)
       await refreshFiles(canonical)
       setSection("project")
     } catch (error) {
@@ -194,21 +192,17 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
     void desktopInvoke("save_agent_session", { session }).catch(() => undefined)
   }, [workspace, props.messages, props.model, props.mode, sessionId])
 
-  const addAttachment = async (file: File) => {
+  const addAttachment = async () => {
     if (!workspace) { setToolError("Open a project before adding an attachment."); return }
-    if (file.size === 0 || file.size > 10 * 1024 * 1024) { setToolError("Attachments must be between 1 byte and 10 MiB."); return }
-    const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined
     try {
-      const stored = await desktopInvoke<StoredAttachment>("store_chat_attachment", { name: file.name, mime: file.type, bytes: Array.from(new Uint8Array(await file.arrayBuffer())) })
-      setAttachments((current) => [...current, { ...stored, preview_url: previewUrl }])
+      const stored = await pickChatAttachment()
+      if (stored) setAttachments((current) => [...current, { ...stored, preview_url: stored.preview_data_url }])
     } catch (error) {
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
       setToolError(error instanceof Error ? error.message : "Attachment could not be stored locally.")
     }
   }
 
   const removeAttachment = (attachment: ChatAttachment) => {
-    if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
     setAttachments((current) => current.filter((item) => item.id !== attachment.id))
   }
 
@@ -282,11 +276,11 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
 
         <div className="desktop-workspace">
           <section className="desktop-center-panel">
-            {section === "project" && <ProjectPanel workspace={workspace} input={workspaceInput} onInput={setWorkspaceInput} onOpen={() => void setWorkspaceRoot()} sessions={savedSessions} onResume={props.onResumeSession} />}
+            {section === "project" && <ProjectPanel workspace={workspace} onOpen={() => void setWorkspaceRoot()} sessions={savedSessions} onResume={props.onResumeSession} />}
             {section === "settings" && <div className="desktop-settings-host">{props.settingsContent}</div>}
             {section === "files" && <FilesPanel entries={fileTree} onSelect={selectFile} onRefresh={() => void refreshFiles()} />}
             {section === "changes" && <ChangesPanel diff={diffOutput} onInspect={() => void inspectDiff()} />}
-            {section === "chats" && <ChatPanel {...props} attachments={attachments} onAddAttachment={(file) => void addAttachment(file)} onRemoveAttachment={removeAttachment} onSend={sendWithAttachments} />}
+            {section === "chats" && <ChatPanel {...props} attachments={attachments} onAddAttachment={() => void addAttachment()} onRemoveAttachment={removeAttachment} onSend={sendWithAttachments} />}
           </section>
 
           {!inspectorCollapsed && <aside className="desktop-inspector">
@@ -305,8 +299,8 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
   )
 }
 
-function ProjectPanel({ workspace, input, onInput, onOpen, sessions, onResume }: { workspace: string; input: string; onInput: (value: string) => void; onOpen: () => void; sessions: AgentSession[]; onResume?: (session: AgentSession) => void }) {
-  return <div className="desktop-panel-content"><div className="desktop-eyebrow">PROJECT</div><h1>Choose a local project</h1><p className="desktop-muted">The desktop agent can inspect and change files only inside this canonical workspace.</p><div className="desktop-project-form"><Input value={input} placeholder="C:\\Projects\\my-app" onChange={(event) => onInput(event.target.value)} /><Button onClick={onOpen}><FolderOpen className="size-4" /> Open project</Button></div>{workspace && <div className="desktop-success"><Check className="size-4" /> Workspace: {workspace}</div>}{workspace && sessions.length > 0 && onResume && <section className="desktop-resume-card"><div><strong>Resume local checkpoint</strong><p className="desktop-muted">Saved locally in the desktop session store. No source is uploaded.</p></div><Button size="sm" variant="secondary" onClick={() => onResume(sessions[0])}>Resume latest</Button></section>}</div>
+function ProjectPanel({ workspace, onOpen, sessions, onResume }: { workspace: string; onOpen: () => void; sessions: AgentSession[]; onResume?: (session: AgentSession) => void }) {
+  return <div className="desktop-panel-content"><div className="desktop-eyebrow">PROJECT</div><h1>Choose a local project</h1><p className="desktop-muted">The desktop agent can inspect and change files only inside this canonical workspace.</p><div className="desktop-project-form"><Button onClick={onOpen}><FolderOpen className="size-4" /> Browse project folder</Button><span className="desktop-muted">Use the native folder picker; arbitrary paths are not accepted here.</span></div>{workspace && <div className="desktop-success"><Check className="size-4" /> Workspace: {workspace}</div>}{workspace && sessions.length > 0 && onResume && <section className="desktop-resume-card"><div><strong>Resume local checkpoint</strong><p className="desktop-muted">Saved locally in the desktop session store. No source is uploaded.</p></div><Button size="sm" variant="secondary" onClick={() => onResume(sessions[0])}>Resume latest</Button></section>}</div>
 }
 
 function FilesPanel({ entries, onSelect, onRefresh }: { entries: string[]; onSelect: (entry: string) => void; onRefresh: () => void }) {
@@ -322,8 +316,8 @@ function ApprovalPanel({ approval, onApprove, onReject }: { approval: DesktopToo
   return <div className="desktop-approval-card"><ShieldCheck className="size-5" /><h2>Approval required</h2><p>{approval.action_details?.description || "The desktop agent requested a privileged action."}</p>{approval.action_details?.command && <code>{approval.action_details.command}</code>}<div className="desktop-approval-actions"><Button size="sm" onClick={onApprove}>Approve</Button><Button size="sm" variant="secondary" onClick={onReject}>Reject</Button></div></div>
 }
 
-function ChatPanel(props: Omit<DesktopAgentViewProps, "onSend"> & { onSend: () => void; attachments: ChatAttachment[]; onAddAttachment: (file: File) => void; onRemoveAttachment: (attachment: ChatAttachment) => void }) {
+function ChatPanel(props: Omit<DesktopAgentViewProps, "onSend"> & { onSend: () => void; attachments: ChatAttachment[]; onAddAttachment: () => void; onRemoveAttachment: (attachment: ChatAttachment) => void }) {
   const usage = props.usage || { promptTokens: null, completionTokens: null, totalTokens: null, elapsedMs: null, ttftMs: null, tokensPerSecond: null, contextUse: null, toolCalls: null, queueState: "idle" }
   const draftSkill = resolveSkillInvocation(props.draft)
-  return <div className="desktop-chat-panel"><div className="desktop-chat-heading"><div><div className="desktop-eyebrow">LOCAL AGENT</div><h1>Build with your machine</h1><p className="desktop-muted">Plan first, then execute only through the approval-gated desktop boundary.</p></div><Button size="sm" variant="ghost" onClick={props.onClear} disabled={!props.messages.length}><Command className="size-3.5" /> Clear</Button></div><div className="desktop-timeline"><div className="desktop-timeline-step complete"><span>1</span><div><strong>Plan</strong><p>{props.mode === "plan" ? "Plan Mode is read-only." : "Agent Mode can request approved tools."}</p></div></div><div className="desktop-timeline-step"><span>2</span><div><strong>Execute</strong><p>File edits and commands appear in the inspector before they run.</p></div></div>{props.messages.map((message) => <article key={message.id} className={cn("desktop-message", message.role)}><span>{message.role === "user" ? "You" : "Q"}</span>{message.skill && <small className="chat-skill-badge">Active skill: @{message.skill.id} · {message.skill.capabilities.join(", ")}{capabilitiesNeedApproval(message.skill.capabilities) ? " · approval required" : ""}</small>}<p>{message.content}</p>{message.attachments?.map((attachment) => <span className="chat-attachment-note" key={attachment.id}>Local attachment: {attachment.name} · not sent because this runtime does not report file or image input support.</span>)}</article>)}</div><section className="session-usage-panel" aria-label="Session usage"><div><span>Prompt</span><strong>{usage.promptTokens ?? "Unavailable"}</strong></div><div><span>Completion</span><strong>{usage.completionTokens ?? "Unavailable"}</strong></div><div><span>Total</span><strong>{usage.totalTokens ?? "Unavailable"}</strong></div><div><span>Elapsed</span><strong>{usage.elapsedMs != null ? `${(usage.elapsedMs / 1000).toFixed(1)}s` : "Unavailable"}</strong></div><div><span>TTFT</span><strong>{usage.ttftMs != null ? `${usage.ttftMs.toFixed(0)}ms` : "Unavailable"}</strong></div><div><span>Tokens/s</span><strong>{usage.tokensPerSecond?.toFixed(2) || "Unavailable"}</strong></div><div><span>Context</span><strong>{usage.contextUse != null ? `${usage.contextUse}%` : "Unavailable"}</strong></div><div><span>Tools</span><strong>{usage.toolCalls ?? "Unavailable"}</strong></div><div><span>Queue</span><strong>{usage.queueState}</strong></div></section><div className="desktop-composer"><Textarea value={props.draft} onChange={(event) => props.onDraftChange(event.target.value)} placeholder="Ask the local agent to inspect or explain your project…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); props.onSend() } }} />{draftSkill && <div className="chat-skill-preview" role="status"><strong>Active skill: @{draftSkill.skill.id}</strong><span>{draftSkill.skill.capabilities.join(", ")}{capabilitiesNeedApproval(draftSkill.skill.capabilities) ? " · approval required" : ""}</span></div>}<div className="chat-attachment-bar"><label className="attachment-button"><Paperclip className="size-3.5" /> Attach file<input type="file" multiple onChange={(event) => { Array.from(event.target.files || []).forEach(props.onAddAttachment); event.currentTarget.value = "" }} /></label><span>Stored in the workspace · 10 MiB max · runtime input support: Unavailable</span></div>{props.attachments.length > 0 && <div className="chat-attachment-list">{props.attachments.map((attachment) => <div className="chat-attachment" key={attachment.id}>{attachment.preview_url ? <img src={attachment.preview_url} alt="" /> : <Paperclip className="size-4" />}<span>{attachment.name}<small>{(attachment.size / 1024).toFixed(1)} KB · local only</small></span><button aria-label={`Remove ${attachment.name}`} onClick={() => props.onRemoveAttachment(attachment)}><X className="size-3.5" /></button></div>)}</div>}<div className="desktop-composer-footer"><span>{props.mode === "plan" ? "Plan Mode · read-only" : "Agent Mode · approvals required"}</span>{props.loading ? <Button variant="destructive" size="sm" onClick={props.onStopGeneration}><Square className="size-3" /> Stop</Button> : <Button size="sm" onClick={props.onSend} disabled={!props.draft.trim() || !props.connected || !props.model}><Play className="size-3" /> Send</Button>}</div></div></div>
+  return <div className="desktop-chat-panel"><div className="desktop-chat-heading"><div><div className="desktop-eyebrow">LOCAL AGENT</div><h1>Build with your machine</h1><p className="desktop-muted">Plan first, then execute only through the approval-gated desktop boundary.</p></div><Button size="sm" variant="ghost" onClick={props.onClear} disabled={!props.messages.length}><Command className="size-3.5" /> Clear</Button></div><div className="desktop-timeline"><div className="desktop-timeline-step complete"><span>1</span><div><strong>Plan</strong><p>{props.mode === "plan" ? "Plan Mode is read-only." : "Agent Mode can request approved tools."}</p></div></div><div className="desktop-timeline-step"><span>2</span><div><strong>Execute</strong><p>File edits and commands appear in the inspector before they run.</p></div></div>{props.messages.map((message) => <article key={message.id} className={cn("desktop-message", message.role)}><span>{message.role === "user" ? "You" : "Q"}</span>{message.skill && <small className="chat-skill-badge">Active skill: @{message.skill.id} · {message.skill.capabilities.join(", ")}{capabilitiesNeedApproval(message.skill.capabilities) ? " · approval required" : ""}</small>}<p>{message.content}</p>{message.attachments?.map((attachment) => <span className="chat-attachment-note" key={attachment.id}>Local attachment: {attachment.name} · not sent because this runtime does not report file or image input support.</span>)}</article>)}</div><section className="session-usage-panel" aria-label="Session usage"><div><span>Prompt</span><strong>{usage.promptTokens ?? "Unavailable"}</strong></div><div><span>Completion</span><strong>{usage.completionTokens ?? "Unavailable"}</strong></div><div><span>Total</span><strong>{usage.totalTokens ?? "Unavailable"}</strong></div><div><span>Elapsed</span><strong>{usage.elapsedMs != null ? `${(usage.elapsedMs / 1000).toFixed(1)}s` : "Unavailable"}</strong></div><div><span>TTFT</span><strong>{usage.ttftMs != null ? `${usage.ttftMs.toFixed(0)}ms` : "Unavailable"}</strong></div><div><span>Tokens/s</span><strong>{usage.tokensPerSecond?.toFixed(2) || "Unavailable"}</strong></div><div><span>Context</span><strong>{usage.contextUse != null ? `${usage.contextUse}%` : "Unavailable"}</strong></div><div><span>Tools</span><strong>{usage.toolCalls ?? "Unavailable"}</strong></div><div><span>Queue</span><strong>{usage.queueState}</strong></div></section><div className="desktop-composer"><Textarea value={props.draft} onChange={(event) => props.onDraftChange(event.target.value)} placeholder="Ask the local agent to inspect or explain your project…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); props.onSend() } }} />{draftSkill && <div className="chat-skill-preview" role="status"><strong>Active skill: @{draftSkill.skill.id}</strong><span>{draftSkill.skill.capabilities.join(", ")}{capabilitiesNeedApproval(draftSkill.skill.capabilities) ? " · approval required" : ""}</span></div>}<div className="chat-attachment-bar"><button type="button" className="attachment-button" onClick={props.onAddAttachment}><Paperclip className="size-3.5" /> Attach file</button><span>Stored in the workspace · 10 MiB max · runtime input support: Unavailable</span></div>{props.attachments.length > 0 && <div className="chat-attachment-list">{props.attachments.map((attachment) => <div className="chat-attachment" key={attachment.id}>{attachment.preview_url ? <img src={attachment.preview_url} alt="" /> : <Paperclip className="size-4" />}<span>{attachment.name}<small>{(attachment.size / 1024).toFixed(1)} KB · local only</small></span><button aria-label={`Remove ${attachment.name}`} onClick={() => props.onRemoveAttachment(attachment)}><X className="size-3.5" /></button></div>)}</div>}<div className="desktop-composer-footer"><span>{props.mode === "plan" ? "Plan Mode · read-only" : "Agent Mode · approvals required"}</span>{props.loading ? <Button variant="destructive" size="sm" onClick={props.onStopGeneration}><Square className="size-3" /> Stop</Button> : <Button size="sm" onClick={props.onSend} disabled={!props.draft.trim() || !props.connected || !props.model}><Play className="size-3" /> Send</Button>}</div></div></div>
 }

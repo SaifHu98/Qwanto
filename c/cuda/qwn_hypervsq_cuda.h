@@ -32,20 +32,29 @@ typedef struct {
     int device_id;
 } QwnCUDALayerContext;
 
+typedef struct {
+    uint64_t matmul_count;
+    uint64_t upload_bytes;
+    size_t resident_bytes;
+    int device_id;
+    char kernel[32];
+} QwnCudaMetrics;
+
 /* Initialize CUDA device and allocate stream buffers with pinned memory */
 QWN_CUDA_API int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int device_id);
 
 /* Execute QWN-HyperVSQ dequantization and GEMV dot product on GPU with zero-copy stream sync */
-QWN_CUDA_API int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N);
+QWN_CUDA_API int qwn_cuda_hypervsq2_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N);
 
 /* Process-wide API used by qwnrun's dynamic loader. The functions keep the
  * quantized tensor in VRAM between token calls and use separate transfer and
  * compute streams for the activation/output path. */
 QWN_CUDA_API int qwn_cuda_init(int gpu_id);
-QWN_CUDA_API int qwn_cuda_gemv_hypervsq(int rows, int cols, const void *weights,
-                                       const float *x, float *out);
+QWN_CUDA_API int qwn_cuda_gemv_hypervsq2(int rows, int cols, const void *weights,
+                                        const float *x, float *out);
 QWN_CUDA_API int qwn_cuda_gemv_q4_0(int rows, int cols, const void *weights,
                                     const float *x, float *out);
+QWN_CUDA_API int qwn_cuda_get_metrics(QwnCudaMetrics *metrics);
 QWN_CUDA_API void qwn_cuda_shutdown(void);
 
 /* Allocate page-locked pinned memory on host */

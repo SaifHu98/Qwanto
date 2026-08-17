@@ -685,6 +685,8 @@ code, kbd, samp, pre {
 .settings-dialog-header { justify-content: space-between; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid #263149; }
 .settings-dialog-header h2 { margin: 8px 0 0; color: #f1f5fb; font-size: 1.1rem; }
 .settings-dialog-form { display: grid; gap: 6px; padding-top: 10px; }
+.settings-path-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.settings-path-picker input { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .settings-consent, .desktop-consent { display: flex; gap: 8px; align-items: flex-start; margin: 14px 0; color: #b7c2d2; font-size: .72rem; line-height: 1.5; }
 .settings-message { margin: 0; }
 .settings-loading { display: flex; align-items: center; gap: 8px; padding: 12px; color: #9eacc1; font-size: .74rem; }

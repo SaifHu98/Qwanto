@@ -15,6 +15,10 @@ static int g_qwn_initialized = 0;
 static int g_qwn_refcount = 0;
 static int g_qwn_gpu = -1;
 static int g_qwn_use_dp4a = 0;
+static uint64_t g_qwn_matmul_count = 0;
+static uint64_t g_qwn_upload_bytes = 0;
+static size_t g_qwn_resident_bytes = 0;
+static char g_qwn_kernel[32] = "none";
 static std::mutex g_qwn_mutex;
 
 struct ResidentWeight {
@@ -40,13 +44,19 @@ static void *qwn_resident_weight(QwnCUDALayerContext *ctx, const void *host,
         cudaFree(device);
         return nullptr;
     }
+    g_qwn_upload_bytes += bytes;
+    g_qwn_resident_bytes += bytes;
     (void)ctx;
     return device;
 }
 
 /*
- * CUDA Warp-Level Kernel for QWN-HyperVSQ (256 Elements per Octa-Superblock)
- * Each warp of 32 threads processes one or more 32-element octants in parallel.
+ * CUDA Warp-Level Kernel for the native HyperVSQ-2 layout.
+ * Each 256-element block is exactly 74 bytes:
+ *   fp16 base scale (2), fp16 offset (2), four packed bytes containing eight
+ *   4-bit sub-scales, two reserved bytes, and eight 32-element octants with
+ *   two bits per value (64), for 74 bytes total.
+ * This is deliberately separate from the older 138-byte HyperVSQ layout.
  */
 __global__ void qwn_hypervsq_gemv_kernel(
     const uint8_t * __restrict__ weights,
@@ -59,12 +69,12 @@ __global__ void qwn_hypervsq_gemv_kernel(
 
     int lane = threadIdx.x; // 0..31
     int blocks = (K + 255) / 256;
-    const uint8_t *row_ptr = weights + (size_t)row * blocks * 138;
+    const uint8_t *row_ptr = weights + (size_t)row * blocks * 74;
 
     float thread_sum = 0.0f;
 
     for (int b = 0; b < blocks; b++) {
-        const uint8_t *blk = row_ptr + b * 138;
+        const uint8_t *blk = row_ptr + b * 74;
         
         // Read superblock base scale and zero-point offset (FP16)
         half hs = *reinterpret_cast<const half*>(blk);
@@ -79,17 +89,16 @@ __global__ void qwn_hypervsq_gemv_kernel(
         for (int oct = 0; oct < 8; oct++) {
             int k_idx = b * 256 + oct * 32 + lane;
             if (k_idx < K) {
-                // Sub-octant 4-bit scale
+                // Sub-octant 4-bit scale and native two-bit value.
                 uint8_t sb = sub_scales[oct >> 1];
                 int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
                 float sub_scale = d_base * ((float)s_val * 0.125f);
 
-                // Unpack 4-bit quantized weight for this lane
-                const uint8_t *q_oct = qs + oct * 16;
-                uint8_t byte = q_oct[lane >> 1];
-                int q = ((lane & 1) ? (byte >> 4) : (byte & 0x0F)) - 8;
+                const uint8_t *q_oct = qs + oct * 8;
+                uint8_t byte = q_oct[lane >> 2];
+                int q = (byte >> ((lane & 3) * 2)) & 3;
 
-                float w_val = (float)q * sub_scale + m_base;
+                float w_val = (float)(q - 1) * sub_scale + m_base;
                 thread_sum += w_val * x[k_idx];
             }
         }
@@ -216,7 +225,7 @@ extern "C" int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int d
     return 0;
 }
 
-extern "C" int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N) {
+extern "C" int qwn_cuda_hypervsq2_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N) {
     if (!ctx || !weights || !x || !y) return -1;
     cudaStream_t s_comp = (cudaStream_t)ctx->stream_compute;
     cudaStream_t s_pref = (cudaStream_t)ctx->stream_prefetch;
@@ -241,7 +250,7 @@ extern "C" int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weig
     }
 
     if (cudaSetDevice(ctx->device_id) != cudaSuccess) return -1;
-    size_t weight_bytes = (size_t)N * ((K + 255) / 256) * 138;
+    size_t weight_bytes = (size_t)N * ((K + 255) / 256) * 74;
     void *weights_device = qwn_resident_weight(ctx, weights, weight_bytes, s_pref);
     if (!weights_device) return -1;
 
@@ -292,6 +301,9 @@ extern "C" int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weig
     }
 
     cudaEventDestroy(ev);
+    g_qwn_matmul_count++;
+    strncpy(g_qwn_kernel, "hypervsq2-74", sizeof(g_qwn_kernel) - 1);
+    g_qwn_kernel[sizeof(g_qwn_kernel) - 1] = '\0';
     return 0;
 }
 
@@ -306,16 +318,21 @@ extern "C" int qwn_cuda_init(int gpu_id) {
     g_qwn_initialized = 1;
     g_qwn_refcount = 1;
     g_qwn_gpu = gpu_id;
+    g_qwn_matmul_count = 0;
+    g_qwn_upload_bytes = 0;
+    g_qwn_resident_bytes = 0;
+    strncpy(g_qwn_kernel, "none", sizeof(g_qwn_kernel) - 1);
+    g_qwn_kernel[sizeof(g_qwn_kernel) - 1] = '\0';
     const char *dp4a = getenv("QWN_CUDA_INT8");
     g_qwn_use_dp4a = dp4a && strcmp(dp4a, "1") == 0;
     return 0;
 }
 
-extern "C" int qwn_cuda_gemv_hypervsq(int rows, int cols, const void *weights,
+extern "C" int qwn_cuda_gemv_hypervsq2(int rows, int cols, const void *weights,
                                        const float *x, float *out) {
     std::lock_guard<std::mutex> lock(g_qwn_mutex);
     if (!g_qwn_initialized || rows < 1 || cols < 1) return -1;
-    return qwn_cuda_hypervsq_gemv(&g_qwn_ctx, weights, x, out, cols, rows);
+    return qwn_cuda_hypervsq2_gemv(&g_qwn_ctx, weights, x, out, cols, rows);
 }
 
 extern "C" int qwn_cuda_gemv_q4_0(int rows, int cols, const void *weights,
@@ -369,9 +386,26 @@ extern "C" int qwn_cuda_gemv_q4_0(int rows, int cols, const void *weights,
         return -1;
     }
     cudaError_t status = cudaStreamSynchronize(s_comp);
-    if (status == cudaSuccess) memcpy(out, ctx->pinned_y, (size_t)rows * sizeof(float));
+    if (status == cudaSuccess) {
+        memcpy(out, ctx->pinned_y, (size_t)rows * sizeof(float));
+        g_qwn_matmul_count++;
+        strncpy(g_qwn_kernel, "q4_0", sizeof(g_qwn_kernel) - 1);
+        g_qwn_kernel[sizeof(g_qwn_kernel) - 1] = '\0';
+    }
     cudaEventDestroy(event);
     return status == cudaSuccess && cudaGetLastError() == cudaSuccess ? 0 : -1;
+}
+
+extern "C" int qwn_cuda_get_metrics(QwnCudaMetrics *metrics) {
+    if (!metrics) return -1;
+    std::lock_guard<std::mutex> lock(g_qwn_mutex);
+    memset(metrics, 0, sizeof(*metrics));
+    metrics->matmul_count = g_qwn_matmul_count;
+    metrics->upload_bytes = g_qwn_upload_bytes;
+    metrics->resident_bytes = g_qwn_resident_bytes;
+    metrics->device_id = g_qwn_gpu;
+    strncpy(metrics->kernel, g_qwn_kernel, sizeof(metrics->kernel) - 1);
+    return g_qwn_initialized ? 0 : -1;
 }
 
 extern "C" void qwn_cuda_shutdown(void) {
@@ -405,10 +439,11 @@ extern "C" void qwn_cuda_layer_free(QwnCUDALayerContext *ctx) {
 void *qwn_cuda_host_alloc_pinned(size_t bytes) { return malloc(bytes); }
 void qwn_cuda_host_free_pinned(void *ptr) { free(ptr); }
 int qwn_cuda_layer_init(QwnCUDALayerContext *ctx, int K, int N, int device_id) { (void)ctx; (void)K; (void)N; (void)device_id; return -1; }
-int qwn_cuda_hypervsq_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N) { (void)ctx; (void)weights; (void)x; (void)y; (void)K; (void)N; return -1; }
+int qwn_cuda_hypervsq2_gemv(QwnCUDALayerContext *ctx, const void *weights, const float *x, float *y, int K, int N) { (void)ctx; (void)weights; (void)x; (void)y; (void)K; (void)N; return -1; }
 int qwn_cuda_init(int gpu_id) { (void)gpu_id; return -1; }
-int qwn_cuda_gemv_hypervsq(int rows, int cols, const void *weights, const float *x, float *out) { (void)rows; (void)cols; (void)weights; (void)x; (void)out; return -1; }
+int qwn_cuda_gemv_hypervsq2(int rows, int cols, const void *weights, const float *x, float *out) { (void)rows; (void)cols; (void)weights; (void)x; (void)out; return -1; }
 int qwn_cuda_gemv_q4_0(int rows, int cols, const void *weights, const float *x, float *out) { (void)rows; (void)cols; (void)weights; (void)x; (void)out; return -1; }
+int qwn_cuda_get_metrics(QwnCudaMetrics *metrics) { (void)metrics; return -1; }
 void qwn_cuda_shutdown(void) {}
 void qwn_cuda_layer_free(QwnCUDALayerContext *ctx) { (void)ctx; }
 #endif

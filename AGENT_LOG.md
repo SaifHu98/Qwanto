@@ -285,3 +285,12 @@
 - **Files:** `desktop/src-tauri/src/attachments.rs`, `desktop/src-tauri/src/diagnostics.rs`, `PROJECT_STATE.md`.
 - **Validation:** `git diff --check` passed; hosted CI had identified the exact compiler errors. Local Cargo remains unavailable.
 - **Decision:** Push this correction and wait for the full hosted CI gate before creating `v0.1.0-beta.4`.
+
+## 2026-08-17 — QWN execution, CUDA observability, and native file flows
+
+- **Change:** Added one typed native runtime configuration path, runtime ISA/OpenMP observability, exact HyperVSQ-2 74-byte CUDA GEMV coverage, fail-closed explicit CUDA selection, CUDA execution counters, and load-time CUDA DLL SHA-256 reporting.
+- **Change:** Made GGUF/Safetensors/PyTorch inputs source artifacts only, routed desktop model/project/attachment/plugin/feedback flows through native Tauri dialogs, and kept the browser surface free of privileged path/file inputs.
+- **Change:** Split fast CI by changed area, retained mandatory security/docs checks, cached Rust/Node/Python/native toolchains, and packaged the Windows LLVM OpenMP runtime beside qwnrun.
+- **Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `benchmarks/benchmark_reproducible.py`, `c/`, `desktop/src-tauri/`, `docs/`, `web/`, `PROJECT_STATE.md`.
+- **Validation:** Decoder `2 passed`; full Python `217 passed, 3 skipped`; focused gateway tests `45 passed`; web build and Vitest `54 passed`; native C syntax and Windows clang/OpenMP link/build-info checks passed; workflow YAML, release policy, brand, skill, docs, secrets, and `git diff --check` passed. Cargo, Make, and local CUDA execution remain unavailable.
+- **Decision:** Keep existing unsigned Beta.4 unchanged; push follow-up code only after local checks and rely on hosted CI for Rust, package, and platform validation. Do not claim CUDA end-to-end performance without a nonzero GPU matmul test on a CUDA runner.
