@@ -17,6 +17,47 @@
 #include <arm_neon.h>
 #endif
 
+const char *qwn_kv_cache_mode_name(QwnKvCacheMode mode) {
+    switch (mode) {
+        case QWN_KV_CACHE_Q8: return "q8";
+        case QWN_KV_CACHE_TURBOQUANT_Q4: return "turboquant-q4";
+        case QWN_KV_CACHE_AUTO: return "auto";
+        default: return "fp16";
+    }
+}
+
+int qwn_kv_cache_mode_parse(const char *text, QwnKvCacheMode *mode) {
+    if (!text || !mode) return -1;
+    if (strcmp(text, "fp16") == 0) *mode = QWN_KV_CACHE_FP16;
+    else if (strcmp(text, "q8") == 0) *mode = QWN_KV_CACHE_Q8;
+    else if (strcmp(text, "turboquant-q4") == 0 ||
+             strcmp(text, "qwn-q4-kv") == 0) *mode = QWN_KV_CACHE_TURBOQUANT_Q4;
+    else if (strcmp(text, "auto") == 0) *mode = QWN_KV_CACHE_AUTO;
+    else return -1;
+    return 0;
+}
+
+void qwn_kv_cache_contract_init(QwnKvCacheContract *contract,
+                                QwnKvCacheMode mode,
+                                uint32_t valid_token_count) {
+    if (!contract) return;
+    memset(contract, 0, sizeof(*contract));
+    contract->struct_size = (uint32_t)sizeof(*contract);
+    contract->abi_version = QWN_KV_CACHE_ABI_VERSION;
+    contract->cache_dtype = (uint32_t)mode;
+    contract->block_size = mode == QWN_KV_CACHE_Q8 ? 64u :
+                           mode == QWN_KV_CACHE_TURBOQUANT_Q4 ? 64u : 1u;
+    contract->scale_bytes = mode == QWN_KV_CACHE_FP16 ? 0u :
+                            mode == QWN_KV_CACHE_Q8 ? 4u : 2u;
+    contract->zero_point_bytes = mode == QWN_KV_CACHE_Q8 ? 0u :
+                                 mode == QWN_KV_CACHE_TURBOQUANT_Q4 ? 2u : 0u;
+    contract->key_layout = 1u;   /* token -> head -> channel */
+    contract->value_layout = 1u;
+    contract->page_size = QWN_KV_CACHE_PAGE_SIZE;
+    contract->alignment = 64u;
+    contract->valid_token_count = valid_token_count;
+}
+
 static void *tq_alloc64(size_t bytes) {
 #if defined(_MSC_VER)
     return _aligned_malloc(bytes, 64);
@@ -508,6 +549,158 @@ void qwn_turboquant_free(TurboQuantCache* cache) {
     if (cache->packed_k) tq_free64(cache->packed_k);
     if (cache->packed_v) tq_free64(cache->packed_v);
     memset(cache, 0, sizeof(*cache));
+}
+
+/* -------------------------------------------------------------------------
+ * Versioned scalar Q8 KV reference implementation
+ * ------------------------------------------------------------------------- */
+static int8_t qwn_q8_round(float value) {
+    if (!isfinite(value)) return 0;
+    if (value >= 127.0f) return 127;
+    if (value <= -127.0f) return -127;
+    return (int8_t)lrintf(value);
+}
+
+static float qwn_q8_scale_for(const float *values, int count) {
+    float max_abs = 0.0f;
+    for (int i = 0; i < count; i++) {
+        if (isfinite(values[i])) {
+            float abs_value = fabsf(values[i]);
+            if (abs_value > max_abs) max_abs = abs_value;
+        }
+    }
+    return max_abs > 0.0f ? max_abs / 127.0f : 1.0f;
+}
+
+static void qwn_q8_quantize_vector(const float *src, int8_t *dst,
+                                   float *scales, int n_channels) {
+    int blocks = (n_channels + 63) / 64;
+    for (int block = 0; block < blocks; block++) {
+        int offset = block * 64;
+        int count = n_channels - offset;
+        if (count > 64) count = 64;
+        float scale = qwn_q8_scale_for(src + offset, count);
+        scales[block] = scale;
+        for (int i = 0; i < count; i++)
+            dst[offset + i] = qwn_q8_round(src[offset + i] / scale);
+        for (int i = count; i < 64; i++) dst[offset + i] = 0;
+    }
+}
+
+int qwn_q8_cache_init(QwnQ8Cache *cache, int max_tokens, int n_heads,
+                      int head_dim) {
+    if (!cache || max_tokens <= 0 || n_heads <= 0 || head_dim <= 0) return -1;
+    memset(cache, 0, sizeof(*cache));
+    cache->max_tokens = max_tokens;
+    cache->n_heads = n_heads;
+    cache->head_dim = head_dim;
+    cache->n_channels = n_heads * head_dim;
+    cache->token_stride = (size_t)cache->n_channels;
+    cache->scale_stride = (size_t)(cache->n_channels + 63) / 64u;
+    size_t token_bytes = (size_t)max_tokens * cache->token_stride;
+    size_t scale_bytes = (size_t)max_tokens * cache->scale_stride * sizeof(float);
+    cache->packed_k = (int8_t *)tq_alloc64(token_bytes);
+    cache->packed_v = (int8_t *)tq_alloc64(token_bytes);
+    cache->scales_k = (float *)tq_alloc64(scale_bytes);
+    cache->scales_v = (float *)tq_alloc64(scale_bytes);
+    if (!cache->packed_k || !cache->packed_v || !cache->scales_k || !cache->scales_v) {
+        qwn_q8_cache_free(cache);
+        return -1;
+    }
+    memset(cache->packed_k, 0, token_bytes);
+    memset(cache->packed_v, 0, token_bytes);
+    memset(cache->scales_k, 0, scale_bytes);
+    memset(cache->scales_v, 0, scale_bytes);
+    cache->total_bytes = token_bytes * 2u + scale_bytes * 2u;
+    qwn_kv_cache_contract_init(&cache->contract, QWN_KV_CACHE_Q8, 0);
+    return 0;
+}
+
+void qwn_q8_cache_free(QwnQ8Cache *cache) {
+    if (!cache) return;
+    tq_free64(cache->packed_k);
+    tq_free64(cache->packed_v);
+    tq_free64(cache->scales_k);
+    tq_free64(cache->scales_v);
+    memset(cache, 0, sizeof(*cache));
+}
+
+void qwn_q8_cache_reset(QwnQ8Cache *cache) {
+    if (!cache) return;
+    cache->n_tokens = 0;
+    cache->contract.valid_token_count = 0;
+}
+
+int qwn_q8_cache_append(QwnQ8Cache *cache, const float *key,
+                        const float *value, int n_channels) {
+    if (!cache || !key || !value || n_channels != cache->n_channels ||
+        cache->n_tokens >= cache->max_tokens) return -1;
+    size_t token = (size_t)cache->n_tokens;
+    qwn_q8_quantize_vector(key, cache->packed_k + token * cache->token_stride,
+                           cache->scales_k + token * cache->scale_stride,
+                           n_channels);
+    qwn_q8_quantize_vector(value, cache->packed_v + token * cache->token_stride,
+                           cache->scales_v + token * cache->scale_stride,
+                           n_channels);
+    cache->n_tokens++;
+    cache->contract.valid_token_count = (uint32_t)cache->n_tokens;
+    return 0;
+}
+
+float qwn_q8_cache_dot_key_scalar(const QwnQ8Cache *cache, int token,
+                                  int channel_offset, const float *query,
+                                  int dim) {
+    if (!cache || !query || token < 0 || token >= cache->n_tokens ||
+        channel_offset < 0 || dim <= 0 || channel_offset + dim > cache->n_channels)
+        return 0.0f;
+    const int8_t *values = cache->packed_k + (size_t)token * cache->token_stride;
+    const float *scales = cache->scales_k + (size_t)token * cache->scale_stride;
+    float total = 0.0f;
+    for (int i = 0; i < dim; i++) {
+        int channel = channel_offset + i;
+        total += query[i] * ((float)values[channel] * scales[channel / 64]);
+    }
+    return total;
+}
+
+void qwn_q8_cache_accum_value_scalar(const QwnQ8Cache *cache, int token,
+                                     int channel_offset, float score,
+                                     float *ctx, int dim) {
+    if (!cache || !ctx || token < 0 || token >= cache->n_tokens ||
+        channel_offset < 0 || dim <= 0 || channel_offset + dim > cache->n_channels)
+        return;
+    const int8_t *values = cache->packed_v + (size_t)token * cache->token_stride;
+    const float *scales = cache->scales_v + (size_t)token * cache->scale_stride;
+    for (int i = 0; i < dim; i++) {
+        int channel = channel_offset + i;
+        ctx[i] += score * ((float)values[channel] * scales[channel / 64]);
+    }
+}
+
+void qwn_q8_cache_attention_head(const float *query, const QwnQ8Cache *cache,
+                                 int kv_head_idx, int pos, float scale,
+                                 float *scores_scratch, float *ctx_out) {
+    if (!query || !cache || !scores_scratch || !ctx_out || pos < 0 ||
+        pos >= cache->n_tokens || kv_head_idx < 0 || kv_head_idx >= cache->n_heads)
+        return;
+    int offset = kv_head_idx * cache->head_dim;
+    for (int token = 0; token <= pos; token++)
+        scores_scratch[token] = qwn_q8_cache_dot_key_scalar(
+            cache, token, offset, query, cache->head_dim) * scale;
+    float max_score = scores_scratch[0];
+    for (int token = 1; token <= pos; token++)
+        if (scores_scratch[token] > max_score) max_score = scores_scratch[token];
+    float sum = 0.0f;
+    for (int token = 0; token <= pos; token++) {
+        scores_scratch[token] = expf(scores_scratch[token] - max_score);
+        sum += scores_scratch[token];
+    }
+    float inv_sum = sum > 0.0f ? 1.0f / sum : 0.0f;
+    memset(ctx_out, 0, (size_t)cache->head_dim * sizeof(float));
+    for (int token = 0; token <= pos; token++)
+        qwn_q8_cache_accum_value_scalar(cache, token, offset,
+                                        scores_scratch[token] * inv_sum,
+                                        ctx_out, cache->head_dim);
 }
 
 /* -------------------------------------------------------------------------

@@ -234,6 +234,11 @@ static void init_residency(QwnDecoder *d) {
 static void qwn_cuda_unload(QwnDecoder *d) {
     if (!d || !d->qwn_cuda.handle) return;
     if (d->qwn_cuda.context.opaque) {
+        for (uint32_t i = 0; i < d->qwn_cuda.kv_cache_count; i++) {
+            if (d->qwn_cuda.kv_caches[i].opaque && d->qwn_cuda.kv_cache_destroy)
+                d->qwn_cuda.kv_cache_destroy(&d->qwn_cuda.context,
+                                             &d->qwn_cuda.kv_caches[i]);
+        }
         for (uint32_t i = 0; i < d->qwn_cuda.weight_count; i++) {
             if (d->qwn_cuda.weights[i].tensor.opaque && d->qwn_cuda.release_tensor) {
                 d->qwn_cuda.release_tensor(&d->qwn_cuda.context,
@@ -331,6 +336,11 @@ static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
     d->qwn_cuda.context_destroy = (QwnCudaContextDestroyFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_context_destroy");
     d->qwn_cuda.upload_tensor = (QwnCudaTensorUploadFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_upload_tensor");
     d->qwn_cuda.release_tensor = (QwnCudaTensorReleaseFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_release_tensor");
+    d->qwn_cuda.kv_cache_create = (QwnCudaKvCreateFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_kv_cache_create");
+    d->qwn_cuda.kv_cache_destroy = (QwnCudaKvDestroyFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_kv_cache_destroy");
+    d->qwn_cuda.kv_cache_append = (QwnCudaKvAppendFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_kv_cache_append");
+    d->qwn_cuda.kv_cache_attention = (QwnCudaKvAttentionFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_kv_cache_attention");
+    d->qwn_cuda.kv_cache_reset = (QwnCudaKvResetFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_kv_cache_reset");
     d->qwn_cuda.gemv_hypervsq2 = (QwnCudaGemvFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_hypervsq2_gemv");
     d->qwn_cuda.gemm_hypervsq2 = (QwnCudaGemmFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_hypervsq2_gemm");
     d->qwn_cuda.synchronize = (QwnCudaSynchronizeFn)qwn_cuda_symbol(handle, "qwn_cuda_abi_synchronize");
@@ -365,6 +375,33 @@ static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
                  "abi_capability_or_hypervsq2_layout_rejected");
         qwn_cuda_unload(d);
         return -1;
+    }
+    if (strcmp(d->runtime_config.kv_cache_mode, "q8") == 0 &&
+        (!(d->qwn_cuda.capabilities.capability_bits & QWN_CUDA_CAP_Q8_KV) ||
+         !d->qwn_cuda.kv_cache_create || !d->qwn_cuda.kv_cache_destroy ||
+         !d->qwn_cuda.kv_cache_append || !d->qwn_cuda.kv_cache_attention ||
+         !d->qwn_cuda.kv_cache_reset)) {
+        fprintf(stderr, required ? "[ERROR] CUDA Q8 KV-cache capability is unavailable.\n" :
+                                  "[WARN] CUDA Q8 KV-cache capability is unavailable; auto backend remains mixed CPU/GPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "cuda_q8_kv_capability_unavailable");
+        if (required) {
+            qwn_cuda_unload(d);
+            return -1;
+        }
+    }
+    if ((strcmp(d->runtime_config.kv_cache_mode, "turboquant-q4") == 0 ||
+         strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0)) {
+        fprintf(stderr, required ? "[ERROR] CUDA QWN-Q4-KV kernels are unavailable.\n" :
+                                  "[WARN] CUDA QWN-Q4-KV kernels are unavailable; auto backend remains mixed CPU/GPU.\n");
+        snprintf(d->runtime_metrics.cuda_backend_reason,
+                 sizeof(d->runtime_metrics.cuda_backend_reason),
+                 "cuda_qwn_q4_kv_capability_unavailable");
+        if (required) {
+            qwn_cuda_unload(d);
+            return -1;
+        }
     }
     qwn_cuda_abi_header_init(&d->qwn_cuda.capabilities.header,
                              (uint32_t)sizeof(d->qwn_cuda.capabilities));
@@ -1059,6 +1096,7 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
     int max_q_out=0, max_kv_out=0, max_ffn_out=0;
     size_t floats, kv_elems, kv_bytes;
     float *p;
+    int quantized_kv_mode;
     double kv_started;
     double tokenizer_started;
     double startup_started = qwn_decode_wall_seconds();
@@ -1069,6 +1107,11 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
              sizeof(d->runtime_metrics.cuda_dll_hash), "Unavailable");
     qwn_runtime_config_default(&d->runtime_config);
     if (config) d->runtime_config = *config;
+    if (qwn_runtime_kv_cache_mode_parse(d->runtime_config.kv_cache_mode,
+                                        &d->runtime_config.kv_cache_mode_typed) != 0) {
+        if (error) *error = "invalid typed KV-cache mode";
+        return -1;
+    }
     if (qwn_runtime_config_validate(&d->runtime_config, NULL, 0) != 0) {
         if (error) *error = "invalid runtime configuration";
         return -1;
@@ -1090,6 +1133,8 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
 #endif
     d->runtime_metrics.requested_cpu_threads = d->runtime_config.cpu_threads;
     if(qwn_open(path,&d->model,error)!=0)return -1;
+    if (qwn_sha256_file_hex(path, d->model_sha256) != 0)
+        snprintf(d->model_sha256, sizeof(d->model_sha256), "Unavailable");
     d->startup_metrics.file_open_ms = d->model.open_metrics.file_open_ms;
     d->startup_metrics.mmap_ms = d->model.open_metrics.mmap_ms;
     d->startup_metrics.metadata_parse_ms = d->model.open_metrics.metadata_parse_ms;
@@ -1159,11 +1204,14 @@ for (int l = 0; l < d->cfg.layers; l++) {
     d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
     d->ctx=p;p+=Q;d->att=p;p+=(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx;d->gate=p;p+=I;
     d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
+    quantized_kv_mode = strcmp(d->runtime_config.kv_cache_mode, "q8") == 0 ||
+                        strcmp(d->runtime_config.kv_cache_mode, "turboquant-q4") == 0 ||
+                        strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0;
     kv_started = qwn_decode_wall_seconds();
     kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*max_kv_out;
     int kv_head_dim = d->cfg.kv_heads ? max_kv_out / d->cfg.kv_heads : 0;
     int page_blocks = (d->cfg.max_ctx + QWN_PAGE_BLOCK_SIZE - 1) / QWN_PAGE_BLOCK_SIZE;
-    if (kv_head_dim > 0 &&
+    if (!quantized_kv_mode && kv_head_dim > 0 &&
         qwn_kv_pool_init(&d->paged_kv, page_blocks, d->cfg.layers,
                          d->cfg.kv_heads, kv_head_dim) == 0 &&
         qwn_block_table_init(&d->paged_table, 0, page_blocks) == 0) {
@@ -1180,7 +1228,7 @@ for (int l = 0; l < d->cfg.layers; l++) {
             qwn_kv_pool_free(&d->paged_kv);
         }
     }
-    if (!d->use_paged_kv) {
+    if (!quantized_kv_mode && !d->use_paged_kv) {
         kv_bytes=up64(kv_elems*sizeof(uint16_t));
         d->kv_allocation=alloc64(kv_bytes*2);if(!d->kv_allocation){if(error)*error=ERR_MEMORY;goto fail;}
         d->key_cache=(uint16_t*)d->kv_allocation;
@@ -1222,17 +1270,65 @@ for (int l = 0; l < d->cfg.layers; l++) {
                    (seed_text && *seed_text ? strtoull(seed_text, NULL, 10)
                                             : 0x9e3779b97f4a7c15ULL);
     if (d->rng_state == 0) d->rng_state = 0x9e3779b97f4a7c15ULL;
-    const char *tq_env = getenv("QWN_TURBOQUANT");
-    if (tq_env && (strcmp(tq_env, "1") == 0 || strcmp(tq_env, "true") == 0 || strcmp(tq_env, "auto") == 0)) {
+    /* Cache selection is typed and comes only from RuntimeConfig.  The old
+     * QWN_TURBOQUANT environment switch was intentionally removed: a cache
+     * mode is not active until its representation has been allocated and a
+     * real token has been appended/read. */
+    if (strcmp(d->runtime_config.kv_cache_mode, "q8") == 0) {
+        d->use_q8_kv = 1;
+        d->q8_layers = (QwnQ8Cache *)calloc((size_t)d->cfg.layers,
+                                             sizeof(QwnQ8Cache));
+        if (!d->q8_layers) {
+            if (error) *error = ERR_MEMORY;
+            goto fail;
+        }
+        for (int l = 0; l < d->cfg.layers; l++) {
+            int layer_kv_out = d->layer_cache[l].k_out > 0 ?
+                               d->layer_cache[l].k_out : max_kv_out;
+            int kv_hd = d->cfg.kv_heads ? layer_kv_out / d->cfg.kv_heads : 0;
+            if (qwn_q8_cache_init(&d->q8_layers[l], d->cfg.max_ctx,
+                                  d->cfg.kv_heads, kv_hd) != 0) {
+                if (error) *error = ERR_MEMORY;
+                goto fail;
+            }
+        }
+    } else if (strcmp(d->runtime_config.kv_cache_mode, "turboquant-q4") == 0 ||
+               strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0) {
         d->use_turboquant = 1;
-        d->turboquant_layers = (TurboQuantCache*)malloc(sizeof(TurboQuantCache) * (size_t)d->cfg.layers);
-        if (d->turboquant_layers) {
-            for (int l = 0; l < d->cfg.layers; l++) {
-                int kv_hd = d->cfg.kv_heads ? max_kv_out / d->cfg.kv_heads : 0;
-                qwn_turboquant_init(&d->turboquant_layers[l], d->cfg.max_ctx, d->cfg.kv_heads, kv_hd);
+        d->turboquant_layers = (TurboQuantCache *)calloc(
+            (size_t)d->cfg.layers, sizeof(TurboQuantCache));
+        if (!d->turboquant_layers) {
+            if (error) *error = ERR_MEMORY;
+            goto fail;
+        }
+        for (int l = 0; l < d->cfg.layers; l++) {
+            int layer_kv_out = d->layer_cache[l].k_out > 0 ?
+                               d->layer_cache[l].k_out : max_kv_out;
+            int kv_hd = d->cfg.kv_heads ? layer_kv_out / d->cfg.kv_heads : 0;
+            if (qwn_turboquant_init(&d->turboquant_layers[l], d->cfg.max_ctx,
+                                    d->cfg.kv_heads, kv_hd) != 0) {
+                if (error) *error = ERR_MEMORY;
+                goto fail;
             }
         }
     }
+    if (d->q8_layers) {
+        for (int l = 0; l < d->cfg.layers; l++)
+            d->runtime_metrics.kv_cache_allocated_bytes +=
+                (uint64_t)d->q8_layers[l].total_bytes;
+    } else if (d->turboquant_layers) {
+        for (int l = 0; l < d->cfg.layers; l++)
+            d->runtime_metrics.kv_cache_allocated_bytes +=
+                (uint64_t)d->turboquant_layers[l].total_bytes;
+    }
+    snprintf(d->runtime_metrics.kv_cache_kernel,
+             sizeof(d->runtime_metrics.kv_cache_kernel), "Unavailable");
+    snprintf(d->runtime_metrics.kv_cache_algorithm,
+             sizeof(d->runtime_metrics.kv_cache_algorithm),
+                     d->use_turboquant ? "QWN-Q4-KV-scalar" :
+             d->use_q8_kv ? "Q8-symmetric" : "FP16");
+    snprintf(d->runtime_metrics.kv_cache_mode_actual,
+             sizeof(d->runtime_metrics.kv_cache_mode_actual), "Unavailable");
     d->runtime_metrics.cuda_device = d->runtime_config.gpu_device >= 0 ? d->runtime_config.gpu_device : 0;
     snprintf(d->runtime_metrics.backend, sizeof(d->runtime_metrics.backend),
              d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA ? "cuda-pending" : "cpu");
@@ -1244,6 +1340,57 @@ for (int l = 0; l < d->cfg.layers; l++) {
             if (error) *error = "CUDA backend requested but qwn_cuda.dll/device is unavailable";
             goto fail;
         }
+    }
+    if (d->use_q8_kv && d->qwn_cuda.available &&
+        d->qwn_cuda.kv_cache_create && d->qwn_cuda.kv_cache_destroy &&
+        d->qwn_cuda.kv_cache_append && d->qwn_cuda.kv_cache_attention &&
+        d->qwn_cuda.kv_cache_reset) {
+        int cuda_kv_ok = 1;
+        for (int l = 0; l < d->cfg.layers; l++) {
+            int layer_kv_out = d->layer_cache[l].k_out > 0 ?
+                               d->layer_cache[l].k_out : max_kv_out;
+            if (layer_kv_out <= 0 || d->cfg.kv_heads <= 0 ||
+                layer_kv_out % d->cfg.kv_heads != 0) {
+                cuda_kv_ok = 0;
+                break;
+            }
+            QwnCudaKvCacheOptions options;
+            memset(&options, 0, sizeof(options));
+            qwn_cuda_abi_header_init(&options.header, (uint32_t)sizeof(options));
+            options.max_tokens = (uint32_t)d->cfg.max_ctx;
+            options.kv_heads = (uint32_t)d->cfg.kv_heads;
+            options.head_dim = (uint32_t)(layer_kv_out / d->cfg.kv_heads);
+            QwnCudaKvCacheHandle cache;
+            memset(&cache, 0, sizeof(cache));
+            qwn_cuda_abi_header_init(&cache.header, (uint32_t)sizeof(cache));
+            if (d->qwn_cuda.kv_cache_count >= QWN_CUDA_MAX_RESIDENT_KV_CACHES ||
+                d->qwn_cuda.kv_cache_create(&d->qwn_cuda.context, &options, &cache) !=
+                    QWN_CUDA_STATUS_OK) {
+                cuda_kv_ok = 0;
+                break;
+            }
+            d->qwn_cuda.kv_caches[d->qwn_cuda.kv_cache_count++] = cache;
+        }
+        if (cuda_kv_ok && d->qwn_cuda.kv_cache_count == (uint32_t)d->cfg.layers) {
+            d->use_cuda_q8_kv = 1;
+            snprintf(d->runtime_metrics.kv_cache_algorithm,
+                     sizeof(d->runtime_metrics.kv_cache_algorithm), "Q8-CUDA");
+        } else {
+            for (uint32_t i = 0; i < d->qwn_cuda.kv_cache_count; i++)
+                d->qwn_cuda.kv_cache_destroy(&d->qwn_cuda.context,
+                                              &d->qwn_cuda.kv_caches[i]);
+            d->qwn_cuda.kv_cache_count = 0;
+            if (d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) {
+                if (error) *error = "CUDA Q8 KV-cache allocation failed";
+                goto fail;
+            }
+            snprintf(d->runtime_metrics.cuda_backend_reason,
+                     sizeof(d->runtime_metrics.cuda_backend_reason),
+                     "cuda_q8_kv_allocation_failed_auto_cpu_kv");
+        }
+    } else if (d->use_q8_kv && d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) {
+        if (error) *error = "CUDA Q8 KV-cache functions are unavailable";
+        goto fail;
     }
     if (d->embed_weight) {
         const uint8_t *first = (const uint8_t *)qwn_data(&d->model, d->embed_weight);
@@ -1335,6 +1482,11 @@ const QwnStartupMetrics *qwn_decoder_startup_metrics(const QwnDecoder *d) {
 
 void qwn_decoder_reset(QwnDecoder *d){
     if (!d) return;
+    if (d->use_cuda_q8_kv && d->qwn_cuda.kv_cache_reset) {
+        for (uint32_t i = 0; i < d->qwn_cuda.kv_cache_count; i++)
+            d->qwn_cuda.kv_cache_reset(&d->qwn_cuda.context,
+                                       &d->qwn_cuda.kv_caches[i]);
+    }
     d->position = 0;
     memset(&d->generation_metrics, 0, sizeof(d->generation_metrics));
     d->runtime_metrics.final_lm_head_calls = 0;
@@ -1357,6 +1509,9 @@ void qwn_decoder_reset(QwnDecoder *d){
         for (int l = 0; l < d->cfg.layers; l++) {
             d->turboquant_layers[l].n_tokens = 0;
         }
+    }
+    if (d->use_q8_kv && d->q8_layers) {
+        for (int l = 0; l < d->cfg.layers; l++) qwn_q8_cache_reset(&d->q8_layers[l]);
     }
 }
 
@@ -1381,6 +1536,11 @@ void qwn_decoder_close(QwnDecoder *d){
         }
         free(d->turboquant_layers);
         d->turboquant_layers = NULL;
+    }
+    if (d->q8_layers) {
+        for (int l = 0; l < d->cfg.layers; l++) qwn_q8_cache_free(&d->q8_layers[l]);
+        free(d->q8_layers);
+        d->q8_layers = NULL;
     }
     free64(d->kv_allocation);qwn_close(&d->model);memset(d,0,sizeof(*d));
 }
@@ -1493,24 +1653,141 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             if(lt->k_norm&&hd_this&&vector_f32(&d->model,lt->k_norm,d->scratch.row_f32,hd_this)==0)
                 head_rmsnorm(d->k,HK,hd_this,d->scratch.row_f32,c->rms_eps);
             rope(d,d->q,H,hd_this,pos,c->rope_theta);rope(d,d->k,HK,hd_this,pos,c->rope_theta);
-            if (d->use_turboquant && d->turboquant_layers) {
+            if (d->use_q8_kv && d->q8_layers) {
+                if (d->use_cuda_q8_kv) {
+                    QwnCudaKvAppendRequest append_request;
+                    QwnCudaTelemetry telemetry;
+                    memset(&append_request, 0, sizeof(append_request));
+                    memset(&telemetry, 0, sizeof(telemetry));
+                    qwn_cuda_abi_header_init(&append_request.header,
+                                             (uint32_t)sizeof(append_request));
+                    qwn_cuda_abi_header_init(&append_request.cache.header,
+                                             (uint32_t)sizeof(append_request.cache));
+                    append_request.cache = d->qwn_cuda.kv_caches[l];
+                    append_request.host_key = d->k;
+                    append_request.host_value = d->v;
+                    append_request.n_channels = (uint32_t)KV;
+                    append_request.token = (uint32_t)pos;
+                    qwn_cuda_abi_header_init(&telemetry.header,
+                                             (uint32_t)sizeof(telemetry));
+                    if (d->qwn_cuda.kv_cache_append(&d->qwn_cuda.context,
+                                                    &append_request,
+                                                    &telemetry) != QWN_CUDA_STATUS_OK) {
+                        fprintf(stderr, "layer %d CUDA Q8 KV append failed\n", l);
+                        return -1;
+                    }
+                    QwnCudaKvAttentionRequest attention_request;
+                    memset(&attention_request, 0, sizeof(attention_request));
+                    qwn_cuda_abi_header_init(&attention_request.header,
+                                             (uint32_t)sizeof(attention_request));
+                    attention_request.cache = d->qwn_cuda.kv_caches[l];
+                    attention_request.host_query = d->q;
+                    attention_request.host_output = d->ctx;
+                    attention_request.query_heads = (uint32_t)H;
+                    attention_request.kv_heads = (uint32_t)HK;
+                    attention_request.head_dim = (uint32_t)hd_this;
+                    attention_request.position = (uint32_t)pos;
+                    attention_request.scale = 1.0f / sqrtf((float)hd_this);
+                    if (d->qwn_cuda.kv_cache_attention(&d->qwn_cuda.context,
+                                                       &attention_request,
+                                                       &telemetry) != QWN_CUDA_STATUS_OK) {
+                        fprintf(stderr, "layer %d CUDA Q8 KV attention failed\n", l);
+                        return -1;
+                    }
+                    d->runtime_metrics.kv_cache_append_count++;
+                    d->runtime_metrics.kv_cache_attention_reads +=
+                        (uint64_t)(pos + 1) * (uint64_t)H;
+                    d->runtime_metrics.kv_cache_active = 1;
+                    snprintf(d->runtime_metrics.kv_cache_mode_actual,
+                             sizeof(d->runtime_metrics.kv_cache_mode_actual), "q8");
+                    d->runtime_metrics.kv_cache_allocated_bytes =
+                        telemetry.kv_cache_resident_bytes;
+                    d->runtime_metrics.kv_cache_kernel_count =
+                        telemetry.kv_cache_kernel_count;
+                    d->runtime_metrics.kv_cache_upload_bytes =
+                        telemetry.kv_cache_upload_bytes;
+                    d->runtime_metrics.kv_cache_kernel_ms =
+                        telemetry.kv_cache_kernel_ms;
+                    d->runtime_metrics.kv_cache_transfer_ms =
+                        telemetry.kv_cache_transfer_ms;
+                    snprintf(d->runtime_metrics.kv_cache_kernel,
+                             sizeof(d->runtime_metrics.kv_cache_kernel), "%s",
+                             telemetry.kv_cache_kernel_type);
+                    d->scratch.logical_kv_bytes +=
+                        (uint64_t)d->q8_layers[l].total_bytes /
+                        (uint64_t)(d->q8_layers[l].max_tokens > 0 ?
+                                   d->q8_layers[l].max_tokens : 1);
+                    if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
+                        add_bias(d, lt->o_bias, d->xb, D);
+                        vec_add(d->x, d->xb, D);
+                    }
+                } else {
+                const double kv_start = qwn_decode_wall_seconds();
+                if (qwn_q8_cache_append(&d->q8_layers[l], d->k, d->v, KV) != 0)
+                    return -1;
+                d->runtime_metrics.kv_cache_append_count++;
+                d->runtime_metrics.kv_cache_active = 1;
+                snprintf(d->runtime_metrics.kv_cache_mode_actual,
+                         sizeof(d->runtime_metrics.kv_cache_mode_actual), "q8");
+                snprintf(d->runtime_metrics.kv_cache_kernel,
+                         sizeof(d->runtime_metrics.kv_cache_kernel),
+                         "q8-scalar");
+                d->scratch.logical_kv_bytes +=
+                    (uint64_t)d->q8_layers[l].total_bytes /
+                    (uint64_t)(d->q8_layers[l].max_tokens > 0 ?
+                               d->q8_layers[l].max_tokens : 1);
+                memset(d->ctx, 0, (size_t)Q * sizeof(float));
+                float scale = 1.0f / sqrtf((float)hd_this);
+                float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;
+                d->runtime_metrics.kv_cache_attention_reads +=
+                    (uint64_t)(pos + 1) * (uint64_t)H;
+#if defined(_OPENMP)
+                #pragma omp parallel for schedule(static) if(H > 1)
+#endif
+                for (int h = 0; h < H; h++) {
+                    int kh = (int)((float)h / ratio);
+                    qwn_q8_cache_attention_head(
+                        d->q + h * hd_this, &d->q8_layers[l], kh, pos, scale,
+                        d->att + (size_t)h * c->max_ctx,
+                        d->ctx + h * hd_this);
+                }
+                d->runtime_metrics.kv_cache_kernel_count += (uint64_t)H + 1u;
+                d->runtime_metrics.kv_cache_kernel_ms +=
+                    (qwn_decode_wall_seconds() - kv_start) * 1000.0;
+                if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
+                    add_bias(d, lt->o_bias, d->xb, D);
+                    vec_add(d->x, d->xb, D);
+                }
+                }
+            } else if (d->use_turboquant && d->turboquant_layers) {
+                const double kv_start = qwn_decode_wall_seconds();
                 qwn_turboquant_quantize_token(d->k, d->turboquant_layers[l].packed_k + (size_t)pos * d->turboquant_layers[l].token_stride_k, KV);
                 qwn_turboquant_quantize_token(d->v, d->turboquant_layers[l].packed_v + (size_t)pos * d->turboquant_layers[l].token_stride_v, KV);
+                d->runtime_metrics.kv_cache_append_count++;
+                d->runtime_metrics.kv_cache_active = 1;
+                snprintf(d->runtime_metrics.kv_cache_mode_actual,
+                             sizeof(d->runtime_metrics.kv_cache_mode_actual), "qwn-q4-kv");
+                snprintf(d->runtime_metrics.kv_cache_kernel,
+                         sizeof(d->runtime_metrics.kv_cache_kernel),
+                         "qwn-q4-scalar-or-avx");
                 d->scratch.logical_kv_bytes +=
                     (uint64_t)(d->turboquant_layers[l].token_stride_k +
                                d->turboquant_layers[l].token_stride_v);
                 memset(d->ctx, 0, (size_t)Q * sizeof(float));
                 float scale = 1.0f / sqrtf((float)hd_this);
                 float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;
+                d->scratch.logical_kv_bytes +=
+                    (uint64_t)(pos + 1) *
+                    (uint64_t)(d->turboquant_layers[l].token_stride_k +
+                               d->turboquant_layers[l].token_stride_v) *
+                    (uint64_t)H;
+                d->runtime_metrics.kv_cache_attention_reads +=
+                    (uint64_t)(pos + 1) * (uint64_t)H;
 #if defined(_OPENMP)
                 #pragma omp parallel for schedule(static) if(H > 1)
 #endif
                 for (int h = 0; h < H; h++) {
                     int kh = (int)((float)h / ratio);
-                    d->scratch.logical_kv_bytes +=
-                        (uint64_t)(pos + 1) *
-                        (uint64_t)(d->turboquant_layers[l].token_stride_k +
-                                   d->turboquant_layers[l].token_stride_v);
                     qwn_turboquant_attention_head(
                         d->q + h * hd_this,
                         &d->turboquant_layers[l],
@@ -1519,6 +1796,9 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                         d->ctx + h * hd_this
                     );
                 }
+                d->runtime_metrics.kv_cache_kernel_count += (uint64_t)H + 1u;
+                d->runtime_metrics.kv_cache_kernel_ms +=
+                    (qwn_decode_wall_seconds() - kv_start) * 1000.0;
                 if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
                     add_bias(d, lt->o_bias, d->xb, D);
                     vec_add(d->x, d->xb, D);
@@ -1526,6 +1806,10 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             } else if (d->use_paged_kv) {
                 if (qwn_paged_kv_write(&d->paged_kv, &d->paged_table, l, pos,
                                        d->k, d->v) != 0) return -1;
+                d->runtime_metrics.kv_cache_active = 1;
+                d->runtime_metrics.kv_cache_append_count++;
+                snprintf(d->runtime_metrics.kv_cache_mode_actual,
+                         sizeof(d->runtime_metrics.kv_cache_mode_actual), "fp16");
                 d->scratch.logical_kv_bytes +=
                     (uint64_t)2 * (uint64_t)KV * sizeof(uint16_t);
                 memset(d->ctx, 0, (size_t)Q * sizeof(float));
@@ -1574,6 +1858,10 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             for(int i=0;i<KV;i++){d->key_cache[pos_base+i]=float_to_half(d->k[i]);
                                   d->value_cache[pos_base+i]=float_to_half(d->v[i]);}
 #endif
+            d->runtime_metrics.kv_cache_active = 1;
+            d->runtime_metrics.kv_cache_append_count++;
+            snprintf(d->runtime_metrics.kv_cache_mode_actual,
+                     sizeof(d->runtime_metrics.kv_cache_mode_actual), "fp16");
             memset(d->ctx,0,(size_t)Q*sizeof(float));
             float scale=1.0f/sqrtf((float)hd_this);
             float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;

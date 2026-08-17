@@ -29,6 +29,7 @@ extern "C" {
 #define QWN_CUDA_HYPERVSQ2_BLOCK_BYTES 74u
 #define QWN_CUDA_HYPERVSQ2_BLOCK_ELEMENTS 256u
 #define QWN_CUDA_MAX_RESIDENT_TENSORS 512u
+#define QWN_CUDA_MAX_RESIDENT_KV_CACHES 128u
 
 typedef struct {
     uint32_t struct_size;
@@ -52,7 +53,8 @@ enum {
     QWN_CUDA_CAP_HYPERVSQ2_GEMM = 1ull << 1,
     QWN_CUDA_CAP_RESIDENT_WEIGHTS = 1ull << 2,
     QWN_CUDA_CAP_TELEMETRY = 1ull << 3,
-    QWN_CUDA_CAP_DEVICE_ENUMERATION = 1ull << 4
+    QWN_CUDA_CAP_DEVICE_ENUMERATION = 1ull << 4,
+    QWN_CUDA_CAP_Q8_KV = 1ull << 5
 };
 
 typedef enum {
@@ -114,6 +116,40 @@ typedef struct {
 
 typedef struct {
     QwnCudaAbiHeader header;
+    void *opaque;
+} QwnCudaKvCacheHandle;
+
+typedef struct {
+    QwnCudaAbiHeader header;
+    uint32_t max_tokens;
+    uint32_t kv_heads;
+    uint32_t head_dim;
+    uint32_t reserved;
+} QwnCudaKvCacheOptions;
+
+typedef struct {
+    QwnCudaAbiHeader header;
+    QwnCudaKvCacheHandle cache;
+    const float *host_key;
+    const float *host_value;
+    uint32_t n_channels;
+    uint32_t token;
+} QwnCudaKvAppendRequest;
+
+typedef struct {
+    QwnCudaAbiHeader header;
+    QwnCudaKvCacheHandle cache;
+    const float *host_query;
+    float *host_output;
+    uint32_t query_heads;
+    uint32_t kv_heads;
+    uint32_t head_dim;
+    uint32_t position;
+    float scale;
+} QwnCudaKvAttentionRequest;
+
+typedef struct {
+    QwnCudaAbiHeader header;
     const void *host_data;
     uint64_t data_bytes;
     uint32_t dtype;
@@ -155,6 +191,12 @@ typedef struct {
     char device_name[128];
     char kernel_type[32];
     char dll_hash[65];
+    uint64_t kv_cache_kernel_count;
+    uint64_t kv_cache_upload_bytes;
+    uint64_t kv_cache_resident_bytes;
+    double kv_cache_kernel_ms;
+    double kv_cache_transfer_ms;
+    char kv_cache_kernel_type[32];
 } QwnCudaTelemetry;
 
 typedef int (*QwnCudaAbiQueryFn)(QwnCudaAbiInfo *info);
@@ -170,6 +212,19 @@ typedef int (*QwnCudaTensorUploadFn)(QwnCudaContextHandle *context,
                                      QwnCudaTensorHandle *tensor);
 typedef int (*QwnCudaTensorReleaseFn)(QwnCudaContextHandle *context,
                                       QwnCudaTensorHandle *tensor);
+typedef int (*QwnCudaKvCreateFn)(QwnCudaContextHandle *context,
+                                  const QwnCudaKvCacheOptions *options,
+                                  QwnCudaKvCacheHandle *cache);
+typedef int (*QwnCudaKvDestroyFn)(QwnCudaContextHandle *context,
+                                  QwnCudaKvCacheHandle *cache);
+typedef int (*QwnCudaKvAppendFn)(QwnCudaContextHandle *context,
+                                 const QwnCudaKvAppendRequest *request,
+                                 QwnCudaTelemetry *telemetry);
+typedef int (*QwnCudaKvAttentionFn)(QwnCudaContextHandle *context,
+                                    const QwnCudaKvAttentionRequest *request,
+                                    QwnCudaTelemetry *telemetry);
+typedef int (*QwnCudaKvResetFn)(QwnCudaContextHandle *context,
+                                QwnCudaKvCacheHandle *cache);
 typedef int (*QwnCudaGemvFn)(QwnCudaContextHandle *context,
                              const QwnCudaGemmRequest *request,
                              QwnCudaTelemetry *telemetry);
@@ -194,6 +249,19 @@ QWN_CUDA_ABI_API int qwn_cuda_abi_upload_tensor(QwnCudaContextHandle *context,
                                                 QwnCudaTensorHandle *tensor);
 QWN_CUDA_ABI_API int qwn_cuda_abi_release_tensor(QwnCudaContextHandle *context,
                                                  QwnCudaTensorHandle *tensor);
+QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_create(
+    QwnCudaContextHandle *context, const QwnCudaKvCacheOptions *options,
+    QwnCudaKvCacheHandle *cache);
+QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_destroy(
+    QwnCudaContextHandle *context, QwnCudaKvCacheHandle *cache);
+QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_append(
+    QwnCudaContextHandle *context, const QwnCudaKvAppendRequest *request,
+    QwnCudaTelemetry *telemetry);
+QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_attention(
+    QwnCudaContextHandle *context, const QwnCudaKvAttentionRequest *request,
+    QwnCudaTelemetry *telemetry);
+QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_reset(
+    QwnCudaContextHandle *context, QwnCudaKvCacheHandle *cache);
 QWN_CUDA_ABI_API int qwn_cuda_abi_hypervsq2_gemv(QwnCudaContextHandle *context,
                                                 const QwnCudaGemmRequest *request,
                                                 QwnCudaTelemetry *telemetry);

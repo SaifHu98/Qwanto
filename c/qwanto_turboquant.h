@@ -18,6 +18,42 @@ extern "C" {
 #define TURBOQUANT_BLOCK_BYTES 32
 #define TURBOQUANT_PAYLOAD_BYTES 28
 
+/* Versioned cache contract shared by the decoder, gateway and evidence tools.
+ * The legacy TurboQuant names below remain source-compatible for existing
+ * tests, but the on-disk-independent representation implemented here is
+ * reported as QWN-Q4-KV until it is shown to match the cited TurboQuant
+ * algorithm exactly. */
+#define QWN_KV_CACHE_ABI_VERSION 1u
+#define QWN_KV_CACHE_PAGE_SIZE 16u
+
+typedef enum {
+    QWN_KV_CACHE_FP16 = 0,
+    QWN_KV_CACHE_Q8 = 1,
+    QWN_KV_CACHE_TURBOQUANT_Q4 = 2,
+    QWN_KV_CACHE_AUTO = 3
+} QwnKvCacheMode;
+
+typedef struct {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t cache_dtype;
+    uint32_t block_size;
+    uint32_t scale_bytes;
+    uint32_t zero_point_bytes;
+    uint32_t key_layout;
+    uint32_t value_layout;
+    uint32_t page_size;
+    uint32_t alignment;
+    uint32_t valid_token_count;
+    uint32_t reserved[5];
+} QwnKvCacheContract;
+
+const char *qwn_kv_cache_mode_name(QwnKvCacheMode mode);
+int qwn_kv_cache_mode_parse(const char *text, QwnKvCacheMode *mode);
+void qwn_kv_cache_contract_init(QwnKvCacheContract *contract,
+                                QwnKvCacheMode mode,
+                                uint32_t valid_token_count);
+
 #pragma pack(push, 1)
 typedef struct {
     uint16_t scale_fp16;      /* FP16 adaptive scale (S) */
@@ -38,6 +74,39 @@ typedef struct {
     size_t token_stride_v;   /* Bytes per token for Value cache */
     size_t total_bytes;      /* Total allocation size in bytes */
 } TurboQuantCache;
+
+/* Deterministic symmetric Q8 cache.  Scales are stored per 64-value block;
+ * keys and values use the same logical token/head-major layout as FP16 KV. */
+typedef struct {
+    int8_t *packed_k;
+    int8_t *packed_v;
+    float *scales_k;
+    float *scales_v;
+    int n_channels;
+    int n_tokens;
+    int max_tokens;
+    int n_heads;
+    int head_dim;
+    size_t token_stride;
+    size_t scale_stride;
+    size_t total_bytes;
+    QwnKvCacheContract contract;
+} QwnQ8Cache;
+
+int qwn_q8_cache_init(QwnQ8Cache *cache, int max_tokens, int n_heads, int head_dim);
+void qwn_q8_cache_free(QwnQ8Cache *cache);
+void qwn_q8_cache_reset(QwnQ8Cache *cache);
+int qwn_q8_cache_append(QwnQ8Cache *cache, const float *key,
+                        const float *value, int n_channels);
+float qwn_q8_cache_dot_key_scalar(const QwnQ8Cache *cache, int token,
+                                  int channel_offset, const float *query,
+                                  int dim);
+void qwn_q8_cache_accum_value_scalar(const QwnQ8Cache *cache, int token,
+                                     int channel_offset, float score,
+                                     float *ctx, int dim);
+void qwn_q8_cache_attention_head(const float *query, const QwnQ8Cache *cache,
+                                 int kv_head_idx, int pos, float scale,
+                                 float *scores_scratch, float *ctx_out);
 
 /* Initialize TurboQuant cache for a given sequence length and geometry */
 int qwn_turboquant_init(TurboQuantCache* cache, int max_tokens, int n_heads, int head_dim);

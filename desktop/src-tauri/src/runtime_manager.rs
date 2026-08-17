@@ -37,6 +37,11 @@ pub struct StartOptions {
     pub kernel: Option<String>,
     pub seed: Option<u32>,
     pub speculative_decoding: Option<bool>,
+    pub draft_model: Option<String>,
+    pub draft_length: Option<u32>,
+    pub min_acceptance_rate: Option<f32>,
+    pub adaptive_draft_length: Option<bool>,
+    pub maximum_rollback: Option<u32>,
     pub fused_kernel: Option<bool>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
@@ -356,7 +361,7 @@ impl QwantoRuntimeManager {
 
         if let Some(ref opts) = options {
             if opts.speculative_decoding.unwrap_or(false) {
-                return Err("Speculative decoding is not implemented by qwnrun".into());
+                return Err("Speculative decoding requires a compatible native QWN draft model and validated transaction path".into());
             }
             if opts.fused_kernel.unwrap_or(false) {
                 return Err("Fused kernel execution is not implemented by qwnrun".into());
@@ -396,6 +401,21 @@ impl QwantoRuntimeManager {
             }
             if let Some(seed) = opts.seed {
                 cmd.arg("--seed").arg(seed.to_string());
+            }
+            if let Some(draft_model) = &opts.draft_model {
+                cmd.arg("--draft-model").arg(draft_model);
+            }
+            if let Some(draft_length) = opts.draft_length {
+                cmd.arg("--draft-length").arg(draft_length.to_string());
+            }
+            if let Some(min_acceptance_rate) = opts.min_acceptance_rate {
+                cmd.arg("--min-acceptance-rate").arg(min_acceptance_rate.to_string());
+            }
+            if opts.adaptive_draft_length == Some(false) {
+                cmd.arg("--no-adaptive-draft-length");
+            }
+            if let Some(maximum_rollback) = opts.maximum_rollback {
+                cmd.arg("--maximum-rollback").arg(maximum_rollback.to_string());
             }
         } else {
             cmd.arg("--backend").arg("auto");

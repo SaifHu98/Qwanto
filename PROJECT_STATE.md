@@ -135,6 +135,14 @@ and NVMe mmap.
   on the local RTX host it reports actual CUDA only after a successful model
   matmul. GPU detection or DLL loading alone is never classified as CUDA
   inference.
+- Phase 1 typed KV work is wired through qwnrun, the gateway, Tauri start
+  options, the decoder, and runtime telemetry. FP16 remains the default. CPU
+  Q8 is a scalar reference/attention-correct path; `turboquant-q4` reports the
+  distinct `QWN-Q4-KV` compatibility representation rather than claiming the
+  cited TurboQuant algorithm. The isolated CUDA Q8 reference passed on the
+  local RTX 5070 Ti with max absolute error `1.1920929e-7`, five kernel
+  invocations, and resident cleanup to zero. These are local results pending
+  hosted validation and are not README performance claims.
 - Local validation of the follow-up passed Python `243/243` executed tests with
   4 skips, focused ABI/evidence tests `21 passed`, Web build and `56` Vitest
   tests, and C/OpenMP syntax/link checks. `cargo` and `make` remain
@@ -151,6 +159,9 @@ and NVMe mmap.
 - Third-party plugin execution remains unavailable by design until a native
   sandbox/supervisor and publisher trust store are configured; manifest
   validation and disabled-by-default app-data storage are implemented.
+- Speculative decoding and JetSpec remain disabled while compatible native
+  draft-model and tree-aware transaction prerequisites are unavailable; their
+  counters do not start with fabricated acceptance or speedup values.
 - macOS signing/notarization and installed-package smoke tests require the
   corresponding maintainer-owned platform credentials/runners.
 - Windows Artifact Signing, macOS notarization, and Linux GPG signing are

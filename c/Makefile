@@ -189,6 +189,8 @@ endif
 CUDA_OBJ  =
 TEST_BINS = tests/test_json$(EXE) tests/test_st$(EXE) tests/test_tier$(EXE) tests/test_grammar$(EXE) tests/test_schema_gbnf$(EXE) tests/test_decode_batch$(EXE) tests/test_idot$(EXE) tests/test_kv_alloc$(EXE) tests/test_i4_acc512$(EXE) tests/test_compat_direct$(EXE) tests/test_scheduler$(EXE) tests/test_qwanto_arch$(EXE) tests/test_qwanto_native$(EXE)
 TEST_BINS += tests/test_hypervsq2_kernels$(EXE)
+TEST_BINS += tests/test_kv_cache$(EXE)
+TEST_BINS += tests/test_runtime_config$(EXE)
 ifneq (,$(LINUX))
 TEST_BINS += tests/test_uring$(EXE)
 endif
@@ -292,6 +294,13 @@ cuda-hypervsq2-test: cuda/qwn_hypervsq2_cuda_abi.cu cuda/qwn_cuda_abi.h tests/te
 		-L"$(CUDA_LIBDIR)" -lcudart -o tests/test_qwn_hypervsq2_cuda$(EXE)
 	./tests/test_qwn_hypervsq2_cuda$(EXE)
 
+cuda-q8-kv-test: cuda/qwn_hypervsq2_cuda_abi.cu cuda/qwn_cuda_abi.h tests/test_cuda_q8_kv.cu
+	@command -v $(NVCC) >/dev/null 2>&1 || { echo "nvcc not found: set CUDA_HOME or NVCC" >&2; exit 1; }
+	$(NVCC) $(NVCCFLAGS) -DQWN_CUDA_ABI_BUILDING_DLL -I. \
+		cuda/qwn_hypervsq2_cuda_abi.cu tests/test_cuda_q8_kv.cu \
+		-L"$(CUDA_LIBDIR)" -lcudart -o tests/test_cuda_q8_kv$(EXE)
+	./tests/test_cuda_q8_kv$(EXE)
+
 cuda-hypervsq2-decoder-test: tests/test_qwn_hypervsq2_cuda_decoder.c $(QWNRUN_LIB_SRCS) cuda/qwn_cuda_abi.h
 	$(CC) $(CFLAGS) $< $(QWNRUN_LIB_SRCS) -o test_qwn_hypervsq2_cuda_decoder$(EXE) $(LDFLAGS)
 	./test_qwn_hypervsq2_cuda_decoder$(EXE) experiments/results/4B_hyper_vsq2.qwn scalar
@@ -366,6 +375,12 @@ tests/test_qwanto_native$(EXE): tests/test_qwanto_native.c qwanto_native.c qwant
 tests/test_hypervsq2_kernels$(EXE): tests/test_hypervsq2_kernels.c qwanto_native.c qwanto_kernels.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+tests/test_kv_cache$(EXE): tests/test_kv_cache.c qwanto_turboquant.c qwanto_native.c qwanto_kernels.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+tests/test_runtime_config$(EXE): tests/test_runtime_config.c qwn_runtime_config.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 test-c: $(TEST_BINS)
 	$(PYTHON) tools/run_tests.py $(TEST_BINS)
 
@@ -400,4 +415,4 @@ clean:
 
 bench: iobench$(EXE)
 	@if [ -n "$(ARGS)" ]; then ./iobench$(EXE) $(ARGS); else echo "built iobench$(EXE) — run: ./iobench$(EXE) <file> <MB> <iters> <threads> <direct 0|1>"; fi
-.PHONY: all glm qwnrun cuda-test cuda-bench cuda-hypervsq2-test cuda-hypervsq2-decoder-test cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench
+.PHONY: all glm qwnrun cuda-test cuda-bench cuda-hypervsq2-test cuda-q8-kv-test cuda-hypervsq2-decoder-test cuda-dll qwn-cuda-dll portable test-c test-python test check clean install uninstall bench

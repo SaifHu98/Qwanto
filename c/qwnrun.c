@@ -406,15 +406,20 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    "activation_sum_recompute_count=%llu activation_sum_mode=%s "
                    "hypervsq2_logical_weight_bytes=%llu hypervsq2_logical_flops=%llu "
                    "hypervsq2_kernel_ms=%.3f swiglu_calls=%llu swiglu_elements=%llu swiglu_ms=%.3f "
-                   "hypervsq2_reductions_per_row=%d hypervsq2_reduction_mode=%s "
-                   "delayed_reduction_invocation_count=%llu "
-                   "logical_tensor_visits=%llu logical_repeated_tensor_accesses=%llu "
+             "hypervsq2_reductions_per_row=%d hypervsq2_reduction_mode=%s "
+             "delayed_reduction_invocation_count=%llu "
+              "logical_tensor_visits=%llu logical_repeated_tensor_accesses=%llu "
                    "logical_tensors_skipped=%llu logical_embedding_bytes=%llu "
                    "logical_attention_bytes=%llu logical_ffn_bytes=%llu "
                    "logical_lm_head_bytes=%llu logical_other_weight_bytes=%llu "
                    "logical_kv_bytes=%llu logical_activation_bytes=%llu logical_temporary_bytes=%llu "
                    "thinking_mode=%s decode_function=%s config_backend=%s context_size=%d "
-                   "max_tokens=%d seed=%d kv_cache_mode=%s quantization=%s kernel_requested=%s "
+                   "max_tokens=%d seed=%d kv_cache_mode=%s kv_cache_mode_actual=%s "
+                   "kv_cache_active=%d kv_cache_algorithm=%s kv_cache_kernel=%s "
+                   "kv_cache_allocated_bytes=%llu kv_cache_kernel_count=%llu "
+                   "kv_cache_upload_bytes=%llu kv_cache_kernel_ms=%.3f "
+                   "kv_cache_transfer_ms=%.3f kv_cache_append_count=%llu "
+                   "kv_cache_attention_reads=%llu quantization=%s kernel_requested=%s "
                    "temperature=%.8g top_p=%.8g first_real_forward_ms=%.3f "
                    "total_end_to_end_ms=%.3f\n",
                    id, generated, decode_tps, count, generated>=max_tokens,
@@ -478,7 +483,19 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    config.thinking_mode,
                    strcmp(config.thinking_mode, "none") == 0 ? "qwn_decoder_generate" : "qwn_decoder_generate_thinking",
                    qwn_runtime_backend_name(config.backend), config.context_size, config.max_tokens,
-                   config.seed, config.kv_cache_mode, config.quantization, config.kernel, temp, top_p,
+                   config.seed, config.kv_cache_mode,
+                   d.runtime_metrics.kv_cache_mode_actual,
+                   d.runtime_metrics.kv_cache_active,
+                   d.runtime_metrics.kv_cache_algorithm,
+                   d.runtime_metrics.kv_cache_kernel,
+                   (unsigned long long)d.runtime_metrics.kv_cache_allocated_bytes,
+                   (unsigned long long)d.runtime_metrics.kv_cache_kernel_count,
+                   (unsigned long long)d.runtime_metrics.kv_cache_upload_bytes,
+                   d.runtime_metrics.kv_cache_kernel_ms,
+                   d.runtime_metrics.kv_cache_transfer_ms,
+                   (unsigned long long)d.runtime_metrics.kv_cache_append_count,
+                   (unsigned long long)d.runtime_metrics.kv_cache_attention_reads,
+                   config.quantization, config.kernel, temp, top_p,
                    d.startup_metrics.first_real_forward_ms,
                    (wall_seconds() - request_started) * 1000.0);
             fflush(stdout);
@@ -541,7 +558,7 @@ int main(int argc,char **argv){
         return serve_mode(model, &config);
     }
     if(argc<3){
-        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--backend cpu|cuda|auto] [--gpu-device N] [--threads N] [--ctx-size N] [--max-tokens N] [--kv-cache fp16] [--quantization auto|q4_0|hyper_vsq2|fp16|fp32] [--kernel auto|scalar|avx2|vnni] [--seed N]\n");
+        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--backend cpu|cuda|auto] [--gpu-device N] [--threads N] [--ctx-size N] [--max-tokens N] [--kv-cache fp16|q8|turboquant-q4|auto] [--quantization auto|q4_0|hyper_vsq2|fp16|fp32] [--kernel auto|scalar|avx2|vnni] [--seed N]\n");
         return 2;
     }
 
@@ -668,7 +685,11 @@ int main(int argc,char **argv){
                 "logical_lm_head_bytes=%llu logical_other_weight_bytes=%llu "
                 "logical_kv_bytes=%llu logical_activation_bytes=%llu logical_temporary_bytes=%llu "
                 "config_backend=%s context_size=%d max_tokens=%d seed=%d "
-                "kv_cache_mode=%s quantization=%s kernel_requested=%s temperature=%.8g top_p=%.8g\n",
+                "kv_cache_mode=%s kv_cache_mode_actual=%s kv_cache_active=%d "
+                "kv_cache_algorithm=%s kv_cache_kernel=%s kv_cache_allocated_bytes=%llu "
+                "kv_cache_kernel_count=%llu kv_cache_upload_bytes=%llu "
+                "kv_cache_kernel_ms=%.3f kv_cache_transfer_ms=%.3f "
+                "quantization=%s kernel_requested=%s temperature=%.8g top_p=%.8g\n",
                 metrics ? metrics->backend : "unknown",
                 metrics ? metrics->kernel : "unknown",
                 (unsigned long long)(metrics ? metrics->cuda_matmul_count : 0),
@@ -707,9 +728,9 @@ int main(int argc,char **argv){
                 (unsigned long long)(metrics ? metrics->swiglu_elements : 0),
                 metrics ? metrics->swiglu_ms : 0.0,
                 metrics ? metrics->hypervsq2_reductions_per_row : 0,
-                metrics ? metrics->hypervsq2_reduction_mode : "Unavailable",
-                (unsigned long long)(metrics ? metrics->hypervsq2_delayed_reduction_invocation_count : 0),
-                (unsigned long long)(metrics ? metrics->logical_tensor_visits : 0),
+            metrics ? metrics->hypervsq2_reduction_mode : "Unavailable",
+            (unsigned long long)(metrics ? metrics->hypervsq2_delayed_reduction_invocation_count : 0),
+             (unsigned long long)(metrics ? metrics->logical_tensor_visits : 0),
                 (unsigned long long)(metrics ? metrics->logical_repeated_tensor_accesses : 0),
                 (unsigned long long)(metrics ? metrics->logical_tensors_skipped : 0),
                 (unsigned long long)(metrics ? metrics->logical_embedding_bytes : 0),
@@ -722,6 +743,15 @@ int main(int argc,char **argv){
                 (unsigned long long)(metrics ? metrics->logical_temporary_bytes : 0),
                 qwn_runtime_backend_name(runtime_config.backend), runtime_config.context_size,
                 runtime_config.max_tokens, runtime_config.seed, runtime_config.kv_cache_mode,
+                metrics ? metrics->kv_cache_mode_actual : "Unavailable",
+                metrics ? metrics->kv_cache_active : 0,
+                metrics ? metrics->kv_cache_algorithm : "Unavailable",
+                metrics ? metrics->kv_cache_kernel : "Unavailable",
+                (unsigned long long)(metrics ? metrics->kv_cache_allocated_bytes : 0),
+                (unsigned long long)(metrics ? metrics->kv_cache_kernel_count : 0),
+                (unsigned long long)(metrics ? metrics->kv_cache_upload_bytes : 0),
+                metrics ? metrics->kv_cache_kernel_ms : 0.0,
+                metrics ? metrics->kv_cache_transfer_ms : 0.0,
                 runtime_config.quantization, runtime_config.kernel, temperature, top_p);
     }
     free(ids);qwn_decoder_close(&decoder);return rc<0?1:0;

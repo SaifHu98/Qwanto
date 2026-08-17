@@ -21,9 +21,14 @@ void qwn_runtime_config_default(QwnRuntimeConfig *config) {
     config->max_tokens = 256;
     config->seed = 0;
     snprintf(config->kv_cache_mode, sizeof(config->kv_cache_mode), "fp16");
+    config->kv_cache_mode_typed = QWN_RUNTIME_KV_FP16;
     snprintf(config->quantization, sizeof(config->quantization), "auto");
     snprintf(config->kernel, sizeof(config->kernel), "auto");
     snprintf(config->thinking_mode, sizeof(config->thinking_mode), "medium");
+    config->speculative_draft_length = 4;
+    config->minimum_acceptance_rate = 0.0f;
+    config->adaptive_draft_length = 1;
+    config->maximum_rollback = 16;
 }
 
 const char *qwn_runtime_backend_name(QwnRuntimeBackend backend) {
@@ -32,6 +37,28 @@ const char *qwn_runtime_backend_name(QwnRuntimeBackend backend) {
         case QWN_RUNTIME_BACKEND_CUDA: return "cuda";
         default: return "auto";
     }
+}
+
+const char *qwn_runtime_kv_cache_mode_name(QwnRuntimeKvCacheMode mode) {
+    switch (mode) {
+        case QWN_RUNTIME_KV_Q8: return "q8";
+        case QWN_RUNTIME_KV_TURBOQUANT_Q4: return "turboquant-q4";
+        case QWN_RUNTIME_KV_AUTO: return "auto";
+        default: return "fp16";
+    }
+}
+
+int qwn_runtime_kv_cache_mode_parse(const char *value,
+                                    QwnRuntimeKvCacheMode *mode) {
+    if (!value || !mode) return -1;
+    if (strcmp(value, "fp16") == 0) *mode = QWN_RUNTIME_KV_FP16;
+    else if (strcmp(value, "q8") == 0) *mode = QWN_RUNTIME_KV_Q8;
+    else if (strcmp(value, "turboquant-q4") == 0 ||
+             strcmp(value, "qwn-q4-kv") == 0)
+        *mode = QWN_RUNTIME_KV_TURBOQUANT_Q4;
+    else if (strcmp(value, "auto") == 0) *mode = QWN_RUNTIME_KV_AUTO;
+    else return -1;
+    return 0;
 }
 
 static int parse_positive(const char *value, int *out, const char *name,
@@ -118,9 +145,24 @@ int qwn_runtime_config_validate(const QwnRuntimeConfig *config,
         return -1;
     }
     if (strcmp(config->kv_cache_mode, "fp16") != 0 &&
+        strcmp(config->kv_cache_mode, "q8") != 0 &&
+        strcmp(config->kv_cache_mode, "turboquant-q4") != 0 &&
+        strcmp(config->kv_cache_mode, "qwn-q4-kv") != 0 &&
         strcmp(config->kv_cache_mode, "auto") != 0) {
-        set_error(error, error_size, "only fp16 KV cache is implemented by qwnrun");
+        set_error(error, error_size,
+                  "kv cache must be fp16, q8, turboquant-q4, or auto");
         return -1;
+    }
+    {
+        QwnRuntimeKvCacheMode parsed;
+        if (qwn_runtime_kv_cache_mode_parse(config->kv_cache_mode, &parsed) != 0 ||
+            parsed != config->kv_cache_mode_typed) {
+            /* Callers that construct the struct directly may leave the
+             * compatibility string and typed field out of sync.  Reject
+             * that ambiguity instead of selecting a different cache. */
+            set_error(error, error_size, "typed KV-cache mode does not match kv_cache_mode");
+            return -1;
+        }
     }
     if (strcmp(config->quantization, "auto") != 0 &&
         strcmp(config->quantization, "q4_0") != 0 &&
@@ -144,8 +186,15 @@ int qwn_runtime_config_validate(const QwnRuntimeConfig *config,
         set_error(error, error_size, "thinking mode must be none, low, medium, or high");
         return -1;
     }
+    if (config->speculative_draft_length <= 0 || config->speculative_draft_length > 16 ||
+        config->maximum_rollback <= 0 || config->maximum_rollback > 1024 ||
+        config->minimum_acceptance_rate < 0.0f || config->minimum_acceptance_rate > 1.0f) {
+        set_error(error, error_size, "invalid speculative decoding limits");
+        return -1;
+    }
     if (config->speculative_decoding || config->fused_kernel) {
-        set_error(error, error_size, "speculative decoding and fused kernel flags are unsupported by qwnrun");
+        set_error(error, error_size,
+                  "speculative decoding requires a compatible native QWN draft model and validated transaction path; fused kernels are unsupported");
         return -1;
     }
     if (config->backend == QWN_RUNTIME_BACKEND_CUDA && config->gpu_device < 0) {
@@ -187,6 +236,11 @@ int qwn_runtime_config_parse(QwnRuntimeConfig *config, int argc, char **argv,
                 return -1;
             }
             snprintf(config->kv_cache_mode, sizeof(config->kv_cache_mode), "%s", argv[i]);
+            if (qwn_runtime_kv_cache_mode_parse(config->kv_cache_mode,
+                                                &config->kv_cache_mode_typed) != 0) {
+                set_error(error, error_size, "kv cache must be fp16, q8, turboquant-q4, or auto");
+                return -1;
+            }
         } else if (strcmp(arg, "--quantization") == 0 || strcmp(arg, "--quant") == 0) {
             if (++i >= argc) {
                 set_error(error, error_size, "--quantization requires a value");
@@ -205,10 +259,30 @@ int qwn_runtime_config_parse(QwnRuntimeConfig *config, int argc, char **argv,
                 return -1;
             }
             snprintf(config->thinking_mode, sizeof(config->thinking_mode), "%s", argv[i]);
+        } else if (strcmp(arg, "--draft-model") == 0) {
+            if (++i >= argc) {
+                set_error(error, error_size, "--draft-model requires a validated .qwn path");
+                return -1;
+            }
+            snprintf(config->draft_model, sizeof(config->draft_model), "%s", argv[i]);
+        } else if (strcmp(arg, "--draft-length") == 0) {
+            if (++i >= argc || parse_positive(argv[i], &config->speculative_draft_length,
+                                               "--draft-length", error, error_size) != 0) return -1;
+        } else if (strcmp(arg, "--min-acceptance-rate") == 0) {
+            if (++i >= argc) { set_error(error, error_size, "--min-acceptance-rate requires a value"); return -1; }
+            config->minimum_acceptance_rate = (float)strtod(argv[i], NULL);
+        } else if (strcmp(arg, "--maximum-rollback") == 0) {
+            if (++i >= argc || parse_positive(argv[i], &config->maximum_rollback,
+                                               "--maximum-rollback", error, error_size) != 0) return -1;
+        } else if (strcmp(arg, "--no-adaptive-draft-length") == 0) {
+            config->adaptive_draft_length = 0;
         } else if (strcmp(arg, "--speculative") == 0 || strcmp(arg, "--saguro") == 0 ||
                    strcmp(arg, "--fused") == 0 || strcmp(arg, "--auto-tune") == 0) {
-            snprintf(error, error_size, "%s is unsupported by the native decoder", arg);
-            return -1;
+            if (strcmp(arg, "--speculative") == 0) config->speculative_decoding = 1;
+            else {
+                snprintf(error, error_size, "%s is unsupported by the native decoder", arg);
+                return -1;
+            }
         } else if (strcmp(arg, "--saguro-draft") == 0 || strcmp(arg, "--saguro-tier") == 0) {
             snprintf(error, error_size, "%s is unsupported by the native decoder", arg);
             return -1;

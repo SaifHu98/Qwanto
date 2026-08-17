@@ -378,10 +378,15 @@ export interface RuntimeConfig {
   context_size?: number
   max_tokens?: number
   seed?: number
-  kv_cache_mode?: "fp16" | "auto"
+  kv_cache_mode?: "fp16" | "q8" | "turboquant-q4" | "auto"
   quantization?: "auto" | "q4_0" | "hyper_vsq2" | "fp16" | "fp32"
   kernel?: "auto" | "scalar" | "avx2" | "vnni"
   speculative_decoding?: boolean
+  draft_model?: string
+  draft_length?: number
+  min_acceptance_rate?: number
+  adaptive_draft_length?: boolean
+  maximum_rollback?: number
   fused_kernel?: boolean
 }
 
@@ -539,6 +544,17 @@ export interface RuntimeTelemetry {
   max_tokens?: number
   seed?: number
   kv_cache_mode?: string
+  kv_cache_mode_actual?: string
+  kv_cache_active?: number
+  kv_cache_algorithm?: string
+  kv_cache_kernel?: string
+  kv_cache_allocated_bytes?: number
+  kv_cache_kernel_count?: number
+  kv_cache_upload_bytes?: number
+  kv_cache_kernel_ms?: number
+  kv_cache_transfer_ms?: number
+  kv_cache_append_count?: number
+  kv_cache_attention_reads?: number
   quantization?: string
   temperature?: number
   top_p?: number

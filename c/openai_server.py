@@ -1253,7 +1253,10 @@ class Engine:
                    "--ctx-size", str(runtime_config["context_size"]),
                    "--max-tokens", str(runtime_config["max_tokens"])]
         option_map = (("gpu_device", "--gpu-device"), ("gpu_memory_budget_mb", "--gpu-memory-budget-mb"),
-                      ("threads", "--threads"),
+                      ("threads", "--threads"), ("draft_model", "--draft-model"),
+                      ("draft_length", "--draft-length"),
+                      ("min_acceptance_rate", "--min-acceptance-rate"),
+                      ("maximum_rollback", "--maximum-rollback"),
                       ("kv_cache_mode", "--kv-cache"), ("quantization", "--quantization"),
                       ("kernel", "--kernel"), ("seed", "--seed"))
         for key, flag in option_map:
@@ -1748,7 +1751,11 @@ class APIServer(ThreadingHTTPServer):
             "backend_actual", "config_backend", "kernel", "kernel_requested",
             "model_dtype", "active_threads", "context_size", "max_tokens",
             "actual_device",
-            "seed", "kv_cache_mode", "quantization", "temperature", "top_p",
+            "seed", "kv_cache_mode", "kv_cache_mode_actual", "kv_cache_active",
+            "kv_cache_algorithm", "kv_cache_kernel", "kv_cache_allocated_bytes",
+            "kv_cache_kernel_count", "kv_cache_upload_bytes", "kv_cache_kernel_ms",
+            "kv_cache_transfer_ms", "kv_cache_append_count", "kv_cache_attention_reads",
+            "quantization", "temperature", "top_p",
             "thinking_mode", "decode_function", "gpu_matmul_count",
             "cpu_fallback_count", "gpu_kernel_launch_count", "gpu_projection_count",
             "gpu_upload_count", "gpu_upload_bytes", "gpu_resident_bytes",
@@ -2706,14 +2713,20 @@ class APIHandler(BaseHTTPRequestHandler):
                 for key in ("context_size", "max_tokens"):
                     if isinstance(runtime_config.get(key), bool) or int(runtime_config.get(key, 0)) <= 0:
                         raise APIError(400, f"runtime_config.{key} must be positive.", f"runtime_config.{key}")
-                if runtime_config.get("kv_cache_mode", "fp16") not in ("fp16", "auto"):
-                    raise APIError(400, "Only fp16 or auto KV cache mode is implemented by qwnrun.", "runtime_config.kv_cache_mode")
+                if runtime_config.get("kv_cache_mode", "fp16") not in (
+                    "fp16", "q8", "turboquant-q4", "qwn-q4-kv", "auto"
+                ):
+                    raise APIError(
+                        400,
+                        "kv_cache_mode must be fp16, q8, turboquant-q4, or auto.",
+                        "runtime_config.kv_cache_mode",
+                    )
                 if runtime_config.get("quantization", "auto") not in ("auto", "q4_0", "hyper_vsq2", "fp16", "fp32"):
                     raise APIError(400, "Unsupported native quantization selection.", "runtime_config.quantization")
                 if runtime_config.get("kernel", "auto") not in ("auto", "scalar", "avx2", "vnni"):
                     raise APIError(400, "Unsupported native CPU kernel selection.", "runtime_config.kernel")
                 if runtime_config.get("speculative_decoding"):
-                    raise APIError(400, "Speculative decoding is not implemented by qwnrun.", "runtime_config.speculative_decoding")
+                    raise APIError(400, "Speculative decoding requires a compatible native QWN draft model and validated transaction path.", "runtime_config.speculative_decoding")
                 if runtime_config.get("fused_kernel"):
                     raise APIError(400, "Fused kernel execution is not implemented by qwnrun.", "runtime_config.fused_kernel")
                 try:

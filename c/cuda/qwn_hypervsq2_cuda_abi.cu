@@ -21,6 +21,20 @@ struct ResidentTensor {
     std::uint32_t cols = 0;
 };
 
+struct ResidentKvCache {
+    std::int8_t *key = nullptr;
+    std::int8_t *value = nullptr;
+    float *key_scales = nullptr;
+    float *value_scales = nullptr;
+    std::uint32_t max_tokens = 0;
+    std::uint32_t kv_heads = 0;
+    std::uint32_t head_dim = 0;
+    std::uint32_t channels = 0;
+    std::uint32_t scale_blocks = 0;
+    std::uint32_t tokens = 0;
+    std::uint64_t bytes = 0;
+};
+
 struct RuntimeContext {
     int device = -1;
     std::uint64_t budget_bytes = 0;
@@ -33,6 +47,13 @@ struct RuntimeContext {
     float *device_scales = nullptr;
     std::size_t scale_capacity = 0;
     std::vector<ResidentTensor *> tensors;
+    std::vector<ResidentKvCache *> kv_caches;
+    float *device_kv_key = nullptr;
+    float *device_kv_value = nullptr;
+    float *device_kv_query = nullptr;
+    float *device_kv_output = nullptr;
+    std::size_t kv_float_capacity = 0;
+    std::size_t kv_output_capacity = 0;
     QwnCudaTelemetry telemetry{};
 };
 
@@ -63,6 +84,8 @@ void init_telemetry(QwnCudaTelemetry *telemetry, int device) {
     telemetry->device_id = device;
     std::snprintf(telemetry->kernel_type, sizeof(telemetry->kernel_type),
                   "hypervsq2-74-q8-reference");
+    std::snprintf(telemetry->kv_cache_kernel_type,
+                  sizeof(telemetry->kv_cache_kernel_type), "Unavailable");
 }
 
 RuntimeContext *context_from(const QwnCudaContextHandle *handle) {
@@ -75,6 +98,12 @@ ResidentTensor *tensor_from(const QwnCudaTensorHandle &handle) {
     if (!header_ok(handle.header, sizeof(handle)) || !handle.opaque)
         return nullptr;
     return static_cast<ResidentTensor *>(handle.opaque);
+}
+
+ResidentKvCache *kv_from(const QwnCudaKvCacheHandle &handle) {
+    if (!header_ok(handle.header, sizeof(handle)) || !handle.opaque)
+        return nullptr;
+    return static_cast<ResidentKvCache *>(handle.opaque);
 }
 
 __device__ float half_to_float(const std::uint8_t *bytes) {
@@ -103,6 +132,92 @@ __device__ int warp_sum_int(int value) {
 __device__ __forceinline__ std::uint32_t qwn_min_u32(std::uint32_t left,
                                                       std::uint32_t right) {
     return left < right ? left : right;
+}
+
+__global__ void qwn_q8_quantize_token(const float *input, std::int8_t *output,
+                                      float *scales, std::uint32_t channels) {
+    const std::uint32_t block = blockIdx.x;
+    const std::uint32_t start = block * 64u;
+    if (start >= channels) return;
+    const std::uint32_t valid = qwn_min_u32(64u, channels - start);
+    __shared__ float max_abs[64];
+    const std::uint32_t lane = threadIdx.x;
+    float value = lane < valid ? input[start + lane] : 0.0f;
+    max_abs[lane] = isfinite(value) ? fabsf(value) : 0.0f;
+    __syncthreads();
+    for (std::uint32_t stride = 32u; stride > 0; stride >>= 1) {
+        if (lane < stride && max_abs[lane + stride] > max_abs[lane])
+            max_abs[lane] = max_abs[lane + stride];
+        __syncthreads();
+    }
+    const float scale = max_abs[0] > 0.0f ? max_abs[0] / 127.0f : 1.0f;
+    if (lane == 0) scales[block] = scale;
+    if (lane < valid) {
+        float scaled = isfinite(value) ? value / scale : 0.0f;
+        scaled = fminf(127.0f, fmaxf(-127.0f, scaled));
+        output[start + lane] = static_cast<std::int8_t>(nearbyintf(scaled));
+    }
+}
+
+__device__ float qwn_q8_value(const std::int8_t *values, const float *scales,
+                              std::uint32_t token, std::uint32_t channel,
+                              std::uint32_t channels) {
+    (void)channels;
+    return static_cast<float>(values[static_cast<std::uint64_t>(token) * channels + channel]) *
+           scales[static_cast<std::uint64_t>(token) * ((channels + 63u) / 64u) + channel / 64u];
+}
+
+/* Correctness-first attention reader.  The block uses parallel lanes for the
+ * dot product and performs the final value accumulation in lane zero.  It is
+ * intentionally separate from the HyperVSQ weight GEMV kernel. */
+__global__ void qwn_q8_attention(const std::int8_t *keys, const std::int8_t *values,
+                                 const float *key_scales, const float *value_scales,
+                                 const float *query, float *output,
+                                 std::uint32_t query_heads, std::uint32_t kv_heads,
+                                 std::uint32_t head_dim, std::uint32_t channels,
+                                 std::uint32_t position, float scale) {
+    const std::uint32_t head = blockIdx.x;
+    const std::uint32_t lane = threadIdx.x;
+    if (head >= query_heads || lane >= 128u) return;
+    const std::uint32_t kv_head = (head * kv_heads) / query_heads;
+    const std::uint32_t offset = kv_head * head_dim;
+    extern __shared__ float shared[];
+    float *scores = shared;
+    float *reduce = shared + position + 1u;
+    const float *head_query = query + head * head_dim;
+    for (std::uint32_t token = 0; token <= position; token++) {
+        float dot = 0.0f;
+        for (std::uint32_t channel = lane; channel < head_dim; channel += 128u)
+            dot += head_query[channel] * qwn_q8_value(
+                keys, key_scales, token, offset + channel, channels);
+        reduce[lane] = dot;
+        __syncthreads();
+        for (std::uint32_t stride = 64u; stride > 0; stride >>= 1) {
+            if (lane < stride) reduce[lane] += reduce[lane + stride];
+            __syncthreads();
+        }
+        if (lane == 0) scores[token] = reduce[0] * scale;
+        __syncthreads();
+    }
+    if (lane == 0) {
+        float max_score = scores[0];
+        for (std::uint32_t token = 1; token <= position; token++)
+            max_score = fmaxf(max_score, scores[token]);
+        float sum = 0.0f;
+        for (std::uint32_t token = 0; token <= position; token++) {
+            scores[token] = expf(scores[token] - max_score);
+            sum += scores[token];
+        }
+        const float inverse = sum > 0.0f ? 1.0f / sum : 0.0f;
+        float *head_output = output + head * head_dim;
+        for (std::uint32_t channel = 0; channel < head_dim; channel++) {
+            float result = 0.0f;
+            for (std::uint32_t token = 0; token <= position; token++)
+                result += scores[token] * qwn_q8_value(
+                    values, value_scales, token, offset + channel, channels);
+            head_output[channel] = result * inverse;
+        }
+    }
 }
 
 /*
@@ -320,7 +435,8 @@ extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_query(QwnCudaAbiInfo *info) {
                             QWN_CUDA_CAP_HYPERVSQ2_GEMM |
                             QWN_CUDA_CAP_RESIDENT_WEIGHTS |
                             QWN_CUDA_CAP_TELEMETRY |
-                            QWN_CUDA_CAP_DEVICE_ENUMERATION;
+                            QWN_CUDA_CAP_DEVICE_ENUMERATION |
+                            QWN_CUDA_CAP_Q8_KV;
     info->max_devices = 16;
     info->max_resident_tensors = QWN_CUDA_MAX_RESIDENT_TENSORS;
     info->hypervsq2_block_bytes = QWN_CUDA_HYPERVSQ2_BLOCK_BYTES;
@@ -403,9 +519,23 @@ extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_context_destroy(QwnCudaContextHandl
         delete tensor;
     }
     context->tensors.clear();
+    for (ResidentKvCache *cache : context->kv_caches) {
+        if (cache) {
+            if (cache->key) cudaFree(cache->key);
+            if (cache->value) cudaFree(cache->value);
+            if (cache->key_scales) cudaFree(cache->key_scales);
+            if (cache->value_scales) cudaFree(cache->value_scales);
+            delete cache;
+        }
+    }
+    context->kv_caches.clear();
     if (context->device_input) cudaFree(context->device_input);
     if (context->device_output) cudaFree(context->device_output);
     if (context->device_scales) cudaFree(context->device_scales);
+    if (context->device_kv_key) cudaFree(context->device_kv_key);
+    if (context->device_kv_value) cudaFree(context->device_kv_value);
+    if (context->device_kv_query) cudaFree(context->device_kv_query);
+    if (context->device_kv_output) cudaFree(context->device_kv_output);
     if (context->stream) cudaStreamDestroy(context->stream);
     delete context;
     handle->opaque = nullptr;
@@ -476,6 +606,237 @@ extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_release_tensor(
     delete tensor;
     context->tensors.erase(it);
     handle_out->opaque = nullptr;
+    return QWN_CUDA_STATUS_OK;
+}
+
+extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_create(
+    QwnCudaContextHandle *handle, const QwnCudaKvCacheOptions *options,
+    QwnCudaKvCacheHandle *handle_out) {
+    RuntimeContext *context = context_from(handle);
+    if (!context || !options || !handle_out ||
+        !header_ok(options->header, sizeof(*options)) ||
+        !header_ok(handle_out->header, sizeof(*handle_out)) ||
+        options->max_tokens == 0 || options->kv_heads == 0 || options->head_dim == 0) {
+        set_error("invalid Q8 KV-cache options");
+        return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    }
+    std::lock_guard<std::mutex> lock(g_mutex);
+    cudaSetDevice(context->device);
+    auto *cache = new (std::nothrow) ResidentKvCache();
+    if (!cache) return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+    cache->max_tokens = options->max_tokens;
+    cache->kv_heads = options->kv_heads;
+    cache->head_dim = options->head_dim;
+    cache->channels = options->kv_heads * options->head_dim;
+    cache->scale_blocks = (cache->channels + 63u) / 64u;
+    cache->bytes = static_cast<std::uint64_t>(cache->max_tokens) * cache->channels * 2u +
+                   static_cast<std::uint64_t>(cache->max_tokens) * cache->scale_blocks *
+                   sizeof(float) * 2u;
+    std::size_t free_bytes = 0, total_bytes = 0;
+    if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess ||
+        (context->budget_bytes && context->resident_bytes + cache->bytes > context->budget_bytes) ||
+        cache->bytes > free_bytes) {
+        delete cache;
+        set_error("Q8 KV-cache does not fit the configured CUDA memory budget");
+        return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+    }
+    const std::size_t value_bytes = static_cast<std::size_t>(cache->max_tokens) * cache->channels;
+    const std::size_t scale_bytes = static_cast<std::size_t>(cache->max_tokens) *
+                                    cache->scale_blocks * sizeof(float);
+    if (cudaMalloc(reinterpret_cast<void **>(&cache->key), value_bytes) != cudaSuccess ||
+        cudaMalloc(reinterpret_cast<void **>(&cache->value), value_bytes) != cudaSuccess ||
+        cudaMalloc(reinterpret_cast<void **>(&cache->key_scales), scale_bytes) != cudaSuccess ||
+        cudaMalloc(reinterpret_cast<void **>(&cache->value_scales), scale_bytes) != cudaSuccess) {
+        if (cache->key) cudaFree(cache->key);
+        if (cache->value) cudaFree(cache->value);
+        if (cache->key_scales) cudaFree(cache->key_scales);
+        if (cache->value_scales) cudaFree(cache->value_scales);
+        delete cache;
+        set_cuda_error("Q8 KV-cache allocation", cudaGetLastError());
+        return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+    }
+    context->kv_caches.push_back(cache);
+    context->resident_bytes += cache->bytes;
+    context->telemetry.kv_cache_resident_bytes += cache->bytes;
+    std::memset(handle_out, 0, sizeof(*handle_out));
+    qwn_cuda_abi_header_init(&handle_out->header, static_cast<std::uint32_t>(sizeof(*handle_out)));
+    handle_out->opaque = cache;
+    return QWN_CUDA_STATUS_OK;
+}
+
+static int ensure_kv_workspace(RuntimeContext *context, std::size_t channels,
+                               std::size_t output_values) {
+    const std::size_t float_capacity = std::max(channels, output_values);
+    if (float_capacity > context->kv_float_capacity) {
+        if (context->device_kv_key) cudaFree(context->device_kv_key);
+        if (context->device_kv_value) cudaFree(context->device_kv_value);
+        if (context->device_kv_query) cudaFree(context->device_kv_query);
+        const std::size_t bytes = float_capacity * sizeof(float);
+        if (cudaMalloc(reinterpret_cast<void **>(&context->device_kv_key), bytes) != cudaSuccess ||
+            cudaMalloc(reinterpret_cast<void **>(&context->device_kv_value), bytes) != cudaSuccess ||
+            cudaMalloc(reinterpret_cast<void **>(&context->device_kv_query), bytes) != cudaSuccess) {
+            if (context->device_kv_key) cudaFree(context->device_kv_key);
+            if (context->device_kv_value) cudaFree(context->device_kv_value);
+            if (context->device_kv_query) cudaFree(context->device_kv_query);
+            context->device_kv_key = context->device_kv_value = context->device_kv_query = nullptr;
+            context->kv_float_capacity = 0;
+            return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+        }
+        context->kv_float_capacity = float_capacity;
+    }
+    if (output_values > context->kv_output_capacity) {
+        if (context->device_kv_output) cudaFree(context->device_kv_output);
+        if (cudaMalloc(reinterpret_cast<void **>(&context->device_kv_output),
+                       output_values * sizeof(float)) != cudaSuccess) {
+            context->device_kv_output = nullptr;
+            context->kv_output_capacity = 0;
+            return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+        }
+        context->kv_output_capacity = output_values;
+    }
+    return QWN_CUDA_STATUS_OK;
+}
+
+extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_append(
+    QwnCudaContextHandle *handle, const QwnCudaKvAppendRequest *request,
+    QwnCudaTelemetry *telemetry) {
+    RuntimeContext *context = context_from(handle);
+    ResidentKvCache *cache = request ? kv_from(request->cache) : nullptr;
+    if (!context || !request || !cache ||
+        !header_ok(request->header, sizeof(*request)) || !request->host_key ||
+        !request->host_value || request->n_channels != cache->channels ||
+        request->token != cache->tokens || request->token >= cache->max_tokens) {
+        set_error("invalid Q8 KV-cache append request");
+        return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    }
+    std::lock_guard<std::mutex> lock(g_mutex);
+    cudaSetDevice(context->device);
+    if (ensure_kv_workspace(context, cache->channels, 0) != QWN_CUDA_STATUS_OK)
+        return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+    const auto start = std::chrono::steady_clock::now();
+    if (cudaMemcpyAsync(context->device_kv_key, request->host_key,
+                        cache->channels * sizeof(float), cudaMemcpyHostToDevice,
+                        context->stream) != cudaSuccess ||
+        cudaMemcpyAsync(context->device_kv_value, request->host_value,
+                        cache->channels * sizeof(float), cudaMemcpyHostToDevice,
+                        context->stream) != cudaSuccess) {
+        set_cuda_error("Q8 KV upload", cudaGetLastError());
+        return QWN_CUDA_STATUS_RUNTIME_ERROR;
+    }
+    const dim3 grid(cache->scale_blocks, 1, 1);
+    qwn_q8_quantize_token<<<grid, 64, 0, context->stream>>>(
+        context->device_kv_key,
+        cache->key + static_cast<std::size_t>(cache->tokens) * cache->channels,
+        cache->key_scales + static_cast<std::size_t>(cache->tokens) * cache->scale_blocks,
+        cache->channels);
+    qwn_q8_quantize_token<<<grid, 64, 0, context->stream>>>(
+        context->device_kv_value,
+        cache->value + static_cast<std::size_t>(cache->tokens) * cache->channels,
+        cache->value_scales + static_cast<std::size_t>(cache->tokens) * cache->scale_blocks,
+        cache->channels);
+    const cudaError_t launch_status = cudaGetLastError();
+    const cudaError_t sync_status = cudaStreamSynchronize(context->stream);
+    if (launch_status != cudaSuccess || sync_status != cudaSuccess) {
+        set_cuda_error("Q8 KV quantize",
+                       launch_status != cudaSuccess ? launch_status : sync_status);
+        return QWN_CUDA_STATUS_RUNTIME_ERROR;
+    }
+    cache->tokens++;
+    context->telemetry.kv_cache_kernel_count += 2;
+    context->telemetry.kv_cache_upload_bytes += static_cast<std::uint64_t>(cache->channels) *
+                                                sizeof(float) * 2u;
+    context->telemetry.kv_cache_kernel_ms += 0.0;
+    context->telemetry.kv_cache_transfer_ms +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::snprintf(context->telemetry.kv_cache_kernel_type,
+                  sizeof(context->telemetry.kv_cache_kernel_type), "q8-cuda-reference");
+    if (telemetry) *telemetry = context->telemetry;
+    return QWN_CUDA_STATUS_OK;
+}
+
+extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_attention(
+    QwnCudaContextHandle *handle, const QwnCudaKvAttentionRequest *request,
+    QwnCudaTelemetry *telemetry) {
+    RuntimeContext *context = context_from(handle);
+    ResidentKvCache *cache = request ? kv_from(request->cache) : nullptr;
+    if (!context || !request || !cache || !header_ok(request->header, sizeof(*request)) ||
+        !request->host_query || !request->host_output || request->query_heads == 0 ||
+        request->kv_heads != cache->kv_heads || request->head_dim != cache->head_dim ||
+        request->position >= cache->tokens) {
+        set_error("invalid Q8 KV-cache attention request");
+        return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    }
+    std::lock_guard<std::mutex> lock(g_mutex);
+    cudaSetDevice(context->device);
+    const std::size_t channels = static_cast<std::size_t>(cache->channels);
+    const std::size_t output_values = static_cast<std::size_t>(request->query_heads) * cache->head_dim;
+    if (ensure_kv_workspace(context, channels, output_values) != QWN_CUDA_STATUS_OK)
+        return QWN_CUDA_STATUS_OUT_OF_MEMORY;
+    const auto start = std::chrono::steady_clock::now();
+    if (cudaMemcpyAsync(context->device_kv_query, request->host_query,
+                        output_values * sizeof(float), cudaMemcpyHostToDevice,
+                        context->stream) != cudaSuccess) {
+        set_cuda_error("Q8 KV query upload", cudaGetLastError());
+        return QWN_CUDA_STATUS_RUNTIME_ERROR;
+    }
+    const std::size_t shared_bytes = (static_cast<std::size_t>(request->position) + 1u + 128u) * sizeof(float);
+    qwn_q8_attention<<<request->query_heads, 128, shared_bytes, context->stream>>>(
+        cache->key, cache->value, cache->key_scales, cache->value_scales,
+        context->device_kv_query, context->device_kv_output,
+        request->query_heads, request->kv_heads, request->head_dim,
+        cache->channels, request->position, request->scale);
+    const cudaError_t launch_status = cudaGetLastError();
+    const cudaError_t copy_status = cudaMemcpyAsync(
+        request->host_output, context->device_kv_output,
+        output_values * sizeof(float), cudaMemcpyDeviceToHost, context->stream);
+    const cudaError_t sync_status = cudaStreamSynchronize(context->stream);
+    if (launch_status != cudaSuccess || copy_status != cudaSuccess ||
+        sync_status != cudaSuccess) {
+        const cudaError_t error = launch_status != cudaSuccess
+                                      ? launch_status
+                                      : (copy_status != cudaSuccess ? copy_status
+                                                                    : sync_status);
+        set_cuda_error("Q8 KV attention", error);
+        return QWN_CUDA_STATUS_RUNTIME_ERROR;
+    }
+    context->telemetry.kv_cache_kernel_count++;
+    context->telemetry.kv_cache_transfer_ms +=
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    std::snprintf(context->telemetry.kv_cache_kernel_type,
+                  sizeof(context->telemetry.kv_cache_kernel_type), "q8-cuda-reference");
+    if (telemetry) *telemetry = context->telemetry;
+    return QWN_CUDA_STATUS_OK;
+}
+
+extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_reset(
+    QwnCudaContextHandle *handle, QwnCudaKvCacheHandle *handle_cache) {
+    RuntimeContext *context = context_from(handle);
+    ResidentKvCache *cache = handle_cache ? kv_from(*handle_cache) : nullptr;
+    if (!context || !cache) return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    cache->tokens = 0;
+    return QWN_CUDA_STATUS_OK;
+}
+
+extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_kv_cache_destroy(
+    QwnCudaContextHandle *handle, QwnCudaKvCacheHandle *handle_cache) {
+    RuntimeContext *context = context_from(handle);
+    ResidentKvCache *cache = handle_cache ? kv_from(*handle_cache) : nullptr;
+    if (!context || !cache) return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = std::find(context->kv_caches.begin(), context->kv_caches.end(), cache);
+    if (it == context->kv_caches.end()) return QWN_CUDA_STATUS_INVALID_ARGUMENT;
+    cudaSetDevice(context->device);
+    const std::uint64_t cache_bytes = cache->bytes;
+    if (cache->key) cudaFree(cache->key);
+    if (cache->value) cudaFree(cache->value);
+    if (cache->key_scales) cudaFree(cache->key_scales);
+    if (cache->value_scales) cudaFree(cache->value_scales);
+    context->resident_bytes -= std::min(context->resident_bytes, cache_bytes);
+    delete cache;
+    context->kv_caches.erase(it);
+    handle_cache->opaque = nullptr;
+    context->telemetry.kv_cache_resident_bytes -=
+        std::min(context->telemetry.kv_cache_resident_bytes, cache_bytes);
     return QWN_CUDA_STATUS_OK;
 }
 

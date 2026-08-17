@@ -57,6 +57,11 @@ typedef struct {
     QwnCudaContextDestroyFn context_destroy;
     QwnCudaTensorUploadFn upload_tensor;
     QwnCudaTensorReleaseFn release_tensor;
+    QwnCudaKvCreateFn kv_cache_create;
+    QwnCudaKvDestroyFn kv_cache_destroy;
+    QwnCudaKvAppendFn kv_cache_append;
+    QwnCudaKvAttentionFn kv_cache_attention;
+    QwnCudaKvResetFn kv_cache_reset;
     QwnCudaGemvFn gemv_hypervsq2;
     QwnCudaGemmFn gemm_hypervsq2;
     QwnCudaSynchronizeFn synchronize;
@@ -69,6 +74,8 @@ typedef struct {
         QwnCudaTensorHandle tensor;
     } weights[QWN_CUDA_MAX_RESIDENT_TENSORS];
     uint32_t weight_count;
+    QwnCudaKvCacheHandle kv_caches[QWN_CUDA_MAX_RESIDENT_KV_CACHES];
+    uint32_t kv_cache_count;
     int available;
 } QwnCudaRuntime;
 
@@ -116,6 +123,18 @@ typedef struct {
     uint64_t logical_kv_bytes;
     uint64_t logical_activation_bytes;
     uint64_t logical_temporary_bytes;
+    int kv_cache_active;
+    uint64_t kv_cache_append_count;
+    uint64_t kv_cache_attention_reads;
+    char kv_cache_kernel[32];
+    char kv_cache_algorithm[32];
+    char kv_cache_mode_actual[32];
+    uint64_t kv_cache_allocated_bytes;
+    uint64_t kv_cache_kernel_count;
+    uint64_t kv_cache_upload_bytes;
+    double kv_cache_kernel_ms;
+    double kv_cache_transfer_ms;
+    uint64_t kv_cache_cpu_fallback_count;
     double hypervsq2_kernel_ms;
     int hypervsq2_reductions_per_row;
     char hypervsq2_reduction_mode[32];
@@ -153,6 +172,7 @@ int qwn_sha256_file_hex(const char *path, char output[65]);
 
 typedef struct QwnDecoder {
     QwnModel model;
+    char model_sha256[65];
     QwnConfig cfg;
     Tok tokenizer;
     QwnScratch scratch;
@@ -180,6 +200,9 @@ typedef struct QwnDecoder {
     int use_paged_kv;
     TurboQuantCache *turboquant_layers;
     int use_turboquant;
+    QwnQ8Cache *q8_layers;
+    int use_q8_kv;
+    int use_cuda_q8_kv;
     float *rope_cos_cache;
     float *rope_sin_cache;
     int rope_cache_ctx;
