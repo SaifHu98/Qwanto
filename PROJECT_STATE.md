@@ -158,3 +158,20 @@ and NVMe mmap.
 - **Follow-up:** The first correction left one generic path-borrow Clippy
   diagnostic; `Path::as_path()` now makes both workspace containment checks
   explicit.
+
+## 2026-08-17 — Windows native CI environment hardening
+
+- **Evidence:** Hosted run `32022377288` passed the Ubuntu native job and the
+  documentation/security gates but failed the Windows native job with only a
+  generic process-exit annotation; the public log did not expose the failing
+  command. The native source tree was unchanged from the preceding Windows
+  success.
+- **Change:** Made CI and future package builds discover x64 LLVM OpenMP
+  import/runtime files from the active Clang installation and Visual Studio
+  roots, reject ARM64 candidates, print the selected paths, and include the
+  searched roots in strict failure messages.
+- **Validation:** Workflow YAML parsed, release-policy validation passed, and
+  `git diff --check` passed locally. Hosted Windows native validation remains
+  required because this workstation has no native `make`/Cargo toolchain.
+- **Decision:** No tag or release was created; the existing unsigned Beta.4
+  remains unchanged.

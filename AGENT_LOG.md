@@ -350,3 +350,17 @@
   `starts_with(workspace.as_path())` in attachment and diagnostic containment.
 - **Validation:** `git diff --check` passed locally; hosted Rust validation is
   required because Cargo is unavailable on this workstation.
+
+## 2026-08-17 — Windows OpenMP runner discovery hardening
+
+- **Change:** Hardened `.github/workflows/ci.yml` and
+  `.github/workflows/release.yml` to select x64 LLVM OpenMP artifacts from the
+  active Clang/Visual Studio installation, reject ARM64 files, and print
+  deterministic search diagnostics. No test or failure was masked.
+- **Evidence:** Run `32022377288` exposed a Windows native job failure with no
+  public step log; Ubuntu native and all visible mandatory gates passed. The
+  preceding run passed the same native source build.
+- **Validation:** Both workflow files parse as YAML, release policy check
+  passed, and `git diff --check` passed. Cargo, Make, and CUDA remain
+  unavailable locally.
+- **Decision:** No tag or release was created; Beta.4 remains unchanged.
