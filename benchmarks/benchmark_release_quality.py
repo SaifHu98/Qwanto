@@ -24,6 +24,7 @@ try:
         finish,
         model_manifest_metadata,
         parse_key_values,
+        revision,
         sha256_file,
     )
     from .runtime_config_snapshot import make_runtime_config_snapshot, update_runtime_config_snapshot
@@ -35,6 +36,7 @@ except ImportError:
         finish,
         model_manifest_metadata,
         parse_key_values,
+        revision,
         sha256_file,
     )
     from runtime_config_snapshot import make_runtime_config_snapshot, update_runtime_config_snapshot
@@ -179,10 +181,6 @@ def run_release_quality(
         "model_hash": report["model"]["sha256"],
     }
     _build_runtime_metadata(report, text, fields)
-    try:
-        from .benchmark_runtime_phases import revision
-    except ImportError:
-        from benchmark_runtime_phases import revision
     report["runtime_metadata"].update(revision())
     report["model_metadata"] = model_manifest_metadata(model_path)
     report["model_metadata"]["sha256"] = report["model"]["sha256"]
