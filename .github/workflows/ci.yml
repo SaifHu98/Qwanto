@@ -100,9 +100,12 @@ jobs:
             if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) { $ompRoots += $root }
           }
           $ompRoots = $ompRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique
+          $ompLibSearchPaths = @($ompRoots) + @(
+            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64',
+            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64')
           $ompLib = (& $clang.Source --print-file-name=libomp.lib).Trim()
           if (-not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
-            $ompLib = Get-ChildItem -Path $ompRoots -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue |
+            $ompLib = Get-ChildItem -Path $ompLibSearchPaths -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue |
               Where-Object { $_.FullName -notmatch '\\arm64\\' } |
               Sort-Object @{ Expression = { if ($_.FullName -match '\\(?:x64|amd64|windows)\\') { 0 } else { 1 } } }, FullName |
               Select-Object -First 1 -ExpandProperty FullName
@@ -110,14 +113,15 @@ jobs:
           if (-not $ompLib -or -not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
             throw "x64 LLVM OpenMP import library was not found. clang=$($clang.Source); searched=$($ompRoots -join ';')"
           }
-          $ompDllRoots = $ompRoots + @($env:VCToolsRedistDir)
-          $ompDllRoots = $ompDllRoots | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique
-          $ompDll = Get-ChildItem -Path $ompDllRoots -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue |
+          $ompDllSearchPaths = @($ompRoots) + @($env:VCToolsRedistDir, $env:VCToolsInstallDir,
+            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64',
+            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64')
+          $ompDll = Get-ChildItem -Path $ompDllSearchPaths -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch '\\arm64\\' -and $_.Name -eq 'libomp140.x86_64.dll' } |
             Sort-Object @{ Expression = { if ($_.FullName -match '\\(?:x64|amd64)\\') { 0 } else { 1 } } }, FullName |
             Select-Object -First 1
           if (-not $ompDll) {
-            throw "x64 LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found. searched=$($ompDllRoots -join ';')"
+            throw "x64 LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found. searched=$($ompDllSearchPaths -join ';')"
           }
           Write-Host "Using x64 OpenMP import library: $ompLib"
           Write-Host "Using x64 OpenMP runtime DLL: $($ompDll.FullName)"

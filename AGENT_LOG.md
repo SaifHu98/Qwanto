@@ -364,3 +364,12 @@
   passed, and `git diff --check` passed. Cargo, Make, and CUDA remain
   unavailable locally.
 - **Decision:** No tag or release was created; Beta.4 remains unchanged.
+
+## 2026-08-17 — Windows OpenMP search scope correction
+
+- **Change:** Kept OpenMP discovery strict while replacing whole Visual Studio
+  tree recursion with active Clang/VC roots and explicit versioned x64 paths;
+  this preserves deterministic selection without an unbounded runner scan.
+- **Validation:** Workflow YAML parsed and `git diff --check` passed locally.
+- **Decision:** The first hardened commit remains pushed; this follow-up is
+  required before treating hosted Windows validation as representative.
