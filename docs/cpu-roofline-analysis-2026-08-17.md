@@ -6,8 +6,8 @@ This report is generated from `D:\EcoUni\qwanto\c\qwnrun_phaseA_final.exe` and t
 
 | Field | Value |
 |---|---|
-| Git commit | `182bc56e62ee565e505fbea2c493518577fd92ef` |
-| Worktree dirty during measurement | `True` |
+| Git commit | `9a686913d33e9621c95955b53e8b9e980cb01456` |
+| Worktree dirty during measurement | `False` |
 | Executable SHA-256 | `4d3f3a4ab9eca86023b49056439298e7333f0d53f74a70af935c3e9f3fb5e621` |
 | Model SHA-256 | `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36` |
 | Host | Windows-11-10.0.26200-SP0 |
@@ -24,29 +24,29 @@ The benchmark used a 1024 MiB aligned NumPy buffer, 5 measured repetitions after
 
 | Workers | Read median GB/s | Read p5 GB/s | Copy median GB/s | Triad median GB/s |
 |---:|---:|---:|---:|---:|
-| 1 | 10.550 | 9.818 | 46.434 | 9.554 |
-| 2 | 20.637 | 15.609 | 47.281 | 13.025 |
-| 4 | 33.780 | 32.679 | 47.361 | 15.190 |
-| 6 | 35.516 | 34.004 | 46.384 | 16.175 |
-| 8 | 36.648 | 36.249 | 47.661 | 16.468 |
-| 12 | 37.264 | 36.104 | 53.016 | 16.677 |
-| 16 | 40.650 | 38.175 | 52.965 | 15.834 |
-| 32 | 44.379 | 42.137 | 54.326 | 15.802 |
+| 1 | 9.174 | 8.700 | 41.654 | 8.063 |
+| 2 | 19.770 | 17.493 | 45.336 | 12.246 |
+| 4 | 34.993 | 34.058 | 46.200 | 14.759 |
+| 6 | 33.687 | 32.126 | 45.076 | 15.431 |
+| 8 | 34.421 | 28.610 | 47.643 | 16.371 |
+| 12 | 37.980 | 36.183 | 51.514 | 16.004 |
+| 16 | 39.622 | 36.143 | 51.976 | 15.691 |
+| 32 | 44.608 | 43.047 | 52.817 | 15.328 |
 
-The selected worker count was **8**. Its read-only aggregate rate was **36.648 GB/s** (**34.131 GiB/s**). These are independent bandwidth proxies, not measured memory-controller bandwidth.
+The selected worker count was **8**. Its read-only aggregate rate was **34.421 GB/s** (**32.057 GiB/s**). These are independent bandwidth proxies, not measured memory-controller bandwidth.
 
 ## Arithmetic intensity and roofline estimate
 
 | Quantity | Value | Source / limitation |
 |---|---:|---|
-| Total logical bytes per token | 481200178.137 | derived_from_qwn_logical_execution_counters from executed logical counters |
+| Total logical bytes per token | 481038007.515 | derived_from_qwn_logical_execution_counters from executed logical counters |
 | Logical FLOPs per token | 3206021120.000 | qwnrun_matmul_shape_counter from descriptor-derived operations |
-| Arithmetic intensity | 6.662552 FLOP/byte | derived estimate |
-| Predicted throughput | 76.159 tok/s | derived_estimate using selected aggregate bytes/s |
-| Actual persistent decode median | 18.876335 tok/s | qwnrun_release_quality_persistent_decode |
-| Actual / predicted estimate | 24.79% | derived comparison, not a hardware efficiency measurement |
+| Arithmetic intensity | 6.664798 FLOP/byte | derived estimate |
+| Predicted throughput | 71.556 tok/s | derived_estimate using selected aggregate bytes/s |
+| Actual persistent decode median | 18.463467 tok/s | qwnrun_release_quality_persistent_decode |
+| Actual / predicted estimate | 25.80% | derived comparison, not a hardware efficiency measurement |
 
-Equation inputs: `36647854509.94771` bytes/s ÷ `481200178.13685477` bytes/token = `76.1592704554755` tok/s. The machine-readable validator recomputes this equation and rejects inconsistent evidence.
+Equation inputs: `34421311165.34105` bytes/s ÷ `481038007.515006` bytes/token = `71.55632325844289` tok/s. The machine-readable validator recomputes this equation and rejects inconsistent evidence.
 
 The logical bytes/token value is not a process read counter. It assumes the descriptor-derived logical traffic and therefore cannot prove that every byte was fetched from DRAM. The predicted throughput excludes decoder overhead, cache reuse, synchronization, sampling, and page/cache effects. It is a roofline estimate only.
 
@@ -54,10 +54,10 @@ The logical bytes/token value is not a process read counter. It assumes the desc
 
 | Counter | Result | Source |
 |---|---:|---|
-| HyperVSQ-2 kernel time | 11825.441 ms aggregate | qwnrun_hypervsq2_wall_timer |
-| SwiGLU time | 16.304 ms aggregate | qwnrun_swiglu_wall_timer |
-| Prefill median | 2538.690 ms | qwnrun_generation_metrics_prefill_boundary |
-| Decode median | 3390.489 ms | qwnrun_generation_metrics_decode_boundary |
+| HyperVSQ-2 kernel time | 12446.774 ms aggregate | qwnrun_hypervsq2_wall_timer |
+| SwiGLU time | 16.719 ms aggregate | qwnrun_swiglu_wall_timer |
+| Prefill median | 2612.611 ms | qwnrun_generation_metrics_prefill_boundary |
+| Decode median | 3466.305 ms | qwnrun_generation_metrics_decode_boundary |
 | Process memory reads | None | unavailable |
 | Memory-controller bandwidth | None | unavailable |
 | L1/L2/L3 misses | None | unavailable |
@@ -66,7 +66,7 @@ The logical bytes/token value is not a process read counter. It assumes the desc
 
 ## Interpretation
 
-The measured local decode result is **18.876335 tok/s median** with p5 **18.802478 tok/s**. The independent bandwidth run does not justify assuming 40–60 GB/s, and the derived roofline must not be presented as measured hardware bandwidth. The current evidence supports a CPU VNNI path and a memory-sensitive workload, but it does not identify every decoder bottleneck; profiler-backed cache, cycles, instructions, and memory-controller counters remain unavailable on this host.
+The measured local decode result is **18.463467 tok/s median** with p5 **18.023277 tok/s**. The independent bandwidth run does not justify assuming 40–60 GB/s, and the derived roofline must not be presented as measured hardware bandwidth. The current evidence supports a CPU VNNI path and a memory-sensitive workload, but it does not identify every decoder bottleneck; profiler-backed cache, cycles, instructions, and memory-controller counters remain unavailable on this host.
 
 ## Source evidence
 

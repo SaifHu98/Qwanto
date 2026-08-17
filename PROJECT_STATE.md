@@ -57,10 +57,12 @@ and NVMe mmap.
   `4d3f3a4b9eca86023b49056439298e7333f0d53f74a70af935c3e9f3fb5e621` and the
   model SHA-256 remains
   `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
-  Release-quality local delayed medians are `18.619635 tok/s` for 64 tokens
-  and `18.540185 tok/s` for 128 tokens; same-binary disabled controls are
-  `17.319207` and `17.286976`. All new records remain pending hosted
-  validation and README remains unchanged.
+  Release-quality clean-commit delayed medians are `18.985890 tok/s` for 64
+  tokens and `18.945001 tok/s` for 128 tokens; same-binary disabled controls
+  are `17.764969` and `17.737912`. Evidence is under
+  `benchmarks/evidence/windows/2026-08-17/phaseA-clean-9a68691/`, records
+  `git_worktree_dirty=false`, remains pending hosted validation, and README
+  remains unchanged.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
   native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
@@ -103,8 +105,8 @@ and NVMe mmap.
 - CPU Phase 3 roofline counters for process reads, memory-controller bandwidth,
   cache misses, cycles, instructions, vector instructions, and OpenMP barrier
   time are `UNAVAILABLE` locally. The corrected selected 8-worker read-only
-  stream proxy is `36.647854509 GB/s`; logical executed bytes are
-  `481200178.14 bytes/token`, yielding a derived estimate of `76.159270 tok/s`.
+  stream proxy is `34.421311165 GB/s`; logical executed bytes are
+  `481038007.52 bytes/token`, yielding a derived estimate of `71.556323 tok/s`.
   This is not hardware-measured bandwidth and is not a product claim.
 - The gateway control-plane contract is versioned at schema `1`; `/health` is
   outside `/v1`, while models/config/telemetry remain under `/v1`.
