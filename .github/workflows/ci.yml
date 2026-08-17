@@ -187,12 +187,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: requirements-ci.txt
       - name: Install native decoder dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libomp-dev
       - name: Install Python test dependencies
-        run: python -m pip install --upgrade pip pytest numpy
+        run: python -m pip install --upgrade pip -r requirements-ci.txt
       - name: Verify official Qwanto brand assets
         run: python c/tools/check_brand_assets.py
       - name: Verify built-in skill packages

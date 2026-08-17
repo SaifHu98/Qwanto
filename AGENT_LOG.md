@@ -294,3 +294,14 @@
 - **Files:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `benchmarks/benchmark_reproducible.py`, `c/`, `desktop/src-tauri/`, `docs/`, `web/`, `PROJECT_STATE.md`.
 - **Validation:** Decoder `2 passed`; full Python `217 passed, 3 skipped`; focused gateway tests `45 passed`; web build and Vitest `54 passed`; native C syntax and Windows clang/OpenMP link/build-info checks passed; workflow YAML, release policy, brand, skill, docs, secrets, and `git diff --check` passed. Cargo, Make, and local CUDA execution remain unavailable.
 - **Decision:** Keep existing unsigned Beta.4 unchanged; push follow-up code only after local checks and rely on hosted CI for Rust, package, and platform validation. Do not claim CUDA end-to-end performance without a nonzero GPU matmul test on a CUDA runner.
+
+## 2026-08-17 — Hosted fast-CI corrections
+
+- **Change:** Moved `_GNU_SOURCE` before `qwanto_decode.h` so Linux exposes
+  `Dl_info`/`dladdr`; added `requirements-ci.txt` and configured the Python
+  job's pip cache to use it.
+- **Evidence:** Hosted run `32017547742` failed at the Ubuntu native build
+  (`Dl_info` unknown) and Python setup (no requirements manifest); decoder
+  tests `2 passed`, release policy validation, and CI YAML parsing pass locally.
+- **Decision:** Push the targeted correction and wait for a new hosted run;
+  existing unsigned Beta.4 remains unchanged.

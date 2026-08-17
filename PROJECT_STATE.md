@@ -29,7 +29,7 @@ and NVMe mmap.
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
 - Native/Python validation: `217 passed, 3 skipped` in `c/tests/`; the decoder
-  test passed separately (`1 passed, 1 skipped`). Focused gateway tests passed
+  test passed separately (`2 passed`). Focused gateway tests passed
   (`45 passed`). Safe model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
@@ -49,6 +49,10 @@ and NVMe mmap.
   package/publish run `31974921398` passed and its assets contain only installers
   plus SHA-256 coverage. The current follow-up changes are after the existing
   Beta.4 tag and must not be silently described as part of that release.
+- Hosted CI run `32017547742` exposed two integration issues in this follow-up:
+  the POSIX native build needed `_GNU_SOURCE` before the project header for
+  `Dl_info`, and `setup-python` needed an explicit CI dependency manifest for
+  pip caching. Both are fixed locally; the replacement hosted run is pending.
 
 ## Active limitations
 

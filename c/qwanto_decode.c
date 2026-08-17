@@ -1,10 +1,10 @@
-#include "qwanto_decode.h"
-
 #if !defined(_WIN32)
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 #endif
+
+#include "qwanto_decode.h"
 
 #include <math.h>
 #include <stdio.h>
