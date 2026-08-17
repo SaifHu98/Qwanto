@@ -101,16 +101,34 @@ jobs:
         run: |
           Set-Location c
           $clangCommand = Get-Command clang -ErrorAction SilentlyContinue
-          $clangPath = if ($clangCommand) { $clangCommand.Source } else {
-            @(
-              'C:\Program Files\LLVM\bin\clang.exe',
-              'C:\Program Files (x86)\LLVM\bin\clang.exe',
-              'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe',
-              'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe'
-            ) | ForEach-Object { Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue } |
-              Select-Object -First 1 -ExpandProperty FullName
+          $vswherePath = @(
+            'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe',
+            'C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe'
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          $vsInstallations = @()
+          if ($vswherePath) {
+            $vsInstallations = @(& $vswherePath -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Llvm -property installationPath 2>$null)
+            if (-not $vsInstallations) {
+              $vsInstallations = @(& $vswherePath -latest -products '*' -property installationPath 2>$null)
+            }
           }
-          if (-not $clangPath) { throw 'LLVM Clang was not found in PATH, LLVM, or Visual Studio LLVM installation paths.' }
+          $clangCandidates = @()
+          if ($clangCommand -and $clangCommand.CommandType -eq 'Application') { $clangCandidates += $clangCommand.Path }
+          $clangCandidates += @(
+            'C:\Program Files\LLVM\bin\clang.exe',
+            'C:\Program Files (x86)\LLVM\bin\clang.exe',
+            'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe',
+            'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin\clang.exe'
+          )
+          foreach ($vs in $vsInstallations) { $clangCandidates += (Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang.exe') }
+          $clangPath = $clangCandidates |
+            ForEach-Object {
+              if ($_ -and $_ -like '*[*?]*') {
+                Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+              } elseif ($_ -and (Test-Path -LiteralPath $_ -PathType Leaf)) { $_ }
+            } |
+            Select-Object -First 1
+          if (-not $clangPath) { throw "LLVM Clang was not found. vswhere=$vswherePath; installations=$($vsInstallations -join ';'); candidates=$($clangCandidates -join ';')" }
           & $clangPath --version
           $clangRoot = Split-Path -Parent (Split-Path -Parent $clangPath)
           $ompRoots = @(
@@ -125,6 +143,10 @@ jobs:
           $ompLibSearchPaths = @($ompRoots) + @(
             'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64',
             'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\lib\x64')
+          foreach ($vs in $vsInstallations) {
+            $ompLibSearchPaths += (Join-Path $vs 'VC\Tools\Llvm\x64')
+            $ompLibSearchPaths += (Join-Path $vs 'VC\Tools\MSVC')
+          }
           $ompLib = (& $clangPath --print-file-name=libomp.lib).Trim()
           if (-not (Test-Path -LiteralPath $ompLib) -or $ompLib -match '\\arm64\\') {
             $ompLib = Get-ChildItem -Path $ompLibSearchPaths -Filter libomp.lib -File -Recurse -ErrorAction SilentlyContinue |
@@ -138,6 +160,7 @@ jobs:
           $ompDllSearchPaths = @($ompRoots) + @($env:VCToolsRedistDir, $env:VCToolsInstallDir,
             'C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC',
             'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC')
+          foreach ($vs in $vsInstallations) { $ompDllSearchPaths += (Join-Path $vs 'VC\Redist\MSVC') }
           $ompDll = Get-ChildItem -Path $ompDllSearchPaths -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch '\\arm64\\' -and $_.Name -eq 'libomp140.x86_64.dll' } |
             Sort-Object @{ Expression = { if ($_.FullName -match '\\(?:x64|amd64)\\') { 0 } else { 1 } } }, FullName |

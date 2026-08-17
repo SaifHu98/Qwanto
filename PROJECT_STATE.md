@@ -194,3 +194,9 @@ and NVMe mmap.
 - **Follow-up:** The resolver also covers versioned Visual Studio
   `VC\Tools\Llvm\x64\bin\clang.exe` installations, the likely hosted runner
   location when Clang is not on PATH.
+
+- **Current CI follow-up:** The hosted Windows native job still fails before
+  compilation; public logs are authentication-gated. The resolver now uses
+  `vswhere` when present, validates executable paths, and searches bounded x64
+  LLVM/MSVC OpenMP locations. A retained PowerShell brace was removed after
+  local AST parsing identified it.

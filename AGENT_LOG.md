@@ -404,6 +404,17 @@
 - **Decision:** The first hardened commit remains pushed; this follow-up is
   required before treating hosted Windows validation as representative.
 
+## 2026-08-17 — Windows compiler resolver syntax correction
+
+- **Evidence:** Hosted run `32024498697` failed in the Windows native step after
+  three seconds, before compilation and `make test-c`; the public log text is
+  authentication-gated. The next local resolver edit retained an obsolete
+  `if/else` closing brace, which the PowerShell parser confirmed.
+- **Change:** Removed the stray brace and added `vswhere`-based Visual Studio
+  LLVM discovery plus bounded x64 OpenMP search paths in CI and release builds.
+- **Validation:** PowerShell parser, workflow YAML, and release-policy checks
+  pass locally. No tag or release was created.
+
 ## 2026-08-17 — Windows OpenMP root narrowing
 
 - **Change:** Removed broad Visual Studio directories from the recursive root
