@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qwanto Native local release-quality CPU thread scaling",
+  "type": "object",
+  "required": ["schema_version", "benchmark_class", "benchmark_id", "timestamp_utc", "evidence_classification", "workload", "host", "rows"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "benchmark_class": {"const": "RELEASE_THREAD_SCALING"},
+    "evidence_classification": {"const": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION"},
+    "rows": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["workers_requested", "median_tok_per_sec", "p5_tok_per_sec", "p95_latency_ms", "selected_kernel", "executable_sha256", "model_sha256", "git_commit", "git_worktree_dirty"]}}
+  }
+}

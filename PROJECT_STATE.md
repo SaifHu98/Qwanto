@@ -28,9 +28,8 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `228 passed, 4 skipped` in `c/tests/`; the decoder
-  test passed separately (`2 passed`). Focused gateway tests passed
-  (`45 passed`). Safe model-acquisition tests use only
+- Native/Python validation: `235 passed, 4 skipped` in `c/tests/`; safe
+  model-acquisition tests use only
   local HTTP fixtures and cover resume, checksum, cancellation, disk, and
   atomic QWN behavior.
 - Web validation: production build passed and Vitest passed (`56 tests`). The
@@ -40,16 +39,19 @@ and NVMe mmap.
   1280px, 1440px, 1920px, and short laptop heights. Skills & Plugins, GitHub,
   and Feedback are separate lazy settings sections; model/conversion/download
   work remains focused under Models.
-- The existing `benchmark_evidence.json` claim remains unchanged. Final clean
-  local evidence from commit `70083b1` uses `c/qwnrun_investigation.exe` SHA-256
-  `a89a65d508f080c24b3496d23ad673e3edbb1918d8292aa1c18d3524c6a6a03c` and the
-  4B HyperVSQ-2 model SHA-256
+- The existing `benchmark_evidence.json` claim remains unchanged. CPU Phase 3
+  local evidence from commit `cb3ca35` uses the 4B HyperVSQ-2 model SHA-256
   `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
-  It reports cold readiness `109 ms`, first tensor touch `93.695 ms`, persistent
-  prefill median `15.053010 tok/s`, and persistent warm decode median/p95
-  `15.445769/15.552753 tok/s` with VNNI and 32 active workers. Five-run PID
-  reuse is proven; thread scaling proves active workers `1,2,4,8,16,32`.
-  README performance claims remain intentionally unchanged.
+  Rebuilt baseline qwnrun SHA-256 is
+  `81503e04278d007e45fc85c7b69edd0d1cecf250152128370adfa53eb05a5454`;
+  delayed-reduction candidate SHA-256 is
+  `966b3e0f75cf2c851a33be431d67741c9b9b390d156d8a28f4d6c4f0d2c56866`.
+  At eight workers, baseline/delayed release-quality warm decode medians are
+  `17.981481/18.877406 tok/s` for 64 generated tokens and
+  `17.845848/18.996390 tok/s` for 128 generated tokens. Exact streamed output
+  agreement and 140/140 differential tests pass. The results are
+  `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION`; README performance claims remain
+  intentionally unchanged.
 - Rust gates are pending on this workstation because `cargo` and `make` are not installed;
   hosted CI remains authoritative for Rust and cross-platform packaging. The local
   native C syntax check and a Windows clang/OpenMP link test passed; the local CUDA
@@ -65,6 +67,9 @@ and NVMe mmap.
   pip caching. Both are fixed; hosted run `32017793799` for commit `1a6b493`
   passed all scheduled jobs, including native Linux/Windows, Python, Web,
   documentation, and security checks.
+- Hosted Rust correction run `32047197045` passed after commit `363d1d8`.
+  The later CPU Phase 3 commits still require a complete hosted validation run
+  on their final exact commit.
 
 ## Active limitations
 
@@ -86,6 +91,11 @@ and NVMe mmap.
 - CUDA is still `UNAVAILABLE` on this workstation: explicit `--backend cuda`
   fails closed because `qwn_cuda.dll`/device support is absent. GPU detection
   alone is never classified as CUDA inference.
+- CPU Phase 3 roofline counters for process reads, memory-controller bandwidth,
+  cache misses, cycles, instructions, vector instructions, and OpenMP barrier
+  time are `UNAVAILABLE` locally. The independent 8-worker read-only stream
+  proxy measured `6.366657 GB/s`; the roofline prediction is a derived estimate,
+  not hardware-measured bandwidth.
 - The gateway control-plane contract is versioned at schema `1`; `/health` is
   outside `/v1`, while models/config/telemetry remain under `/v1`.
 - Third-party plugin execution remains unavailable by design until a native

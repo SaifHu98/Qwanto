@@ -1,0 +1,140 @@
+{
+  "schema_version": "1.0.0",
+  "benchmark_class": "CPU_PHASE3_ABLATION_MATRIX",
+  "timestamp_utc": "2026-08-17T17:09:56.941397+00:00",
+  "evidence_classification": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION",
+  "rows": [
+    {
+      "variant": "Current clean VNNI baseline",
+      "threads": 8,
+      "row_block": "1",
+      "delayed_reduction": "No",
+      "unpack": "current AVX2/VNNI",
+      "swiglu": "scalar exact",
+      "affinity": "default",
+      "kv_mode": "fp16",
+      "median_tok_per_sec": 17.981481,
+      "p5_tok_per_sec": 17.897881,
+      "p95_latency_ms": 3575.842,
+      "correctness": "scalar/VNNI differential passed",
+      "classification": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION",
+      "evidence_path": "benchmarks/evidence/windows/2026-08-17/phase3-local/baseline-vnni-8t-64-rebuilt.json",
+      "executable_sha256": "81503e04278d007e45fc85c7b69edd0d1cecf250152128370adfa53eb05a5454",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "git_commit": "363d1d8b995e29c98cb0d05698da19d57ba964b4",
+      "git_worktree_dirty": true
+    },
+    {
+      "variant": "Delayed reduction",
+      "threads": 8,
+      "row_block": "1",
+      "delayed_reduction": "Yes",
+      "unpack": "current AVX2/VNNI",
+      "swiglu": "scalar exact",
+      "affinity": "default",
+      "kv_mode": "fp16",
+      "median_tok_per_sec": 18.877406,
+      "p5_tok_per_sec": 18.704164,
+      "p95_latency_ms": 3421.698,
+      "correctness": "140/140 differential + exact stream agreement",
+      "classification": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION",
+      "evidence_path": "benchmarks/evidence/windows/2026-08-17/phase3-local/delayed-reduction-8t-64-rebuilt.json",
+      "executable_sha256": "966b3e0f75cf2c851a33be431d67741c9b9b390d156d8a28f4d6c4f0d2c56866",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "git_commit": "363d1d8b995e29c98cb0d05698da19d57ba964b4",
+      "git_worktree_dirty": true
+    },
+    {
+      "variant": "Affinity close",
+      "threads": 8,
+      "row_block": "1",
+      "delayed_reduction": "No",
+      "unpack": "current AVX2/VNNI",
+      "swiglu": "scalar exact",
+      "affinity": "close",
+      "kv_mode": "fp16",
+      "median_tok_per_sec": 17.186347,
+      "p5_tok_per_sec": 16.878935,
+      "p95_latency_ms": 3791.708,
+      "correctness": "not applicable",
+      "classification": "INVALID",
+      "evidence_path": "benchmarks/evidence/windows/2026-08-17/phase3-local/affinity-close-8t-64-8workers.json",
+      "executable_sha256": "cf7a53ddfad7750e3654bf16e609e385a4f4707c19d5f039d28d4e1a167373f9",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "git_commit": "78496d547eea462b46d3580001702c101ba36903",
+      "git_worktree_dirty": true
+    },
+    {
+      "variant": "Affinity spread",
+      "threads": 8,
+      "row_block": "1",
+      "delayed_reduction": "No",
+      "unpack": "current AVX2/VNNI",
+      "swiglu": "scalar exact",
+      "affinity": "spread",
+      "kv_mode": "fp16",
+      "median_tok_per_sec": 16.716366,
+      "p5_tok_per_sec": 16.108747,
+      "p95_latency_ms": 3972.997,
+      "correctness": "not applicable",
+      "classification": "INVALID",
+      "evidence_path": "benchmarks/evidence/windows/2026-08-17/phase3-local/affinity-spread-8t-64-8workers.json",
+      "executable_sha256": "cf7a53ddfad7750e3654bf16e609e385a4f4707c19d5f039d28d4e1a167373f9",
+      "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
+      "git_commit": "78496d547eea462b46d3580001702c101ba36903",
+      "git_worktree_dirty": true
+    },
+    {
+      "variant": "2-row blocking",
+      "classification": "UNAVAILABLE",
+      "reason": "No HyperVSQ-2 multi-row candidate retained; generic row blocking is not evidence for this layout."
+    },
+    {
+      "variant": "4-row blocking",
+      "classification": "UNAVAILABLE",
+      "reason": "No HyperVSQ-2 multi-row candidate retained; generic row blocking is not evidence for this layout."
+    },
+    {
+      "variant": "Alternative 2-bit unpack",
+      "classification": "UNAVAILABLE",
+      "reason": "No shuffle/LUT candidate completed full GEMV and end-to-end validation."
+    },
+    {
+      "variant": "SIMD SwiGLU",
+      "classification": "UNAVAILABLE",
+      "reason": "No SIMD candidate; scalar SwiGLU time is instrumented but no validated approximation was adopted."
+    },
+    {
+      "variant": "Combined validated CPU kernel",
+      "classification": "UNAVAILABLE",
+      "reason": "No combined row/unpack/SwiGLU winner exists; delayed reduction remains separately attributable."
+    },
+    {
+      "variant": "KV quantization long-context",
+      "classification": "UNAVAILABLE",
+      "reason": "Only fp16/auto is accepted by qwnrun; 512/4K/16K comparative KV evidence is not available."
+    },
+    {
+      "variant": "Speculative decoding",
+      "classification": "UNAVAILABLE",
+      "reason": "No runtime-wired draft/target verification, correction, rollback, and end-to-end counters."
+    }
+  ],
+  "accepted_variants": [
+    "delayed_reduction"
+  ],
+  "rejected_or_unavailable": [
+    "2-row blocking",
+    "4-row blocking",
+    "Alternative 2-bit unpack",
+    "SIMD SwiGLU",
+    "Combined validated CPU kernel",
+    "KV quantization long-context",
+    "Speculative decoding"
+  ],
+  "notes": [
+    "The 64-token run is a SHORT_DIAGNOSTIC-style comparison; 128-token release-quality evidence is stored separately.",
+    "All measured rows remain local-pending-hosted-validation and include their executable/model identity.",
+    "Affinity is experimental and not adopted as a production default from one close/spread pair."
+  ]
+}

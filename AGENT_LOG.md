@@ -1,5 +1,7 @@
 # AGENT_LOG.md
 
+2026-08-17 | Codex | Fixed hosted Rust needless-borrow Clippy failure, then accepted a separately gated delayed-reduction HyperVSQ-2 VNNI candidate after 140/140 differential tests, exact streamed-output agreement, and 64/128-token local comparisons; added roofline, ablation, and feature-status evidence. | desktop/src-tauri/src/lib.rs; c/qwanto_kernels.*; c/qwanto_decode.*; c/qwnrun.c; c/tests/test_hypervsq2_kernels.c; benchmarks/; docs/; PROJECT_STATE.md | Rust hosted run 32047197045 green; Python 235 passed/4 skipped; web build and 56 tests passed; C/Clang OpenMP rebuild and differential tests passed; Cargo/Make/NVCC unavailable locally; README/CUDA/tags/releases unchanged. | CPU Phase 3 remains MEASURED_LOCAL_PENDING_HOSTED_VALIDATION.
+
 ## 2026-08-16 — Gateway contract, dashboard gating, and beta.2 release hardening
 
 - **Change:** Added a real local subprocess integration test for `/health`,

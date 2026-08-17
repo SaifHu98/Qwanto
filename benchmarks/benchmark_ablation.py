@@ -16,7 +16,6 @@ except ImportError:
 UNIMPLEMENTED = {
     "thread_autotune": "Requires an explicit local autotune run; not silently folded into the final variant.",
     "lm_head_correction": "Instrumentation is present; no predictive correction algorithm is implemented.",
-    "delayed_reductions": "No mathematically validated delayed-reduction variant is implemented.",
     "row_blocking": "No row-blocking variant is retained without end-to-end evidence.",
     "two_bit_unpack": "No alternative unpack variant is retained without full GEMV and decode evidence.",
     "simd_swiglu": "No SIMD SwiGLU variant is retained without correctness and end-to-end evidence.",
