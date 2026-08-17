@@ -34,6 +34,9 @@ typedef struct {
     uint64_t hypervsq2_logical_weight_bytes;
     uint64_t hypervsq2_logical_flops;
     double hypervsq2_kernel_ms;
+    int hypervsq2_reductions_per_row;
+    char hypervsq2_reduction_mode[32];
+    int hypervsq2_delayed_reduction_enabled;
 } QwnScratch;
 
 /* Allocate once per session. No malloc/free occurs in the token hot path. */
@@ -89,6 +92,14 @@ void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
                             const int32_t *activation_sums,
                             float x_scale, int K, int N,
                             size_t row_bytes, float *out);
+
+/* Development-gated VNNI candidate. It applies each octant's scale before
+ * accumulating vector lanes, then performs one final horizontal reduction per
+ * row. The 74-byte layout and per-octant offset semantics are unchanged. */
+void qwn_gemv_hypervsq2_vnni_delayed(const uint8_t *raw_blocks, const int8_t *q8,
+                                     const int32_t *activation_sums,
+                                     float x_scale, int K, int N,
+                                     size_t row_bytes, float *out);
 
 /* Full matrix multiplication for HyperVSQ-2 */
 int qwn_matmul_hypervsq2_f32(const QwnModel *m,

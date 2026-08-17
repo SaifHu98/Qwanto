@@ -67,10 +67,11 @@ static int run_differential_test(int K, int N) {
     float *out_precomputed = (float *)malloc((size_t)N * sizeof(float));
     float *out_avx2 = (float *)malloc((size_t)N * sizeof(float));
     float *out_vnni = (float *)malloc((size_t)N * sizeof(float));
+    float *out_vnni_delayed = (float *)malloc((size_t)N * sizeof(float));
     int32_t *activation_sums = (int32_t *)calloc((size_t)blocks * 8, sizeof(int32_t));
 
     if (!raw_blocks || !q8 || !out_scalar || !out_precomputed || !out_avx2 ||
-        !out_vnni || !activation_sums) {
+        !out_vnni || !out_vnni_delayed || !activation_sums) {
         fprintf(stderr, "Allocation failed in differential test\n");
         return -1;
     }
@@ -114,12 +115,16 @@ static int run_differential_test(int K, int N) {
     if (cpu->has_vnni) {
         qwn_gemv_hypervsq2_vnni(raw_blocks, q8, activation_sums, x_scale, K, N,
                                 row_bytes, out_vnni);
+        qwn_gemv_hypervsq2_vnni_delayed(raw_blocks, q8, activation_sums, x_scale, K, N,
+                                        row_bytes, out_vnni_delayed);
     } else {
         memcpy(out_vnni, out_scalar, (size_t)N * sizeof(float));
+        memcpy(out_vnni_delayed, out_scalar, (size_t)N * sizeof(float));
     }
 
     float max_diff_avx2 = 0.0f;
     float max_diff_vnni = 0.0f;
+    float max_diff_vnni_delayed = 0.0f;
     float max_diff_precomputed = 0.0f;
 
     for (int n = 0; n < N; n++) {
@@ -130,6 +135,8 @@ static int run_differential_test(int K, int N) {
 
         float diff_v = fabsf(out_scalar[n] - out_vnni[n]);
         if (diff_v > max_diff_vnni) max_diff_vnni = diff_v;
+        float diff_delayed = fabsf(out_scalar[n] - out_vnni_delayed[n]);
+        if (diff_delayed > max_diff_vnni_delayed) max_diff_vnni_delayed = diff_delayed;
     }
 
     int passed = 1;
@@ -148,6 +155,11 @@ static int run_differential_test(int K, int N) {
                 K, N, max_diff_vnni, out_scalar[0], out_vnni[0]);
         passed = 0;
     }
+    if (cpu->has_vnni && max_diff_vnni_delayed > 1e-3f) {
+        fprintf(stderr, "[FAIL] K=%d N=%d delayed VNNI max diff: %f\n",
+                K, N, max_diff_vnni_delayed);
+        passed = 0;
+    }
 
     free(raw_blocks);
     free(q8);
@@ -155,6 +167,7 @@ static int run_differential_test(int K, int N) {
     free(out_precomputed);
     free(out_avx2);
     free(out_vnni);
+    free(out_vnni_delayed);
     free(activation_sums);
 
     return passed ? 0 : -1;

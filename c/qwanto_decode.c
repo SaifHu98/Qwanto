@@ -1104,6 +1104,12 @@ void qwn_decoder_refresh_runtime_metrics(QwnDecoder *d) {
         d->scratch.hypervsq2_logical_flops;
     d->runtime_metrics.hypervsq2_kernel_ms =
         d->scratch.hypervsq2_kernel_ms;
+    d->runtime_metrics.hypervsq2_reductions_per_row =
+        d->scratch.hypervsq2_reductions_per_row;
+    snprintf(d->runtime_metrics.hypervsq2_reduction_mode,
+             sizeof(d->runtime_metrics.hypervsq2_reduction_mode), "%s",
+             d->scratch.hypervsq2_reduction_mode[0] ?
+             d->scratch.hypervsq2_reduction_mode : "Unavailable");
     snprintf(d->runtime_metrics.dispatch_reason,
              sizeof(d->runtime_metrics.dispatch_reason), "%s",
              d->scratch.hypervsq2_dispatch_reason[0] ?

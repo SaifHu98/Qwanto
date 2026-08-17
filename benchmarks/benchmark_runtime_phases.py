@@ -179,13 +179,15 @@ class PersistentQwnrun:
             return
 
     def request(self, request_id: str, prompt: str, max_tokens: int,
-                temperature: float = 0.0, top_p: float = 1.0) -> dict:
+                temperature: float = 0.0, top_p: float = 1.0,
+                capture_data: bool = False) -> dict:
         payload = prompt.encode("utf-8")
         header = (f"SUBMIT {request_id} 0 {len(payload)} {max_tokens} "
                   f"{temperature:.8g} {top_p:.8g}\n").encode("ascii")
         if self.process.stdin is None or self.process.stdout is None:
             raise RuntimeError("qwnrun protocol pipes are unavailable")
         request_started = time.perf_counter()
+        data_chunks: list[bytes] = []
         self.process.stdin.write(header + payload + b"\n")
         self.process.stdin.flush()
         while True:
@@ -201,9 +203,13 @@ class PersistentQwnrun:
                 terminator = _read_with_timeout(self.process.stdout, 1, self.timeout)
                 if len(data) != size or terminator != b"\n":
                     raise RuntimeError("invalid qwnrun DATA frame")
+                if capture_data:
+                    data_chunks.append(data)
             elif fields[0] == "DONE":
                 result = parse_done(line)
                 result["protocol_request_wall_ms"] = (time.perf_counter() - request_started) * 1000.0
+                if capture_data:
+                    result["stream_text"] = b"".join(data_chunks).decode("utf-8", "replace")
                 return result
             elif fields[0] == "ERROR":
                 raise RuntimeError("qwnrun request failed: " + " ".join(fields[2:]))

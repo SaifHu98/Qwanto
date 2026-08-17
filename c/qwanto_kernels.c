@@ -224,6 +224,9 @@ int qwn_scratch_init(QwnScratch *s, int max_tokens, int max_k) {
     s->activation_sum_enabled = !(disable_activation_sums &&
                                   *disable_activation_sums &&
                                   strcmp(disable_activation_sums, "0") != 0);
+    const char *delayed_reduction = getenv("QWN_HYPERVSQ2_DELAYED_REDUCTION");
+    s->hypervsq2_delayed_reduction_enabled = delayed_reduction &&
+        (strcmp(delayed_reduction, "1") == 0 || strcmp(delayed_reduction, "true") == 0);
     s->bytes = total;
     s->max_tokens = max_tokens;
     s->padded_k = padded_k;
@@ -774,6 +777,91 @@ void qwn_gemv_hypervsq2_vnni(const uint8_t *raw_blocks, const int8_t *q8,
 #endif
 }
 
+/* Experimental delayed horizontal reduction. Integer lanes are never
+ * combined across octants before their individual scale/offset is applied;
+ * this is required because each octant has its own scale multiplier. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((target("avxvnni")))
+#endif
+void qwn_gemv_hypervsq2_vnni_delayed(const uint8_t *raw_blocks, const int8_t *q8,
+                                     const int32_t *activation_sums,
+                                     float x_scale, int K, int N,
+                                     size_t row_bytes, float *out) {
+#if defined(__AVX2__)
+    int blocks = (K + 255) / 256;
+    const __m256i ones8 = _mm256_set1_epi8(1);
+
+    for (int n = 0; n < N; n++) {
+        const uint8_t *row = raw_blocks + (size_t)n * row_bytes;
+        __m256 scaled_sum = _mm256_setzero_ps();
+        float offset_sum = 0.0f;
+        for (int b = 0; b < blocks; b++) {
+            const uint8_t *blk = row + (size_t)b * 74;
+            int valid = K - b * 256;
+            if (valid > 256) valid = 256;
+            if (valid <= 0) break;
+
+            uint16_t hs, hm;
+            memcpy(&hs, blk, 2);
+            memcpy(&hm, blk + 2, 2);
+            float base_scale = half_to_float(hs);
+            float offset = half_to_float(hm);
+            const uint8_t *sub_bytes = blk + 4;
+            const uint8_t *qs = blk + 10;
+            int cap_oct = valid / 32;
+            if (cap_oct > 8) cap_oct = 8;
+
+            for (int oct = 0; oct < cap_oct; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+                __m256i q_unp = unpack_32x2bit_avx2(qs + oct * 8);
+                __m256i a_vec = _mm256_loadu_si256((const __m256i *)(q8 + base_idx));
+                __m256i dot32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), q_unp, a_vec);
+                __m256i sum_a32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), ones8, a_vec);
+                __m256i diff32 = _mm256_sub_epi32(dot32, sum_a32);
+                __m256 scaled = _mm256_mul_ps(
+                    _mm256_cvtepi32_ps(diff32),
+                    _mm256_set1_ps(eff_scale * x_scale));
+                scaled_sum = _mm256_add_ps(scaled_sum, scaled);
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] :
+                                 hsum_epi32_avx2(sum_a32);
+                offset_sum += (float)sum_a * (offset * x_scale);
+            }
+
+            for (int oct = cap_oct; oct < 8; oct++) {
+                int base_idx = b * 256 + oct * 32;
+                int cap = valid - oct * 32;
+                if (cap > 32) cap = 32;
+                if (cap <= 0) break;
+                uint8_t sb = sub_bytes[oct >> 1];
+                int s_val = (oct & 1) ? (sb >> 4) : (sb & 0x0F);
+                float eff_scale = base_scale * ((float)s_val * (1.0f / 8.0f));
+                const uint8_t *q_oct = qs + oct * 8;
+                int32_t sum_q = 0;
+                int32_t sum_a = activation_sums ? activation_sums[b * 8 + oct] : 0;
+                for (int i = 0; i < cap; i++) {
+                    uint8_t byte = q_oct[i >> 2];
+                    int q = (byte >> ((i & 3) * 2)) & 3;
+                    int8_t a = q8[base_idx + i];
+                    sum_q += (q - 1) * (int32_t)a;
+                    if (!activation_sums) sum_a += (int32_t)a;
+                }
+                offset_sum += (float)sum_q * (eff_scale * x_scale) +
+                              (float)sum_a * (offset * x_scale);
+            }
+        }
+        float lanes[8];
+        _mm256_storeu_ps(lanes, scaled_sum);
+        out[n] = offset_sum + lanes[0] + lanes[1] + lanes[2] + lanes[3] +
+                 lanes[4] + lanes[5] + lanes[6] + lanes[7];
+    }
+#else
+    qwn_gemv_hypervsq2_scalar(raw_blocks, q8, activation_sums, x_scale, K, N, row_bytes, out);
+#endif
+}
+
 /* Full matrix multiplication for HyperVSQ-2 with runtime CPUID dispatch */
 int qwn_matmul_hypervsq2_f32(const QwnModel *m,
                              const QwnTensorDesc *weights,
@@ -835,10 +923,24 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
         gemv_fn = qwn_gemv_hypervsq2_avx2;
     }
 
+    if (scratch->hypervsq2_delayed_reduction_enabled &&
+        gemv_fn == qwn_gemv_hypervsq2_vnni)
+        gemv_fn = qwn_gemv_hypervsq2_vnni_delayed;
+
     if (scratch->hypervsq2_matmul_calls == 0) {
         snprintf(scratch->hypervsq2_kernel, sizeof(scratch->hypervsq2_kernel),
-                 "%s", qwn_cpu_kernel_name());
-        if (gemv_fn == qwn_gemv_hypervsq2_vnni) {
+                 "%s", gemv_fn == qwn_gemv_hypervsq2_vnni_delayed ?
+                 "vnni-delayed-reduction" : qwn_cpu_kernel_name());
+        snprintf(scratch->hypervsq2_reduction_mode,
+                 sizeof(scratch->hypervsq2_reduction_mode), "%s",
+                 gemv_fn == qwn_gemv_hypervsq2_vnni_delayed ? "delayed" : "per-octant");
+        scratch->hypervsq2_reductions_per_row =
+            gemv_fn == qwn_gemv_hypervsq2_vnni_delayed ? 1 : blocks * 8;
+        if (gemv_fn == qwn_gemv_hypervsq2_vnni_delayed) {
+            snprintf(scratch->hypervsq2_dispatch_reason,
+                     sizeof(scratch->hypervsq2_dispatch_reason),
+                     "cpu_vnni=yes;binary_vnni=yes;dtype=hypervsq2-74;selected=vnni-delayed-reduction;env=QWN_HYPERVSQ2_DELAYED_REDUCTION");
+        } else if (gemv_fn == qwn_gemv_hypervsq2_vnni) {
             snprintf(scratch->hypervsq2_dispatch_reason,
                      sizeof(scratch->hypervsq2_dispatch_reason),
                      "cpu_vnni=yes;binary_vnni=yes;dtype=hypervsq2-74;selected=vnni");

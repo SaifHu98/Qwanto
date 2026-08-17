@@ -93,6 +93,8 @@ typedef struct {
     uint64_t hypervsq2_logical_weight_bytes;
     uint64_t hypervsq2_logical_flops;
     double hypervsq2_kernel_ms;
+    int hypervsq2_reductions_per_row;
+    char hypervsq2_reduction_mode[32];
     uint64_t swiglu_calls;
     uint64_t swiglu_elements;
     double swiglu_ms;

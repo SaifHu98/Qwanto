@@ -254,7 +254,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "openmp_synchronization_ms": _unavailable_counter("OpenMP barrier timing is not separately instrumented"),
             "kernel_compute_ms": {"value": runtime_meta.get("hypervsq2_kernel_ms"), "source": "qwnrun_hypervsq2_wall_timer"},
             "non_kernel_decoder_ms": _unavailable_counter("decoder phase timer is not yet split from protocol and sampling"),
-            "prefill_ms": {"value": summary.get("ttft_ms_median"), "source": "qwnrun_generation_metrics_first_token_boundary"},
+            "prefill_ms": {"value": summary.get("prefill_ms_median"), "source": "qwnrun_generation_metrics_prefill_boundary"},
             "decode_ms": {"value": summary.get("decode_latency_ms_median"), "source": "qwnrun_generation_metrics_decode_boundary"},
             "swiglu_ms": {"value": runtime_meta.get("swiglu_ms"), "source": "qwnrun_swiglu_wall_timer"},
         },

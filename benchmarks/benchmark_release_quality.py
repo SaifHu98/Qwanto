@@ -233,6 +233,8 @@ def run_release_quality(
                 "swiglu_calls": runtime_fields.get("swiglu_calls", 0),
                 "swiglu_elements": runtime_fields.get("swiglu_elements", 0),
                 "swiglu_ms": runtime_fields.get("swiglu_ms", 0),
+                "hypervsq2_reductions_per_row": runtime_fields.get("hypervsq2_reductions_per_row", 0),
+                "hypervsq2_reduction_mode": runtime_fields.get("hypervsq2_reduction_mode", "Unavailable"),
             })
             update_runtime_config_snapshot(report["runtime_config_snapshot"], runtime_fields)
 
@@ -244,6 +246,10 @@ def run_release_quality(
     latency = [float(r["decode_wall_ms"]) for r in report["requests"]]
     ttft = [float(r["first_token_ms"]) for r in report["requests"]]
     tokens = [int(r["generated_tokens"]) for r in report["requests"]]
+    prefill_ms = [float(r["prefill_ms"]) for r in report["requests"]
+                  if _number(r.get("prefill_ms")) is not None and float(r["prefill_ms"]) > 0]
+    prefill = [float(r["prefill_tok_per_sec"]) for r in report["requests"]
+               if _number(r.get("prefill_tok_per_sec")) is not None]
     report["summary"] = {
         "measured_runs": len(report["requests"]),
         "generated_tokens_per_run": tokens,
@@ -255,11 +261,14 @@ def run_release_quality(
         "decode_latency_ms_p95": percentile(latency, 0.95),
         "ttft_ms_median": _median(ttft),
         "ttft_ms_p95": percentile(ttft, 0.95),
+        "prefill_ms_median": _median(prefill_ms),
+        "prefill_tok_per_sec_median": _median(prefill),
         "decode_tok_per_sec_cv": _cv(throughput),
         "pid_reuse_proven": len({r["process_pid"] for r in report["requests"]}) == 1,
         "thermal_power": "Unavailable: no direct sensor measurement",
     }
-    report["invalid_reasons"] = _invalid_reasons(
+    dirty_reason = "worktree was dirty while evidence was generated"
+    invalid_reasons = _invalid_reasons(
         [{"evidence_classification": "MEASURED", "measurements": r,
           "execution_evidence": {"process_pid": r["process_pid"]},
           "runtime_config_snapshot": r["runtime_config_snapshot"],
@@ -269,6 +278,11 @@ def run_release_quality(
         invocation_count=_number(report["runtime_metadata"].get("kernel_invocation_count")),
         worktree_dirty=bool(report["runtime_metadata"].get("git_worktree_dirty")),
     )
+    report["validation_notes"] = []
+    if pending_hosted_validation and dirty_reason in invalid_reasons:
+        invalid_reasons.remove(dirty_reason)
+        report["validation_notes"].append(dirty_reason)
+    report["invalid_reasons"] = invalid_reasons
     report["evidence_classification"] = (
         "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION" if pending_hosted_validation
         else "MEASURED"
@@ -289,19 +303,34 @@ def main() -> None:
     parser.add_argument("--warmup-tokens", type=int, default=8)
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--variance-limit", type=float, default=DEFAULT_VARIANCE_LIMIT)
+    parser.add_argument("--variant", default="final")
     parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--env", action="append", default=[], metavar="NAME=VALUE",
+        help="set an explicit benchmark-only environment variable (repeatable)",
+    )
     parser.add_argument(
         "--pending-hosted-validation", action="store_true",
         help="classify valid local evidence pending the required hosted CI gate",
     )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    env_overrides: dict[str, str] = {}
+    for entry in args.env:
+        if "=" not in entry:
+            parser.error(f"--env requires NAME=VALUE: {entry}")
+        name, value = entry.split("=", 1)
+        if not name or "=" in name:
+            parser.error(f"invalid --env name: {name!r}")
+        env_overrides[name] = value
     report = run_release_quality(
         model=args.model, executable=args.executable, backend=args.backend,
         threads=args.threads, prompt=args.prompt, context_size=args.context_size,
         max_tokens=args.max_tokens, seed=args.seed, warmup_tokens=args.warmup_tokens,
         repeats=args.repeats, timeout=args.timeout, variance_limit=args.variance_limit,
         pending_hosted_validation=args.pending_hosted_validation,
+        variant=args.variant,
+        env_overrides=env_overrides or None,
     )
     output = Path(args.output)
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
