@@ -216,6 +216,16 @@ def run_release_quality(
                 "cpu_fallback_count": runtime_fields.get("cpu_fallback_count", 0),
                 "active_cpu_threads": runtime_fields.get("active_threads", "Unavailable"),
                 "activation_sum_mode": runtime_fields.get("activation_sum_mode", "Unavailable"),
+                "activation_sum_precompute_calls": runtime_fields.get("activation_sum_precompute_calls", 0),
+                "activation_sum_reuse_count": runtime_fields.get("activation_sum_reuse_count", 0),
+                "activation_sum_recompute_count": runtime_fields.get("activation_sum_recompute_count", 0),
+                "final_lm_head_calls": runtime_fields.get("final_lm_head_calls", 0),
+                "final_lm_head_ms": runtime_fields.get("final_lm_head_ms", 0),
+                "intermediate_lm_head_calls": runtime_fields.get("intermediate_lm_head_calls", 0),
+                "intermediate_lm_head_ms": runtime_fields.get("intermediate_lm_head_ms", 0),
+                "early_exit_decisions": runtime_fields.get("early_exit_decisions", 0),
+                "layers_skipped": runtime_fields.get("layers_skipped", 0),
+                "tokens_saved": runtime_fields.get("tokens_saved", 0),
             })
             update_runtime_config_snapshot(report["runtime_config_snapshot"], runtime_fields)
 
