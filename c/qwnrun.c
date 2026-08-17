@@ -540,15 +540,16 @@ int main(int argc,char **argv){
 
     if(rc < 0) fprintf(stderr,"qwnrun result: status=error tokens=0\nqwnrun: generate failed (rc=%d)\n", rc);
     else {
-        double ttft = timing.first_token > 0.0 ?
-                      (timing.first_token - timing.started) * 1000.0 : 0.0;
+        const QwnGenerationMetrics *generation = qwn_decoder_generation_metrics(&decoder);
+        double ttft = generation && generation->first_token_ms > 0.0 ?
+                      generation->first_token_ms : (timing.first_token > 0.0 ?
+                      (timing.first_token - timing.started) * 1000.0 : 0.0);
         double tps = elapsed > 0.0 ? (double)rc / elapsed : 0.0;
         fprintf(stderr,"qwnrun result: status=ok tokens=%d wall_seconds=%.6f "
                 "ttft_ms=%.3f tok_per_sec=%.6f thinking_level=%s\n", rc, elapsed, ttft,
                 tps, runtime_config.thinking_mode);
 
         const QwnRuntimeMetrics *metrics = qwn_decoder_metrics(&decoder);
-        const QwnGenerationMetrics *generation = qwn_decoder_generation_metrics(&decoder);
         const QwnStartupMetrics *startup = qwn_decoder_startup_metrics(&decoder);
         fprintf(stderr, "qwnrun result detail: backend=%s kernel=%s gpu_matmul_count=%llu "
                 "cpu_fallback_count=%llu active_threads=%d dispatch_reason=%s "
