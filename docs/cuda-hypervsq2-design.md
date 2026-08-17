@@ -71,9 +71,11 @@ the integer dot products.
 The real-model decoder comparison uses a documented FP32 logit absolute
 tolerance of `0.1` (the GPU warp reduction and CPU reduction can accumulate
 the same integer terms in a different floating-point order) plus greedy token
-ID agreement across the initial token and eight subsequent forwards. Scalar
-and VNNI CPU comparisons are separate invocations; tolerance alone never
-proves correctness when token IDs diverge.
+ID agreement across the initial token and eight subsequent forwards. The latest
+clean run observed maximum absolute differences of `0.0300188065` (scalar)
+and `0.0368270874` (VNNI), with zero values above tolerance and no greedy
+token divergence. Scalar and VNNI CPU comparisons are separate invocations;
+tolerance alone never proves correctness when token IDs diverge.
 
 `c/tests/test_qwn_hypervsq2_cuda_abi.cu` covers all packed two-bit patterns,
 multiple scales, reserved bytes, random signed int8 activations, a non-aligned
@@ -101,13 +103,28 @@ The intended states are `UNAVAILABLE`, `COMPILED`, `KERNEL_CORRECT`,
 | Synthetic CUDA correctness | `KERNEL_CORRECT` — packed patterns, scales, tails, GEMM, telemetry |
 | Real tensor CPU-vs-CUDA correctness | `END_TO_END_VALIDATED` locally — scalar and VNNI, 9 greedy forwards |
 | Model upload/residency | `VALIDATED` locally — 64 resident tensors, 463,370,240 uploaded bytes |
-| Persistent prefill/decode | `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION` — short diagnostic only |
-| GPU matmul count / VRAM telemetry | `9,856` matmuls, `0` CPU fallbacks in the short diagnostic |
+| Persistent prefill/decode | `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION` — seven-request short diagnostic |
+| GPU matmul count / VRAM telemetry | `26,496` cumulative launches, `0` CPU fallbacks in the final request |
 
 Only a real NVCC build followed by the CUDA ABI test and full decoder
 validation may promote these states. A loaded DLL alone is not sufficient;
 `backend_actual=CUDA` is valid only after telemetry proves a successful model
 matmul.
+
+## Local evidence records
+
+The clean CUDA diagnostic record is
+`benchmarks/evidence/windows/2026-08-17/cuda-phaseB-clean-4d26cdc/cuda-release-short-diagnostic.json`.
+It was generated at commit `6b7cf1a4053bbc6f6c7c0e39d445d9148034c600` with
+`git_worktree_dirty=false`, executable SHA-256
+`22c64df6aa6a80eab5abe177b87f19ae7b920c2772b06a0a852267ba723a335f`, model
+SHA-256 `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`,
+and CUDA DLL SHA-256
+`7bf5e3e595ed47fba17b79ccf74c334c42b53ba7ea5766738d721e372edd4dcb`.
+The seven-request short diagnostic reports median decode `20.192933 tok/s`
+and median prefill `19.126577 tok/s`; these are local pending-hosted evidence,
+not README or release claims. Clean CPU records regenerated after the native
+follow-up are next to it as `cpu-release-64.json` and `cpu-release-128.json`.
 
 ## Build commands when the toolkit is available
 

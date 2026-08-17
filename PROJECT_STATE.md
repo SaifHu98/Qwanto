@@ -96,7 +96,11 @@ and NVMe mmap.
   synthetic correctness passed, and scalar/VNNI real-model decoder comparisons
   passed with zero required-layer CPU fallbacks. A short persistent run reached
   `backend_actual=cuda` with 9,856 GPU matmuls. CUDA performance remains local
-  diagnostic evidence pending hosted validation; README has not changed.
+  diagnostic evidence pending hosted validation; the clean seven-request record
+  is `benchmarks/evidence/windows/2026-08-17/cuda-phaseB-clean-4d26cdc/` at
+  `6b7cf1a`, with median diagnostic decode `20.192933 tok/s`, 26,496 cumulative
+  GPU matmuls, zero fallbacks, and 463,370,240 resident bytes. README has not
+  changed.
 
 ## Active limitations
 
