@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-17T20:04:50.634978+00:00",
+  "source_commit": "a1984025880cd2de41c442472f1b2c951b882b5f",
+  "git_worktree_dirty_at_generation": false,
+  "source": {
+    "path": "D:\\EcoUni\\qwanto\\models\\Qwen3.8-27B-UD-IQ2_M.gguf",
+    "size_bytes": 10319907904,
+    "sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740"
+  },
+  "document_type": "qwen38_qualification_summary",
+  "decision": "UNSUPPORTED_QWEN38_ARCHITECTURE",
+  "decision_alternatives_not_selected": {
+    "QWN_27B_VALIDATED": "not eligible: no conversion, correctness, or runtime coverage",
+    "CONVERSION_SOURCE_SUPPORTED_RUNTIME_INCOMPLETE": "secondary description, but source quantization also fails current converter support",
+    "UNSUPPORTED_SOURCE_QUANTIZATION": "secondary blocker; hybrid architecture is the primary decision",
+    "HARDWARE_FIT_FAILED": "fit cannot be finalized before required operators exist",
+    "QUALITY_GATE_FAILED": "quality tests did not run because runtime gate failed closed"
+  },
+  "source_facts": {
+    "gguf_version": 3,
+    "tensor_count": 866,
+    "layer_count": 65,
+    "gated_deltanet_layers": 48,
+    "full_attention_layers": 17,
+    "mtp_tensor_count": 4,
+    "vision_tensor_count": 0
+  },
+  "reports": {
+    "architecture_coverage": "architecture-coverage.json",
+    "conversion_feasibility": "conversion-feasibility.json",
+    "correctness": "correctness.json",
+    "hardware_fit": "hardware-fit.json",
+    "agent_quality": "agent-quality.json",
+    "benchmark_evidence": "benchmark-evidence.json"
+  }
+}

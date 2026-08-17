@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-17T20:04:50.634978+00:00",
+  "source_commit": "a1984025880cd2de41c442472f1b2c951b882b5f",
+  "git_worktree_dirty_at_generation": false,
+  "source": {
+    "path": "D:\\EcoUni\\qwanto\\models\\Qwen3.8-27B-UD-IQ2_M.gguf",
+    "size_bytes": 10319907904,
+    "sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740"
+  },
+  "document_type": "correctness_qualification_report",
+  "status": "UNAVAILABLE_NOT_RUN",
+  "decision": "UNSUPPORTED_QWEN38_ARCHITECTURE",
+  "oracle_policy": "External runtimes are forbidden in product and were not invoked; a developer oracle may be added only after a complete native conversion path exists.",
+  "acceptance_criteria_defined_before_execution": {
+    "tokenizer_chat_template": "byte-identical rendered text for 100 deterministic prompts and multi-turn fixtures",
+    "tensor_dequantization": "max_abs_error <= 1e-3 * max(1, reference_abs), no NaN/Inf, zero unvalidated dtype substitutions",
+    "layer_output": "cosine_similarity >= 0.999 and max_relative_error <= 1e-2 on declared fixture layers",
+    "logits": "top_k_10_overlap >= 0.90 and KL divergence <= 0.02 on declared prompt set",
+    "greedy_tokens": ">= 0.95 agreement over 100 deterministic prompts; exact agreement required for unquantized control",
+    "tool_call_json": "100% schema-valid outputs on the declared tool-call fixture set"
+  },
+  "executed": {
+    "tensor_samples": 0,
+    "layer_outputs": 0,
+    "logit_prompts": 0,
+    "deterministic_prompts": 0,
+    "multi_turn_prompts": 0,
+    "code_prompts": 0,
+    "tool_call_prompts": 0
+  },
+  "blocked_reasons": [
+    "No valid QWN output exists because Qwen3.8 hybrid architecture is unsupported.",
+    "Source IQ dtypes have no exact current converter decoder."
+  ]
+}

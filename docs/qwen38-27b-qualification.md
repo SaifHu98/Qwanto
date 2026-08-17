@@ -1,6 +1,6 @@
 # Qwen3.8-27B qualification — fail-closed result
 
-Generated from commit `e75acee232ce5ad139e4183bd909f4167c58707e` for the
+Generated from commit `a1984025880cd2de41c442472f1b2c951b882b5f` for the
 local source artifact:
 
 `models/Qwen3.8-27B-UD-IQ2_M.gguf`
@@ -88,8 +88,8 @@ The target was confirmed absent after the failure. The report also records the
 actual unsupported source dtype IDs and a clearly labelled projected size. The
 projection is not a converted artifact or a performance claim:
 
-- projected QWN payload: 7,907,308,544 bytes;
-- projected QWN container size: 7,908,225,056 bytes;
+- projected QWN payload: 7,917,248,270 bytes;
+- projected QWN container size: 7,918,161,952 bytes;
 - source quantization support: `UNSUPPORTED_SOURCE_QUANTIZATION` for the IQ
   dtypes present;
 - conversion state: `REFUSED_BEFORE_CONVERSION`;
@@ -106,10 +106,10 @@ were computed for the 17 full-attention layers only:
 
 | Context | FP16 KV estimate |
 |---:|---:|
-| 4096 | 1,090,519,040 bytes |
-| 8192 | 2,181,038,080 bytes |
-| 16384 | 4,362,076,160 bytes |
-| 32768 | 8,724,152,320 bytes |
+| 4096 | 285,212,672 bytes |
+| 8192 | 570,425,344 bytes |
+| 16384 | 1,140,850,688 bytes |
+| 32768 | 2,281,701,376 bytes |
 
 The Gated DeltaNet recurrent-state size is intentionally `UNAVAILABLE`; the
 native state layout is not implemented. Therefore complete VRAM residency,
@@ -155,4 +155,3 @@ failure before output, complete real-source header coverage when the fixture is
 present, and the no-QWN-output invariant. Full native CUDA model validation,
 Rust/Tauri, and hosted CI remain separate gates. No README performance values,
 tag, or release were changed by this qualification experiment.
-

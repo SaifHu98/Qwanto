@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-17T20:04:50.634978+00:00",
+  "source_commit": "a1984025880cd2de41c442472f1b2c951b882b5f",
+  "git_worktree_dirty_at_generation": false,
+  "source": {
+    "path": "D:\\EcoUni\\qwanto\\models\\Qwen3.8-27B-UD-IQ2_M.gguf",
+    "size_bytes": 10319907904,
+    "sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740"
+  },
+  "document_type": "agent_quality_report",
+  "status": "UNAVAILABLE_NOT_RUN",
+  "decision": "UNSUPPORTED_QWEN38_ARCHITECTURE",
+  "tasks": [
+    "repository-level code understanding",
+    "patch correctness and apply rate",
+    "compile/test pass rate",
+    "tool-call schema validity",
+    "hallucinated paths",
+    "retry count",
+    "long-context retrieval at 4096 and 8192",
+    "regression introduction rate",
+    "Arabic instruction following",
+    "English instruction following"
+  ],
+  "recording_contract": [
+    "prompt",
+    "response",
+    "seed",
+    "patch",
+    "test_result",
+    "timing",
+    "runtime_config"
+  ],
+  "executed_tasks": 0,
+  "reason": "Agent evaluation requires a validated native QWN model and complete hybrid runtime; neither exists."
+}

@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "classification": "HARDWARE_FIT_FAILED",
+  "decision_basis": "required Gated DeltaNet state and native operators are not implemented; fit cannot be proven",
+  "hardware": {
+    "cpu": "AMD Ryzen 9 9955HX (user-specified target; topology not re-probed by this report)",
+    "ram_bytes": 34359738368,
+    "gpu": "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+    "vram_bytes": 12820938752,
+    "os": "Windows 11 (user-specified target)",
+    "cuda": "13.3 (user-specified/locally installed toolkit)"
+  },
+  "managed_model_directory": "C:\\Users\\saifx\\AppData\\Local\\Qwanto\\models",
+  "source_and_destination_disk": {
+    "path": "C:\\",
+    "free_bytes_at_generation": 69321977856,
+    "total_bytes_at_generation": 433269501952,
+    "conversion_temp_requirement_bytes": 7985270816,
+    "requirement_source": "projected QWN plus 64 MiB safety margin; not a completed conversion"
+  },
+  "projected_qwn": {
+    "projected_payload_bytes": 7917248270,
+    "projected_descriptor_count": 868,
+    "projected_qwn_size_bytes": 7918161952
+  },
+  "fp16_kv": {
+    "full_attention_layers": 17,
+    "kv_heads": 4,
+    "key_length": 256,
+    "bytes_per_token": 69632,
+    "contexts": {
+      "4096": {
+        "bytes": 285212672,
+        "source": "metadata formula: 2 * full_attention_layers * kv_heads * key_length * 2-byte FP16",
+        "status": "ESTIMATE_ONLY"
+      },
+      "8192": {
+        "bytes": 570425344,
+        "source": "metadata formula: 2 * full_attention_layers * kv_heads * key_length * 2-byte FP16",
+        "status": "ESTIMATE_ONLY"
+      },
+      "16384": {
+        "bytes": 1140850688,
+        "source": "metadata formula: 2 * full_attention_layers * kv_heads * key_length * 2-byte FP16",
+        "status": "ESTIMATE_ONLY"
+      },
+      "32768": {
+        "bytes": 2281701376,
+        "source": "metadata formula: 2 * full_attention_layers * kv_heads * key_length * 2-byte FP16",
+        "status": "ESTIMATE_ONLY"
+      }
+    }
+  },
+  "deltanet_recurrent_state": {
+    "status": "UNAVAILABLE",
+    "state_size": 128,
+    "group_count": 16,
+    "inner_size": 6144,
+    "bytes": null,
+    "reason": "No validated Qwen3.8 Gated DeltaNet state layout exists in qwnrun."
+  },
+  "vram_fit_without_delta_state": {
+    "4096": {
+      "required_bytes_without_delta_state": 8740245536,
+      "vram_bytes": 12820938752,
+      "status": "NOT_PROVABLE_DELTA_STATE_UNIMPLEMENTED"
+    },
+    "8192": {
+      "required_bytes_without_delta_state": 9025458208,
+      "vram_bytes": 12820938752,
+      "status": "NOT_PROVABLE_DELTA_STATE_UNIMPLEMENTED"
+    },
+    "16384": {
+      "required_bytes_without_delta_state": 9595883552,
+      "vram_bytes": 12820938752,
+      "status": "NOT_PROVABLE_DELTA_STATE_UNIMPLEMENTED"
+    },
+    "32768": {
+      "required_bytes_without_delta_state": 10736734240,
+      "vram_bytes": 12820938752,
+      "status": "NOT_PROVABLE_DELTA_STATE_UNIMPLEMENTED"
+    }
+  },
+  "placement": {
+    "status": "UNAVAILABLE",
+    "reason": "No conversion or CUDA coverage exists for required hybrid operators; no resident/RAM/streamed plan can be claimed."
+  },
+  "cuda_coverage": {
+    "status": "UNAVAILABLE",
+    "expected_operation_count_per_layer": null,
+    "observed_gpu_matmul_count": 0,
+    "observed_cpu_fallback_count": null,
+    "reason": "No valid QWN model was produced or executed.",
+    "current_4b_residency_note": {
+      "observed_bytes": 463370240,
+      "interpretation": "Existing 4B evidence counts only tensors accepted and uploaded by the current HyperVSQ-2 projection ABI; it is not full-file residency and cannot be extrapolated to Qwen3.8.",
+      "evidence_class": "MEASURED_LOCAL_PENDING_HOSTED_VALIDATION"
+    }
+  },
+  "source_commit": "a1984025880cd2de41c442472f1b2c951b882b5f",
+  "git_worktree_dirty_at_generation": false,
+  "source": {
+    "path": "D:\\EcoUni\\qwanto\\models\\Qwen3.8-27B-UD-IQ2_M.gguf",
+    "size_bytes": 10319907904,
+    "sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740"
+  }
+}

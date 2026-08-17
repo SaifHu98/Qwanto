@@ -118,7 +118,9 @@ and NVMe mmap.
   the local GGUF has 65 layers, 48 Gated DeltaNet/SSM layers, 17 full-attention
   layers, four MTP tensors, and mixed IQ dtypes not supported by the converter.
   The qualification tool records every source tensor and refuses conversion
-  before output; no QWN support or benchmark claim exists for this source.
+  before output; generated evidence is under `docs/qwen38-27b-evidence/` and
+  binds to clean source commit `a198402`; no QWN support or benchmark claim
+  exists for this source.
 - The gateway has explicit Hugging Face, allowlisted Direct HTTPS, and local
   file acquisition providers. Downloads use `.part` files and atomic publish;
   checksums, size, disk, redirects, and format compatibility are explicit.

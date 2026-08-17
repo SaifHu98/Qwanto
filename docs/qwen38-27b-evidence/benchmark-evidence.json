@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-17T20:04:50.634978+00:00",
+  "source_commit": "a1984025880cd2de41c442472f1b2c951b882b5f",
+  "git_worktree_dirty_at_generation": false,
+  "source": {
+    "path": "D:\\EcoUni\\qwanto\\models\\Qwen3.8-27B-UD-IQ2_M.gguf",
+    "size_bytes": 10319907904,
+    "sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740"
+  },
+  "document_type": "qwen38_benchmark_evidence",
+  "evidence_class": "UNAVAILABLE",
+  "decision": "UNSUPPORTED_QWEN38_ARCHITECTURE",
+  "model": {
+    "architecture": "qwen35",
+    "qwn_dtype": null,
+    "source_dtype_summary": {
+      "counts_by_id": {
+        "0": 360,
+        "10": 1,
+        "11": 1,
+        "18": 224,
+        "21": 99,
+        "22": 64,
+        "23": 21,
+        "29": 96
+      },
+      "counts_by_name": {
+        "F32": 360,
+        "Q2_K": 1,
+        "Q3_K": 1,
+        "IQ3_XXS": 224,
+        "IQ3_S": 99,
+        "IQ2_S": 64,
+        "IQ4_XS": 21,
+        "BF16": 96
+      },
+      "unsupported_by_current_converter": [
+        10,
+        11,
+        18,
+        21,
+        22,
+        23
+      ],
+      "unsupported_names": [
+        "Q2_K",
+        "Q3_K",
+        "IQ3_XXS",
+        "IQ3_S",
+        "IQ2_S",
+        "IQ4_XS"
+      ],
+      "general_file_type": 14,
+      "general_file_type_label": "IQ2_M mixed quantization"
+    }
+  },
+  "backend_requested": null,
+  "backend_actual": null,
+  "executable_sha256": null,
+  "model_sha256": null,
+  "gpu_matmul_count": 0,
+  "cpu_fallback_count": null,
+  "throughput": {
+    "prefill_tok_per_sec": null,
+    "decode_tok_per_sec": null,
+    "ttft_ms": null
+  },
+  "reason_unavailable": "No validated QWN conversion; GGUF source cannot be activated by qwnrun.",
+  "contexts_requested": [
+    4096,
+    8192
+  ],
+  "no_projected_performance_claim": true
+}

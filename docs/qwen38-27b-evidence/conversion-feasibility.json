@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-17T20:04:50.634978+00:00",
+  "source_commit": "a1984025880cd2de41c442472f1b2c951b882b5f",
+  "git_worktree_dirty_at_generation": false,
+  "source": {
+    "path": "D:\\EcoUni\\qwanto\\models\\Qwen3.8-27B-UD-IQ2_M.gguf",
+    "size_bytes": 10319907904,
+    "sha256": "04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740"
+  },
+  "document_type": "conversion_feasibility_report",
+  "decision": "UNSUPPORTED_QWEN38_ARCHITECTURE",
+  "secondary_blockers": [
+    "UNSUPPORTED_SOURCE_QUANTIZATION",
+    "CONVERSION_SOURCE_SUPPORTED_RUNTIME_INCOMPLETE"
+  ],
+  "architecture_gate": {
+    "status": "BLOCKED",
+    "architecture": "qwen35",
+    "reasons": [
+      "48 Gated DeltaNet/SSM layer state tensors have no native execution path",
+      "4 MTP tensors have no validated target execution path",
+      "current decoder cannot prove full hybrid layer coverage"
+    ]
+  },
+  "source_quantization": {
+    "general_file_type": 14,
+    "general_file_type_label": "IQ2_M mixed quantization",
+    "actual_tensor_dtypes": {
+      "F32": 360,
+      "Q2_K": 1,
+      "Q3_K": 1,
+      "IQ3_XXS": 224,
+      "IQ3_S": 99,
+      "IQ2_S": 64,
+      "IQ4_XS": 21,
+      "BF16": 96
+    },
+    "unsupported_dtype_ids": [
+      10,
+      11,
+      18,
+      21,
+      22,
+      23
+    ],
+    "unsupported_dtype_names": [
+      "Q2_K",
+      "Q3_K",
+      "IQ3_XXS",
+      "IQ3_S",
+      "IQ2_S",
+      "IQ4_XS"
+    ],
+    "status": "UNSUPPORTED_SOURCE_QUANTIZATION",
+    "reason": "Current converter has no exact IQ2/IQ3/IQ4 block decoder for these source tensor dtypes; no reinterpretation is permitted."
+  },
+  "conversion_policy": {
+    "attempted": false,
+    "temporary_output": null,
+    "managed_output_directory": "C:\\Users\\saifx\\AppData\\Local\\Qwanto\\models",
+    "atomic_rename": "not reached because feasibility gate failed",
+    "no_model_weights_written": true
+  },
+  "estimates": {
+    "projected_payload_bytes": 7917248270,
+    "projected_descriptor_count": 868,
+    "projected_qwn_size_bytes": 7918161952
+  },
+  "safety": {
+    "status": "REFUSED_BEFORE_CONVERSION",
+    "peak_ram": "not claimed; exact hybrid conversion path unavailable",
+    "temporary_disk": "projected output plus safety margin only",
+    "reason": "Do not spend memory or disk on a partial QWN artifact."
+  }
+}
