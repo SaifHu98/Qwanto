@@ -87,4 +87,3 @@ def update_runtime_config_snapshot(snapshot: dict[str, Any], fields: dict[str, A
     for source, target in mapping.items():
         if source in fields:
             snapshot[target] = fields[source]
-

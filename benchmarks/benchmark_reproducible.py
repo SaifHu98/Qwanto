@@ -45,7 +45,7 @@ _RUNTIME_FIELD_RE = re.compile(
     r"file_open_ms|mmap_ms|metadata_parse_ms|tokenizer_init_ms|kv_cache_alloc_ms|"
     r"advisory_preload_ms|first_tensor_touch_ms|total_end_to_end_ms|prefill_ms|decode_wall_ms|"
     r"prefill_tok_per_sec|decode_tok_per_sec|generation_wall_ms|"
-    r"sampling_ms)=(?P<value>[A-Za-z0-9_.;+-]+)", re.IGNORECASE)
+    r"sampling_ms)=(?P<value>[A-Za-z0-9_.;=+-]+)", re.IGNORECASE)
 _KERNEL_SELECTED_RE = re.compile(r"kernel\s+selected:\s*(?P<kernel>[A-Za-z0-9_.-]+)", re.IGNORECASE)
 
 
@@ -309,7 +309,8 @@ def parse_runtime_metrics(stdout: str, stderr: str) -> dict:
                     values[key] = raw
     selected_kernel = list(_KERNEL_SELECTED_RE.finditer(stderr + "\n" + stdout))
     if selected_kernel:
-        values["kernel"] = selected_kernel[-1].group("kernel").lower()
+        selected = selected_kernel[-1].group("kernel").lower()
+        values["kernel"] = "vnni" if selected == "avx-vnni" else selected
     return values
 
 
