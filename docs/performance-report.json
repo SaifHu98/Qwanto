@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "generated_at_utc": "2026-08-17T10:38:43.049969+00:00",
+  "generated_at_utc": "2026-08-17T11:36:04.378897+00:00",
   "generator": "benchmarks/generate_performance_report.py",
   "policy": {
     "native_inference_numbers_require": "successful qwnrun evidence with matching model hash",

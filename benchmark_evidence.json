@@ -92,12 +92,13 @@
     "prefill_tok_per_sec": "Unavailable",
     "decode_tok_per_sec": 8.154199,
     "tok_per_sec": 8.154199,
-    "ttft_ms": 0.0,
+    "ttft_ms": "Unavailable",
     "prompt_prefill_tok_s": "Unavailable",
     "gpu_utilization": "Unavailable",
     "vram_measured_bytes": "Unavailable"
   },
   "unavailable_metrics": {
+    "ttft_ms": "qwnrun did not report a TTFT counter",
     "vram_allocated_gb": "NVML process polling inactive",
     "nvme_bandwidth_mb_s": "Direct block device counter inactive",
     "prefill_throughput_tok_s": "qwnrun did not report a prefill counter",

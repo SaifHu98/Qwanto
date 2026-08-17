@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "generated_at_utc": "2026-08-17T10:38:32.497251+00:00",
+  "generated_at_utc": "2026-08-17T11:35:53.479175+00:00",
   "source_evidence": [
     "benchmark_evidence.json"
   ],
@@ -43,7 +43,7 @@
       "token_count": 64,
       "prefill_throughput_tok_s": "Unavailable",
       "decode_throughput_tok_s": 8.154199,
-      "ttft_ms": 0.0,
+      "ttft_ms": "Unavailable",
       "wall_seconds": 7.848717,
       "evidence_classification": "MEASURED",
       "reason": "",
