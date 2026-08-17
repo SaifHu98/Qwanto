@@ -52,7 +52,9 @@ and NVMe mmap.
 - Hosted CI run `32017547742` exposed two integration issues in this follow-up:
   the POSIX native build needed `_GNU_SOURCE` before the project header for
   `Dl_info`, and `setup-python` needed an explicit CI dependency manifest for
-  pip caching. Both are fixed locally; the replacement hosted run is pending.
+  pip caching. Both are fixed; hosted run `32017793799` for commit `1a6b493`
+  passed all scheduled jobs, including native Linux/Windows, Python, Web,
+  documentation, and security checks.
 
 ## Active limitations
 

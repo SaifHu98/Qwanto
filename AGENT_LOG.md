@@ -305,3 +305,11 @@
   tests `2 passed`, release policy validation, and CI YAML parsing pass locally.
 - **Decision:** Push the targeted correction and wait for a new hosted run;
   existing unsigned Beta.4 remains unchanged.
+
+## 2026-08-17 — Hosted correction verified
+
+- **Evidence:** Hosted CI run `32017793799` completed successfully for
+  `1a6b4936d64aad58fc509289629e821b8657c45b2`; Ubuntu and Windows native
+  builds, Python 3.11, Web, docs, security, and changed-area detection passed.
+- **Decision:** Keep the existing unsigned Beta.4 release unchanged; the
+  follow-up is validated on `main` but is not part of the existing tag.
