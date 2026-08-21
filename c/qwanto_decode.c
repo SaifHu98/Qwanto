@@ -1589,7 +1589,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
     }
     if(qwn_row_f32(&d->model,d->embed_weight,token,d->x,D)!=0){
         fprintf(stderr, "forward err embed: token=%d D=%d embed_dtype=%d numel=%llu byte_size=%llu\n",
-                token, D, d->embed_weight?d->embed_weight->dtype:-1,
+                token, D, d->embed_weight ? (int)d->embed_weight->dtype : -1,
                 (unsigned long long)(d->embed_weight?d->embed_weight->numel:0),
                 (unsigned long long)(d->embed_weight?d->embed_weight->byte_size:0));
         return -1;

@@ -945,9 +945,10 @@ void qwn_gemv_hypervsq2_vnni_delayed_rows(const uint8_t *raw_blocks, const int8_
         float offset_sum[8] = {0.0f};
         for (int b = 0; b < blocks; b++) {
             const int32_t *sum_row = activation_sums ? activation_sums + b * 8 : NULL;
-            const uint8_t *activation_block = q8 + b * 256;
+            const uint8_t *activation_block = (const uint8_t *)(q8 + b * 256);
             for (int oct = 0; oct < 8; oct++) {
                 const int base_idx = b * 256 + oct * 32;
+                (void)base_idx;
                 const __m256i a_vec = _mm256_loadu_si256(
                     (const __m256i *)(activation_block + oct * 32));
                 const __m256i sum_a32 = _mm256_dpbusd_epi32(
@@ -1110,6 +1111,8 @@ int qwn_matmul_hypervsq2_f32(const QwnModel *m,
 
         int active_threads = 1;
         int participating_threads = 0;
+        (void)active_threads;
+        (void)participating_threads;
 #if defined(_OPENMP)
         #pragma omp parallel if(N > 16)
         {

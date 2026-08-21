@@ -3,7 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
-#include "qwn_speculative.h"
+#include "../qwn_speculative.h"
 
 static int g_tests_run = 0;
 static int g_tests_passed = 0;

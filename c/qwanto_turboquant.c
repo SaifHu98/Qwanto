@@ -305,8 +305,6 @@ float qwn_turboquant_dot_key_avx2(const float* query, const uint8_t* key_blocks,
             unpack_16_values(blk->packed_data + sc * 7, codes_64 + sc * 16);
         }
 
-        __m256 s_even_vec = _mm256_set1_ps(scale * (1.0f / 15.0f));
-        __m256 s_odd_vec  = _mm256_set1_ps(scale * (1.0f / 7.0f));
         __m256 zp_vec     = _mm256_set1_ps(zp);
 
         int i = 0;
