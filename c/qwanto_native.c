@@ -442,8 +442,8 @@ int qwn_prefetch(const QwnModel *m, const QwnTensorDesc *t) {
     static prefetch_fn cached_fn = NULL;
     static int resolved = 0;
     if (!resolved) {
-        cached_fn = (prefetch_fn)GetProcAddress(GetModuleHandleA("kernel32.dll"),
-                                                "PrefetchVirtualMemory");
+        cached_fn = (prefetch_fn)(void *)(uintptr_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),
+                                                                    "PrefetchVirtualMemory");
         resolved = 1;
     }
     if (!cached_fn) return 0;
