@@ -3173,7 +3173,6 @@ static void moe(Model *m, Layer *l, int layer, float *x, int S, float *out, int 
                 if(idxs[(int64_t)s*K+kk]==eid){ rows[nr]=s; rw[nr]=ws[(int64_t)s*K+kk]; nr++; break; }
             if(!nr) continue;
             for(int r=0;r<nr;r++) memcpy(xg+(int64_t)r*D, x+(int64_t)rows[r]*D, D*sizeof(float));
-            double t0=now_s();
             double t0 = now_s();
             int tier = TIER_CPU;
             (void)tier;
