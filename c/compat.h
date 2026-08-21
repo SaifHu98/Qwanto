@@ -253,6 +253,7 @@ static inline int pthread_join(pthread_t thread, void **retval) {
 
 static inline int compat_fadvise(int fd, off_t off, off_t len, int advice){
     if(advice!=POSIX_FADV_WILLNEED || len<=0) return 0;
+    if(advice!=POSIX_FADV_WILLNEED || len<=0 || fd < 0) return 0;
     intptr_t osfh=_get_osfhandle(fd);
     if(osfh==-1 || osfh==-2) return 0;
     HANDLE h=(HANDLE)osfh;
@@ -278,6 +279,7 @@ static inline int compat_fadvise(int fd, off_t off, off_t len, int advice){
  * Thread-safe (no shared seek position). Gestisce offset >4 GB e chunking
  * per letture >2 GB. Gestisce robustamente ERROR_IO_PENDING con event. */
 static inline ssize_t compat_pread(int fd, void *buf, size_t n, off_t off){
+    if(fd < 0){ errno = EBADF; return -1; }
     intptr_t osfh = _get_osfhandle(fd);
     if(osfh == -1 || osfh == -2){ errno = EBADF; return -1; }
     HANDLE h = (HANDLE)osfh;
@@ -476,6 +478,7 @@ static inline int compat_open_direct(const char *path){
  * UCRT): la dimensione si chiede direttamente al kernel. Funziona su
  * qualsiasi fd (buffered o direct). -1 su errore. */
 static inline off_t compat_fsize(int fd){
+    if(fd < 0) return -1;
     intptr_t osfh = _get_osfhandle(fd);
     if(osfh == -1 || osfh == -2) return -1;
     LARGE_INTEGER li;
@@ -497,6 +500,7 @@ static inline int compat_setenv(const char *name, const char *value, int overwri
 
 static inline void *compat_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
     (void)addr; (void)prot; (void)flags;
+    if(fd < 0) return MAP_FAILED;
     intptr_t osfh = _get_osfhandle(fd);
     if (osfh == -1 || osfh == -2) return MAP_FAILED;
     HANDLE hFile = (HANDLE)osfh;

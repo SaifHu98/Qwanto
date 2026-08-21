@@ -112,7 +112,6 @@ jobs:
           $ompDll = Get-ChildItem -Path $ompDllRoots -Filter libomp140.x86_64.dll -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\(?:x64|amd64)\\' } | Select-Object -First 1
           if (-not $ompDll) { throw 'LLVM OpenMP runtime DLL libomp140.x86_64.dll was not found.' }
           clang -O3 -mavx2 -mf16c -mfma -fopenmp '-DQWN_BUILD_OPT_FLAGS="O3,mavx2,mf16c,mfma,openmp"' qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwanto_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi $ompLib
-          clang -O3 -mavx2 -mf16c -mfma -fopenmp '-DQWN_BUILD_OPT_FLAGS="O3,mavx2,mf16c,mfma,openmp"' qwnrun.c qwn_runtime_config.c qwanto_decode.c qwanto_native.c qwanto_kernels.c qwanto_turboquant.c qwanto_gpu.c qwanto_autopilot.c qwanto_thinking.c qwn_speculative.c qwanto_agentic.c qwanto_bitdecoding.c qwanto_jetspec.c qwanto_talon.c qwanto_sliminfer.c qwanto_pquant.c qwanto_littlebit.c qwn_paged_kv.c -o qwnrun.exe -lpsapi $ompLib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath $ompDll.FullName -Destination libomp140.x86_64.dll -Force
 

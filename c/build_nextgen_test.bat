@@ -13,7 +13,6 @@ set "OUT=D:\EcoUni\qwanto\c\test_nextgen.exe"
 clang -O3 -march=x86-64-v3 -mavxvnni -fopenmp -Wno-deprecated-declarations ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
     "%SRC%\tests\test_nextgen_suite.c" "%SRC%\qwanto_twla.c" "%SRC%\qwanto_spectral.c" "%SRC%\qwanto_pagedeviction.c" "%SRC%\qwanto_saguro.c" "%SRC%\qwanto_sparsity.c" "%SRC%\qwanto_fused.c" "%SRC%\qwn_container.c" "%SRC%\qwanto_autopilot.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwanto_thinking.c" "%SRC%\qwanto_speculative.c" "%SRC%\qwanto_agentic.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_native.c" "%SRC%\qwn_paged_kv.c" ^
-    "%SRC%\tests\test_nextgen_suite.c" "%SRC%\qwanto_twla.c" "%SRC%\qwanto_spectral.c" "%SRC%\qwanto_pagedeviction.c" "%SRC%\qwanto_saguro.c" "%SRC%\qwanto_sparsity.c" "%SRC%\qwanto_fused.c" "%SRC%\qwn_container.c" "%SRC%\qwanto_autopilot.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwanto_thinking.c" "%SRC%\qwn_speculative.c" "%SRC%\qwanto_agentic.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_native.c" "%SRC%\qwn_paged_kv.c" ^
     "%MSVC_LIB%\libomp.lib" "%SDK_LIB%\psapi.lib" ^
     -o "%OUT%" ^
     -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"

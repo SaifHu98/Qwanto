@@ -13,7 +13,6 @@ set "OUT=D:\EcoUni\qwanto\c\test_agentic.exe"
 clang -O3 -march=x86-64-v3 -fopenmp ^
     -I"%MSVC_INC%" -I"%SDK_INC%" -I"%SDK_INC_UM%" -I"%SRC%" ^
     "%SRC%\tests\test_agentic.c" "%SRC%\qwanto_agentic.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_thinking.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwanto_speculative.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_native.c" "%SRC%\qwn_paged_kv.c" ^
-    "%SRC%\tests\test_agentic.c" "%SRC%\qwanto_agentic.c" "%SRC%\qwanto_decode.c" "%SRC%\qwanto_thinking.c" "%SRC%\qwanto_turboquant.c" "%SRC%\qwn_speculative.c" "%SRC%\qwanto_kernels.c" "%SRC%\qwanto_native.c" "%SRC%\qwn_paged_kv.c" ^
     "%MSVC_LIB%\libomp.lib" "%SDK_LIB%\psapi.lib" ^
     -o "%OUT%" ^
     -Xlinker /LIBPATH:"%MSVC_LIB%" -Xlinker /LIBPATH:"%SDK_LIB%"

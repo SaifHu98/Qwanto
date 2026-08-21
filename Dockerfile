@@ -24,7 +24,6 @@ RUN make -C c qwnrun || \
     -I/usr/include -Ic \
     c/qwnrun.c c/qwn_runtime_config.c c/qwanto_decode.c c/qwanto_native.c c/qwanto_kernels.c \
     c/qwanto_turboquant.c c/qwanto_thinking.c c/qwanto_speculative.c \
-    c/qwanto_turboquant.c c/qwanto_thinking.c c/qwn_speculative.c \
     c/qwanto_agentic.c c/qwanto_autopilot.c c/qwn_paged_kv.c \
     -lm -lomp \
     -o c/qwnrun
