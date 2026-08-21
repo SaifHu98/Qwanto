@@ -252,8 +252,7 @@ static inline int pthread_join(pthread_t thread, void **retval) {
 #endif
 
 static inline int compat_fadvise(int fd, off_t off, off_t len, int advice){
-    if(advice!=POSIX_FADV_WILLNEED || len<=0) return 0;
-    if(advice!=POSIX_FADV_WILLNEED || len<=0 || fd < 0) return 0;
+    if(fd < 0 || advice!=POSIX_FADV_WILLNEED || len<=0) return 0;
     intptr_t osfh=_get_osfhandle(fd);
     if(osfh==-1 || osfh==-2) return 0;
     HANDLE h=(HANDLE)osfh;

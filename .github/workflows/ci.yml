@@ -101,7 +101,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath $ompDll.FullName -Destination libomp140.x86_64.dll -Force
           make test-c
-          python tools/build_and_run_c_tests.py
       - name: Upload native runtime
         uses: actions/upload-artifact@v4
         with:
