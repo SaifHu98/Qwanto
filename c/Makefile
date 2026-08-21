@@ -121,6 +121,7 @@ endif
 # Preserve the optimization profile selected by this Makefile in qwnrun's
 # audit record. The escaped quotes make the value a C string on all shells.
 CFLAGS += -I. -Ic -DQWN_BUILD_OPT_FLAGS='"$(QWN_BUILD_OPT_FLAGS)"'
+CFLAGS += -DQWN_BUILD_OPT_FLAGS='"$(QWN_BUILD_OPT_FLAGS)"'
 
 # --- install ---
 PREFIX     ?= /usr/local

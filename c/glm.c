@@ -3174,7 +3174,9 @@ static void moe(Model *m, Layer *l, int layer, float *x, int S, float *out, int 
             if(!nr) continue;
             for(int r=0;r<nr;r++) memcpy(xg+(int64_t)r*D, x+(int64_t)rows[r]*D, D*sizeof(float));
             double t0=now_s();
+            double t0 = now_s();
             int tier = TIER_CPU;
+            (void)tier;
 #ifdef COLI_CUDA
             if (g_cuda_enabled && !omp_in_parallel()) {
                 tier = sched_route_expert(nr, e->g.I, e->g.O, e->g.fmt, e->g.cuda_eligible);
@@ -5885,6 +5887,8 @@ static void model_sched_init(Model *m) {
     
     double gpu_s1_ms = 9999.0;
     double gpu_s64_ms = 9999.0;
+    (void)gpu_s64_ms;
+    (void)cpu_s64_ms;
     
     int has_accel = 0;
 #ifdef COLI_CUDA

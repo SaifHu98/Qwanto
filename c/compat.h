@@ -562,6 +562,21 @@ static inline void compat_set_thread_affinity(int thread_idx, int total_threads)
 
 #else /* !_WIN32 */
 
+#if defined(__linux__)
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#if defined(__has_include_next)
+  #if __has_include_next(<sched.h>)
+    #include_next <sched.h>
+  #endif
+#else
+  #include <sched.h>
+#endif
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
 static inline void compat_set_thread_affinity(int thread_idx, int total_threads) {
 #if defined(__linux__)
     if (total_threads > 0) {

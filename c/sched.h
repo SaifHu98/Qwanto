@@ -1,6 +1,16 @@
 #ifndef COLIBRI_SCHED_H
 #define COLIBRI_SCHED_H
 
+#if !defined(_WIN32)
+#if defined(__has_include_next)
+  #if __has_include_next(<sched.h>)
+    #include_next <sched.h>
+  #endif
+#elif defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+  #include "/usr/include/sched.h"
+#endif
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
