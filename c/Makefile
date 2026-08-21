@@ -9,6 +9,7 @@
 # per-target below, so probe with the user's CC if they set one, else gcc
 # (present on Linux and mingw, and a clang shim on macOS).
 DETECT_CC := $(if $(filter default,$(origin CC)),gcc,$(CC))
+DETECT_CC := $(if $(filter default,$(origin CC)),gcc,$(lastword $(CC)))
 TRIPLET   := $(shell $(DETECT_CC) -dumpmachine 2>/dev/null)
 
 MINGW  := $(findstring mingw,$(TRIPLET))
@@ -26,6 +27,7 @@ ifeq ($(IS_WIN),)
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 DARWIN  := $(findstring Darwin,$(UNAME_S))
+LINUX   := $(findstring Linux,$(UNAME_S))
 endif
 endif
 

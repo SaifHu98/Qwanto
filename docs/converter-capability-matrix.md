@@ -16,6 +16,7 @@ Qwen3.8/Qwen3.5 hybrid models remain
 hybrid scheduling, MTP tensors, and mixed IQ dtypes are not silently skipped
 or reinterpreted. The qualification evidence under
 [`qwen38-27b-evidence/`](qwen38-27b-evidence/) remains the authority.
+[`qwen38-27b-qualification.md`](qwen38-27b-qualification.md) remains the authority.
 
 Conversion is a streaming source-block → canonical FP32/FP16 chunk → QWN
 quantization pipeline where the source decoder supports it. Publication is
