@@ -21,12 +21,14 @@
 #define qwn_process_id() ((unsigned long)getpid())
 #endif
 
-#ifndef QWN_BUILD_OPT_FLAGS
-#define QWN_BUILD_OPT_FLAGS "Unavailable"
-#endif
+#define QWN_STR_IMPL(...) #__VA_ARGS__
+#define QWN_STR(...) QWN_STR_IMPL(__VA_ARGS__)
 
-#define QWN_STR_IMPL(value) #value
-#define QWN_STR(value) QWN_STR_IMPL(value)
+#ifndef QWN_BUILD_OPT_FLAGS
+#define QWN_OPT_FLAGS_STR "Unavailable"
+#else
+#define QWN_OPT_FLAGS_STR QWN_STR(QWN_BUILD_OPT_FLAGS)
+#endif
 
 static void emit(const char *s,int n,void *opaque){(void)opaque;fwrite(s,1,(size_t)n,stdout);fflush(stdout);}
 static double wall_seconds(void);
@@ -91,7 +93,7 @@ static void print_build_info(const QwnRuntimeConfig *config) {
             "model_dtype=Unavailable backend_requested=%s backend_actual=Unavailable "
              "gpu_kernel_coverage=versioned-qwn-cuda-abi-source-runtime-dll-check-required gpu_matmul_count=0 "
             "cpu_fallback_count=0 pid=%lu\n",
-            compiler, compiler_version, QWN_BUILD_OPT_FLAGS,
+            compiler, compiler_version, QWN_OPT_FLAGS_STR,
 #if defined(_OPENMP)
             "true", runtime_loaded ? "true" : "false", QWN_STR(_OPENMP),
             omp_get_max_threads(),
@@ -151,7 +153,7 @@ static void print_build_info_json(const QwnRuntimeConfig *config) {
            "\"model_dtype\":\"Unavailable\",\"thinking_mode\":\"%s\","
            "\"kv_cache_mode\":\"%s\",\"quantization\":\"%s\",\"kernel_requested\":\"%s\","
            "\"pid\":%lu}\n",
-           compiler, compiler_version, QWN_BUILD_OPT_FLAGS,
+           compiler, compiler_version, QWN_OPT_FLAGS_STR,
 #if defined(_OPENMP)
            "true", runtime_loaded ? "true" : "false", QWN_STR(_OPENMP),
 #else
