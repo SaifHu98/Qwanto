@@ -69,3 +69,40 @@ describe("chat request extensions", () => {
     expect(await requestBody(0)).toMatchObject({ cache_slot: 0 })
   })
 })
+
+describe("model verification API", () => {
+  it("sends POST request to /v1/qwanto/models/verify with model path and auth header", async () => {
+    const mockReport = {
+      status: "verified",
+      format: ".qwn container",
+      path: "models/test.qwn",
+      name: "test.qwn",
+      size_bytes: 409600,
+      qwn_validation: { status: "passed" },
+      invariants: {
+        header_size_bytes: 4096,
+        tail_offset_aligned_4k: true,
+        all_tensors_aligned_4k: true,
+        all_tensors_padded_64b: true,
+        container_version: 1,
+      },
+      smoke_test: { status: "passed", latency_ms: 12.5 },
+      supported_by_qwnrun: true,
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(mockReport), { status: 200 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { verifyModel } = await import("./api")
+    const result = await verifyModel("http://localhost:8000/v1", "models/test.qwn", "test-key")
+
+    expect(result.status).toBe("verified")
+    expect(result.invariants?.header_size_bytes).toBe(4096)
+    expect(result.smoke_test?.latency_ms).toBe(12.5)
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/v1/qwanto/models/verify", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ Authorization: "Bearer test-key" }),
+      body: JSON.stringify({ path: "models/test.qwn" }),
+    }))
+  })
+})
+

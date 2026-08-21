@@ -16,10 +16,6 @@ int qwn_saguaro2_init(
     engine->entropy_threshold = 0.45f;
     engine->multimodal_enabled = enable_multimodal;
 
-    for (int t = 0; t < QWN_SAGUARO_MAX_TIERS; t++) {
-        engine->tier_acceptance[t] = 0.75f;
-    }
-
     return 0;
 }
 
@@ -97,9 +93,18 @@ int qwn_saguaro2_verify_pyramid(
 }
 
 float qwn_saguaro2_measured_speedup(const QwnSaguaro2Engine *engine) {
-    if (!engine || engine->total_speculated == 0) return 3.6f;
-    float accept_rate = (float)engine->total_accepted / (float)engine->total_speculated;
-    if (accept_rate > 0.70f) return 5.2f;
-    if (accept_rate > 0.50f) return 3.8f;
-    return 2.5f;
+    if (!engine || engine->baseline_tok_per_sec <= 0.0f ||
+        engine->speculative_tok_per_sec < 0.0f) return 0.0f;
+    return engine->speculative_tok_per_sec / engine->baseline_tok_per_sec;
+}
+
+int qwn_saguaro2_record_measurement(QwnSaguaro2Engine *engine,
+                                    float baseline_tok_per_sec,
+                                    float speculative_tok_per_sec) {
+    if (!engine || !isfinite(baseline_tok_per_sec) ||
+        !isfinite(speculative_tok_per_sec) || baseline_tok_per_sec <= 0.0f ||
+        speculative_tok_per_sec < 0.0f) return -1;
+    engine->baseline_tok_per_sec = baseline_tok_per_sec;
+    engine->speculative_tok_per_sec = speculative_tok_per_sec;
+    return 0;
 }

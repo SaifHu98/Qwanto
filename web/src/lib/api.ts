@@ -767,3 +767,47 @@ export async function cancelConversion(baseUrl: string, apiKey = "") {
   return (await response.json()) as { status: string; message: string }
 }
 
+export interface QwnVerificationReport {
+  status: "verified" | "failed" | "invalid_qwn" | "incompatible_format" | string
+  format: string
+  path: string
+  name: string
+  size_bytes: number
+  size_formatted?: string
+  sha256?: string | null
+  qwn_validation: {
+    status: "passed" | "failed" | "not_applicable" | string
+    reason?: string
+  }
+  invariants?: {
+    header_size_bytes: number
+    tail_offset_aligned_4k: boolean
+    all_tensors_aligned_4k: boolean
+    all_tensors_padded_64b: boolean
+    container_version: number
+  }
+  n_tensors?: number | null
+  arch_dims?: number[] | null
+  quantization?: string
+  smoke_test?: {
+    status: "passed" | "failed" | "not_run" | "unavailable" | string
+    latency_ms?: number | null
+    reason?: string
+  }
+  supported_by_qwnrun?: boolean
+  hardware_fit?: {
+    status: string
+    reason?: string
+  }
+}
+
+export async function verifyModel(baseUrl: string, path: string, apiKey = ""): Promise<QwnVerificationReport> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/models/verify"), {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify({ path }),
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as QwnVerificationReport
+}
+

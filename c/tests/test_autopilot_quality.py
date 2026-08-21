@@ -52,18 +52,19 @@ class TestAutoPilotQuality(unittest.TestCase):
 
         # Balanced Code Gen
         res_code = pilot_balanced.generate("Write Python quicksort", max_tokens=16)
-        self.assertGreaterEqual(res_code.speedup, 5.0)
-        self.assertIn("turboquant", res_code.active_optimizations)
-        self.assertIn("saguaro_ssd", res_code.active_optimizations)
+        self.assertIsNone(res_code.speedup)
+        self.assertIsNone(res_code.tokens_per_second)
+        self.assertNotIn("turboquant", res_code.active_optimizations)
+        self.assertNotIn("saguaro_ssd", res_code.active_optimizations)
 
         # Max Performance
         res_perf = pilot_max_perf.generate("Quick math", max_tokens=16)
-        self.assertGreaterEqual(res_perf.speedup, 10.0)
+        self.assertIsNone(res_perf.speedup)
         self.assertEqual(res_perf.thinking_level, "low")
 
         # Max Quality
         res_qual = pilot_max_qual.generate("Deep essay", max_tokens=16)
-        self.assertEqual(res_qual.speedup, 1.0)
+        self.assertIsNone(res_qual.speedup)
         self.assertEqual(res_qual.thinking_level, "high")
 
 

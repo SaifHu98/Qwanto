@@ -51,7 +51,9 @@ int qwn_speculative_engine_init(
     int cap = (cache_capacity > 0) ? cache_capacity : QWN_SPEC_DEFAULT_CACHE_SIZE;
     engine->cache.capacity = cap;
     engine->cache.count = 0;
-    engine->cache.acceptance_rate = 0.80f; /* Initial optimistic prior */
+    /* No prior is a runtime measurement. Start unknown until a real
+     * draft/target verification updates the cache. */
+    engine->cache.acceptance_rate = 0.0f;
     engine->cache.current_lru_clock = 0;
     engine->cache.total_lookups = 0;
     engine->cache.total_hits = 0;
@@ -64,7 +66,7 @@ int qwn_speculative_engine_init(
     engine->ring_head = 0;
     engine->ring_tail = 0;
     engine->ring_count = 0;
-    engine->acceptance_rate_avg = 0.80f;
+    engine->acceptance_rate_avg = 0.0f;
 
     return 0;
 }

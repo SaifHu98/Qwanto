@@ -32,7 +32,7 @@ typedef struct {
     SpeculationCacheEntry *entries;        /* Dynamic or pre-allocated entry array */
     int capacity;                          /* Max entries (e.g. 64, 128, 256, 512) */
     int count;                             /* Current occupied entries */
-    float acceptance_rate;                 /* Historical cumulative acceptance rate [0.0, 1.0] */
+    float acceptance_rate;                 /* Observed acceptance rate [0.0, 1.0] */
     uint64_t current_lru_clock;            /* Monotonic LRU clock */
     uint64_t total_lookups;                /* Total cache lookup requests */
     uint64_t total_hits;                   /* Total cache hits */

@@ -36,6 +36,7 @@ from model_acquisition import (
     LocalFileProvider,
     SafeDownloadManager,
     convert_to_qwn,
+    native_smoke_test,
     provider_catalog,
     sha256_file,
     validate_qwn,
@@ -2975,7 +2976,100 @@ class APIHandler(BaseHTTPRequestHandler):
                             existing = []
                     self.send_json(200, {"paths": existing}, request_id)
                 return
-                
+
+            if path == "/v1/qwanto/models/verify":
+                body = self.read_json() if self.headers.get("content-length", "0") != "0" else {}
+                model_path = body.get("path") or body.get("model_path")
+                if not model_path:
+                    raise APIError(400, "Missing model path parameter.", "path")
+                target = Path(model_path).resolve()
+                server_model_dirs = [Path(self.server.model_path).resolve().parent] if getattr(self.server, "model_path", None) else []
+                if not _is_safe_path(target, allowed_dirs=_configured_model_dirs() + [PROJECT_ROOT, MODEL_ROOT] + server_model_dirs):
+                    raise APIError(403, "Model path is outside allowed directories.", "path")
+                if not target.exists():
+                    raise APIError(404, f"Model file not found: {model_path}", "path")
+                if not target.is_file():
+                    raise APIError(400, "Model path must be a file.", "path")
+
+                if target.suffix.lower() != ".qwn":
+                    self.send_json(200, {
+                        "status": "incompatible_format",
+                        "format": target.suffix.lower().lstrip(".") or "unknown",
+                        "path": str(target),
+                        "name": target.name,
+                        "size_bytes": target.stat().st_size,
+                        "size_formatted": f"{target.stat().st_size / (1024 ** 3):.2f} GB",
+                        "qwn_validation": {
+                            "status": "not_applicable",
+                            "reason": f"File is a {target.suffix} artifact. Only .qwn containers can be executed by the native engine.",
+                        },
+                        "smoke_test": {
+                            "status": "not_run",
+                            "reason": "Native smoke testing requires a .qwn container.",
+                        },
+                        "supported_by_qwnrun": False,
+                        "hardware_fit": {"status": "not_evaluated", "reason": "Non-QWN artifact."},
+                    }, request_id)
+                    return
+
+                try:
+                    validation = validate_qwn(target, include_hash=True)
+                    info = validation.get("info", {})
+                    tensors = info.get("tensors", [])
+                    tail_offset = info.get("tail_offset", 0)
+                    tail_aligned = (tail_offset % 4096 == 0)
+                    tensors_aligned = all(t.get("byte_offset", 0) % 4096 == 0 for t in tensors)
+                    tensors_padded = all(t.get("byte_size", 0) % 64 == 0 for t in tensors)
+
+                    qwn_exe = _qwn_executable(self.server.engine_executable)
+                    t0 = time.perf_counter()
+                    smoke = native_smoke_test(target, qwn_exe)
+                    smoke_ms = round((time.perf_counter() - t0) * 1000, 2)
+                    smoke["latency_ms"] = smoke_ms
+
+                    fit = _qwn_hardware_fit(target.stat().st_size, info)
+                    quant = _qwn_quantization(info)
+
+                    self.send_json(200, {
+                        "status": "verified" if (smoke.get("status") == "passed") else "failed",
+                        "format": ".qwn container",
+                        "path": str(target),
+                        "name": target.name,
+                        "size_bytes": target.stat().st_size,
+                        "size_formatted": f"{target.stat().st_size / (1024 ** 3):.2f} GB",
+                        "sha256": validation.get("sha256"),
+                        "qwn_validation": {
+                            "status": "passed",
+                            "reason": "QWN container header (4KiB), tail block (4KiB-aligned), tensor offsets (4KiB-aligned), and 64-byte padding verified.",
+                        },
+                        "invariants": {
+                            "header_size_bytes": 4096,
+                            "tail_offset_aligned_4k": tail_aligned,
+                            "all_tensors_aligned_4k": tensors_aligned,
+                            "all_tensors_padded_64b": tensors_padded,
+                            "container_version": info.get("version", 1),
+                        },
+                        "n_tensors": len(tensors),
+                        "arch_dims": info.get("arch_dims"),
+                        "quantization": quant,
+                        "smoke_test": smoke,
+                        "supported_by_qwnrun": bool(qwn_exe.is_file()) and smoke.get("status") == "passed",
+                        "hardware_fit": fit,
+                    }, request_id)
+                except Exception as exc:
+                    self.send_json(200, {
+                        "status": "invalid_qwn",
+                        "format": ".qwn container",
+                        "path": str(target),
+                        "name": target.name,
+                        "size_bytes": target.stat().st_size,
+                        "qwn_validation": {"status": "failed", "reason": str(exc)},
+                        "smoke_test": {"status": "not_run", "reason": "Structural validation failed before execution."},
+                        "supported_by_qwnrun": False,
+                        "hardware_fit": {"status": "not_evaluated", "reason": "QWN validation failed."},
+                    }, request_id)
+                return
+
             body = self.read_json()
             self.check_model(body)
             

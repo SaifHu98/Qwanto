@@ -78,11 +78,11 @@ class TaskClassifier:
 @dataclass
 class AutoPilotResponse:
     text: str
-    speedup: float
-    tokens_per_second: float
+    speedup: Optional[float]
+    tokens_per_second: Optional[float]
     active_optimizations: List[str]
-    quality_score: float
-    memory_usage_gb: float
+    quality_score: Optional[float]
+    memory_usage_gb: Optional[float]
     task_type: str
     thinking_level: str
 
@@ -101,14 +101,15 @@ class QwantoAutoPilot:
         self.auto_detect = auto_detect
         self.classifier = TaskClassifier()
 
-        # Matrix definitions: task -> (thinking, tq, ssd, agentic, speedup, quality, mem_gb)
+        # Matrix definitions contain policy choices only.  No speed, quality,
+        # or memory value is inferred from a task label.
         self.matrix = {
-            TaskType.SIMPLE_QA: ("low", True, False, False, 8.0, 0.96, 2.5),
-            TaskType.CODE_GENERATION: ("medium", True, True, False, 5.2, 0.95, 3.2),
-            TaskType.REASONING: ("high", True, True, False, 3.0, 0.99, 4.0),
-            TaskType.AGENTIC: ("medium", True, False, True, 6.0, 0.94, 3.0),
-            TaskType.TOOL_INTENSIVE: ("low", True, False, True, 10.0, 0.90, 2.8),
-            TaskType.BATCH: ("low", True, True, True, 12.0, 0.88, 3.2),
+            TaskType.SIMPLE_QA: ("low", False, False, False),
+            TaskType.CODE_GENERATION: ("medium", False, False, False),
+            TaskType.REASONING: ("high", False, False, False),
+            TaskType.AGENTIC: ("medium", False, False, True),
+            TaskType.TOOL_INTENSIVE: ("low", False, False, True),
+            TaskType.BATCH: ("low", False, False, True),
         }
 
     def generate(
@@ -130,22 +131,20 @@ class QwantoAutoPilot:
             resolved_task = task_type
 
         # Step 2: Extract optimal configuration from matrix
-        think_cfg, use_tq, use_ssd, use_agt, speedup_tgt, qual_score, mem_gb = self.matrix[resolved_task]
+        think_cfg, use_tq, use_ssd, use_agt = self.matrix[resolved_task]
 
         if self.mode == "max-performance":
-            think_cfg, use_tq, use_ssd, use_agt, speedup_tgt, qual_score = ("low", True, True, True, 10.0, 0.85)
-            mem_gb = 2.5
+            think_cfg, use_tq, use_ssd, use_agt = ("low", False, False, True)
         elif self.mode == "max-quality":
-            think_cfg, use_tq, use_ssd, use_agt, speedup_tgt, qual_score = ("high", False, False, False, 1.0, 0.99)
-            mem_gb = 6.4
+            think_cfg, use_tq, use_ssd, use_agt = ("high", False, False, False)
 
         if thinking_level != "auto":
             think_cfg = thinking_level
 
         # Active optimizations list
         active_opts = []
-        if use_tq: active_opts.append("turboquant")
-        if use_ssd: active_opts.append("saguaro_ssd")
+        # Research subsystems are not active merely because a classifier chose
+        # a task.  Runtime telemetry is the only source of active features.
         if use_agt: active_opts.append("agentic_pipeline")
         active_opts.append(f"thinking_{think_cfg}")
 
@@ -172,20 +171,16 @@ class QwantoAutoPilot:
                 timeout=60.0,
             )
             text = proc.stdout.strip()
-        except Exception:
-            text = f"Simulated output for task '{resolved_task.value}'"
-
-        elapsed = time.perf_counter() - t0
-        base_tps = 4.2
-        measured_tps = base_tps * speedup_tgt
+        except (OSError, subprocess.SubprocessError):
+            text = ""
 
         return AutoPilotResponse(
             text=text,
-            speedup=round(speedup_tgt, 1),
-            tokens_per_second=round(measured_tps, 1),
+            speedup=None,
+            tokens_per_second=None,
             active_optimizations=active_opts,
-            quality_score=qual_score,
-            memory_usage_gb=mem_gb,
+            quality_score=None,
+            memory_usage_gb=None,
             task_type=resolved_task.value,
             thinking_level=think_cfg,
         )

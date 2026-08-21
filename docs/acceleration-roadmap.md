@@ -1,59 +1,56 @@
-# Qwanto Native Acceleration Roadmap
+# Qwanto Native acceleration roadmap
 
-Status is tracked independently for each runtime capability. A feature is not
-called active from configuration alone: runtime counters, correctness tests,
-and reproducible evidence must prove execution. Performance evidence generated
-locally remains `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION` until the exact final
-commit passes the complete hosted workflow.
+This roadmap records implementation state, not targets. A feature becomes
+active only after its typed runtime path executes and its counters prove that
+execution. Local measurements are `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION`
+until the exact final commit passes the complete hosted workflow.
 
-## Baseline
+## Preserved baseline
 
-- CPU Phase A evidence source commit: `9a686913d33e9621c95955b53e8b9e980cb01456`.
-  The CUDA follow-up changes native sources after that evidence boundary; a
-  clean CPU evidence regeneration is required before treating Phase A as
-  current. Hosted validation remains pending for the final follow-up commit.
-- Native model: `experiments/results/4B_hyper_vsq2.qwn`, HyperVSQ-2 QWN 2.31,
-  74-byte blocks containing 256 values.
-- Model SHA-256:
-  `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
-- Current CPU path: VNNI, eight active workers, FP16 KV cache, zero GPU
-  matmuls and zero CPU fallbacks from the measured local path.
-- Final local Phase A binary: `c/qwnrun_phaseA_final.exe`, SHA-256
-  `4d3f3a4b9eca86023b49056439298e7333f0d53f74a70af935c3e9f3fb5e621`.
-- Final local production path: delayed VNNI reduction, OS-default affinity,
-  eight active workers, FP16 KV, zero GPU matmuls. 64-token median is
-  `18.985890 tok/s`; 128-token median is `18.945001 tok/s`.
-- Local filtered CI for the pushed CPU work: [32049440479](https://github.com/SaifHu98/Qwanto/actions/runs/32049440479)
-  and [32049660230](https://github.com/SaifHu98/Qwanto/actions/runs/32049660230).
-  Native/Python/security/docs checks passed where selected; Rust and Web were
-  skipped by path filters. Full dispatch was attempted but the unauthenticated
-  API returned HTTP 401. This is not complete hosted validation.
+- Qualification commits and evidence remain in history: `a1984025880cd2de41c442472f1b2c951b882b5f` and `54942491159ed2bc8730abd581311c8d9b6cc515`.
+- Qwen3.8-27B remains `UNSUPPORTED_QWEN38_ARCHITECTURE`; no QWN output was produced.
+- Validated implementation model: `experiments/results/4B_hyper_vsq2.qwn`, SHA-256 `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
+- CPU Phase A is the VNNI delayed-reduction path with OS-default affinity, eight workers, and FP16 KV. Its evidence remains local pending hosted validation.
 
-## Feature status
+## Status matrix
 
-| Feature | Current status | Target status | Implementation commit | Correctness evidence | Benchmark evidence | Enabled by default | Unresolved risks |
-|---|---|---|---|---|---|---|---|
-| HyperVSQ-2 scalar/AVX2/VNNI CPU path | VNNI measured locally | Hosted-validated CPU path | `e23c2a8` and later | `c/tests/test_hypervsq2_kernels.c`, 140/140 | `docs/cpu-performance-phase2-2026-08-17.md` | Yes, auto-dispatch | Host-specific scaling and profiler counters remain limited |
-| Delayed VNNI reduction | `VALIDATED_AND_ENABLED` locally; hosted pending | Hosted-validated safe VNNI dispatch | `cb3ca35` plus `9a68691` | 140/140 differential, exact stream agreement, nonzero invocation counter | `phaseA-clean-9a68691/final-delayed-8t-64.json`, `final-delayed-8t-128.json` | Yes | Hosted full workflow and final docs/evidence commit remain required |
-| HyperVSQ-2 multi-row blocking | `VALIDATED_NOT_BENEFICIAL` | Keep development candidates for future shape-specific work | `9a68691` | 140/140 differential; row-2/row-4 full-model regressions | `phaseA-clean-9a68691/final-row2-8t-64.json`, `final-row4-8t-64.json` | No | Register pressure and shape-specific variants were slower end-to-end |
-| Alternative 2-bit unpacking | `VALIDATED_CURRENT_IMPLEMENTATION` | Keep current shift/mask path | `9a68691` | 10,000 random unpack equalities plus 140/140 differential | `phaseA-clean-9a68691/phaseA-ablation-final.json`; native test output | Yes, current implementation | LUT is slower in the diagnostic and not used end-to-end |
-| SIMD SwiGLU | `VALIDATED_NOT_BENEFICIAL` | Retain exact scalar behavior | `9a68691` | Exact scalar path; measured contribution approximately 0.14% of HyperVSQ kernel time | `phaseA-clean-9a68691/final-delayed-8t-64.json` | No fast approximation | No material end-to-end target justifies approximation risk |
-| CPU affinity/autotuning | `VALIDATED_NOT_BENEFICIAL` for affinity; opt-in tuner measured | OS-default scheduling; cache opt-in measurements | `9a68691` | Repeated 64/128 policy matrices; cache-keyed autotune selected 8 | `phaseA-clean-9a68691/affinity-final/`, `affinity-final-128/`, `autotune-final.json` | OS default only | Do not run long autotune at startup |
-| HyperVSQ-2 CUDA | `END_TO_END_VALIDATED` locally; hosted validation pending | `COMPILED` → `KERNEL_CORRECT` → `END_TO_END_VALIDATED` → `MEASURED` | ABI v1 synthetic test; scalar/VNNI real-model decoder comparison; zero required-layer CPU fallbacks | `cuda-phaseB-clean-4d26cdc/cuda-release-short-diagnostic.json`; `MEASURED_LOCAL_PENDING_HOSTED_VALIDATION` | No | Release-quality CUDA repetitions, hosted gates, and a clean evidence commit remain required |
-| Typed quantized KV cache | FP16/auto only; TurboQuant env scaffold | Typed validated fp16/q8/q4 modes as implemented | — | No quantized KV runtime contract | None | FP16 only | Long-context error, memory, and quality validation |
-| Speculative decoding | Prototype scaffold; CLI rejects it | `IMPLEMENTED_REQUIRES_DRAFT_MODEL` or measured | — | No complete distribution/KV rollback evidence | None | No | Draft QWN compatibility and probability correction |
-| JetSpec | Reference-only scaffold with placeholders | Real speculative algorithm or disabled reference-only | — | None | None | No | Synthetic token generation and placeholder telemetry must remain absent |
-| NVMe out-of-core | `NOT_REQUIRED` for resident 4B model | `EXPERIMENTAL_OUT_OF_CORE` only for non-fitting models | — | Planner/prefetch tests pending | None | No | Page cache, I/O overlap, alignment, and memory safety |
-| Qwanto Code runtime integration | UI exposes truthful unavailable states | Accepted typed features with actual counters | Existing desktop/web work | Desktop/runtime tests | Runtime telemetry evidence | Only supported defaults | UI must never infer Active from requested config |
+| Capability | Current status | Enabled by default | Correctness evidence | Performance evidence | Remaining gate |
+|---|---|---:|---|---|---|
+| HyperVSQ-2 CPU scalar/AVX2/VNNI | `VALIDATED` | Yes, safe dispatch | 140/140 differential | CPU Phase A evidence | Full hosted validation on final source |
+| VNNI delayed reduction | `VALIDATED_AND_ENABLED_LOCALLY_PENDING_HOSTED` | Yes for compatible VNNI | Exact stream agreement; nonzero invocation counter | `phaseA-clean-9a68691/` | Regenerate if runtime changes; hosted gate |
+| Multi-row blocking | `VALIDATED_NOT_BENEFICIAL` | No | Differential tests pass | Slower full-model variants | None for current product path |
+| Alternative unpacking | `VALIDATED_CURRENT_IMPLEMENTATION` | Current shift/mask | Random and differential equality | Alternatives slower end-to-end | None for current product path |
+| SIMD SwiGLU approximation | `VALIDATED_NOT_BENEFICIAL` | No | Exact scalar retained | Contribution not material | None for current product path |
+| CPU affinity override | `VALIDATED_NOT_BENEFICIAL` | No; OS default | Safe policy tests | OS default won repeated runs | None for current product path |
+| Typed FP16 KV | `VALIDATED` | Yes | Existing decoder path | Existing CPU evidence | Long-context evidence remains separate |
+| Typed Q8 KV | `ATTENTION_CORRECT` locally | No | Scalar cache and CUDA Q8 oracle | Not release measured | 512/4K/16K quality and hosted gates |
+| QWN-Q4-KV compatibility cache | `REFERENCE_IMPLEMENTED` | No | Existing scalar compatibility tests | No product claim | Exact TurboQuant equivalence is not claimed |
+| CUDA Q8 KV reference | `KERNEL_CORRECT` locally | No | `max_abs_error=1.1920929e-7` on RTX 5070 Ti | Not measured | Full model coverage and hosted compile gate |
+| HyperVSQ-2 CUDA decoder | `END_TO_END_VALIDATED` locally | No | Scalar/VNNI comparison, zero fallbacks | Diagnostic only | Reproduce from final commit; no README claim |
+| Correct speculative decoding | `IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL` | No | Probability/transaction code is gated | None | Compatible native QWN draft and quality evidence |
+| JetSpec tree speculation | `REFERENCE_ONLY` | No | Deterministic fixture structure tests | None | Draft/MTP tree decoder and distribution gates |
+| NVMe out-of-core | `NOT_REQUIRED_FOR_RESIDENT_4B` | No | No direct-I/O path enabled | None | Only for models that do not fit RAM |
+| Qwen3.8 hybrid runtime | `UNSUPPORTED_QWEN38_ARCHITECTURE` | No | Fail-closed qualification | None | DeltaNet/state/MTP/IQ implementation and oracle |
 
-## Execution policy
+## Evidence and safety rules
 
-Phase A completes the CPU candidates and either promotes or rejects them.
-Phase B has started with the correctness-first versioned ABI and exact
-HyperVSQ-2 reference path. It must remain independently validated; no CUDA
-performance claim is promoted until the clean evidence commit passes hosted
-checks. Phases C–F remain independently committed.
-README performance tables are not
-updated until accepted evidence is regenerated from a clean final commit and
-the complete hosted workflow is green. No release or tag is created by this
-roadmap work.
+The current CPU and CUDA evidence is local and pending a full hosted run on
+the final exact commit. A detected GPU, loaded DLL, isolated cache kernel, or
+requested backend is not full-model CUDA evidence. Explicit CUDA fails closed
+if required projection or cache coverage is unavailable; auto mode records the
+reason and may remain on CPU.
+
+TurboQuant is not used as a label for the current arbitrary Q4 cache. The
+runtime reports `QWN-Q4-KV` until the cited algorithm is independently matched.
+Speculation and JetSpec do not initialize acceptance or speedup counters and
+cannot be enabled by an environment variable or UI flag.
+
+## Sequential implementation boundary
+
+Phase 1 establishes the typed KV contract and reference CPU/CUDA Q8 cache.
+Phase 2 establishes correct draft/target probability and rollback wiring but
+remains disabled without a compatible native draft. Phase 3 keeps JetSpec
+reference-only until it can use that transaction engine with real proposals.
+The converter capability axes and Qwen3.8 architecture work are separate
+follow-up milestones. No README performance claim, tag, or release is changed
+by this roadmap.

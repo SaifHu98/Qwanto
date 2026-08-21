@@ -6,7 +6,7 @@
 
 int main(void) {
     printf("=================================================================\n");
-    printf("     Qwanto JetSpec Causal Parallel Tree Drafting Test Suite     \n");
+    printf("     Qwanto JetSpec Reference Tree Fixture Test Suite            \n");
     printf("               (UC San Diego Hao AI Lab 2026)                   \n");
     printf("=================================================================\n");
 
@@ -54,6 +54,8 @@ int main(void) {
     float *verif_logits = (float *)malloc(n * vocab_size * sizeof(float));
     assert(verif_logits != NULL);
     for (int i = 0; i < n * vocab_size; i++) verif_logits[i] = 0.1f;
+    for (int i = 0; i < n; i++)
+        verif_logits[i * vocab_size + engine.active_tree.nodes[i].token_id] = 2.0f;
 
     int accepted_count = qwn_jetspec_verify_tree(&engine, verif_logits, vocab_size, accepted, 8);
     assert(accepted_count > 0);
@@ -78,7 +80,7 @@ int main(void) {
     free(verif_logits);
 
     printf("=================================================================\n");
-    printf("[SUCCESS] All JetSpec Causal Parallel Tree Drafting tests passed!\n");
+    printf("[SUCCESS] JetSpec reference tree invariants passed; product execution remains disabled.\n");
     printf("=================================================================\n");
     return 0;
 }

@@ -10,7 +10,11 @@ extern "C" {
 #endif
 
 /* -------------------------------------------------------------------------
- * Saguaro 2.0: Multi-Model (PyramidSD) & Multi-Modal (DREAM) Speculative Decoding
+ * Legacy Saguaro compatibility API.
+ *
+ * This surface is retained for source compatibility with older experiments.
+ * It is not the product speculative-decoding path and it must not manufacture
+ * acceptance or speedup measurements.
  * ------------------------------------------------------------------------- */
 
 #define QWN_SAGUARO_RING_BUFFER_SIZE 32
@@ -39,6 +43,8 @@ typedef struct {
     float entropy_threshold;         /* Entropy-adaptive cross-attention threshold */
     uint64_t total_speculated;
     uint64_t total_accepted;
+    float baseline_tok_per_sec;
+    float speculative_tok_per_sec;
     bool multimodal_enabled;
 } QwnSaguaro2Engine;
 
@@ -70,8 +76,14 @@ int qwn_saguaro2_verify_pyramid(
     int *out_accepted_count
 );
 
-/* Compute current empirical speedup factor */
+/* Return a speedup only after a caller records real paired measurements. */
 float qwn_saguaro2_measured_speedup(const QwnSaguaro2Engine *engine);
+
+/* Record externally measured baseline/speculative rates.  This does not run
+ * speculation; it only makes an independently measured result queryable. */
+int qwn_saguaro2_record_measurement(QwnSaguaro2Engine *engine,
+                                    float baseline_tok_per_sec,
+                                    float speculative_tok_per_sec);
 
 #ifdef __cplusplus
 }

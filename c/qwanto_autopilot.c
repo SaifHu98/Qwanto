@@ -28,17 +28,17 @@ QwnAutoPilotConfig qwn_autopilot_detect_hardware(void) {
     cfg.mode = QWN_MODE_BALANCED;
     cfg.task_type = QWN_TASK_SIMPLE_QA;
     cfg.auto_detect = true;
-    cfg.use_turboquant = true;
-    cfg.use_bitdecoding = true;
-    cfg.use_sliminfer = true;
-    cfg.use_jetspec = true;
-    cfg.use_talon = true;
-    cfg.use_pquant = true;
+    cfg.use_turboquant = false;
+    cfg.use_bitdecoding = false;
+    cfg.use_sliminfer = false;
+    cfg.use_jetspec = false;
+    cfg.use_talon = false;
+    cfg.use_pquant = false;
     cfg.use_littlebit2 = false;
-    cfg.use_speculative = true;
+    cfg.use_speculative = false;
     cfg.use_agentic_opt = true;
     cfg.quality_threshold = 0.97f;
-    cfg.speedup_target = 14.8f;
+    cfg.speedup_target = 0.0f;
 
     int info[4];
     qwn_cpuid(info, 0, 0);
@@ -236,6 +236,19 @@ QwnAutoPilotConfig qwn_autopilot_select_config(
         }
     }
 
+    /* Research subsystems are not runtime capabilities.  They require the
+     * typed decoder contracts and validated evidence before activation; an
+     * autopilot profile must never turn a label or target into execution. */
+    cfg.use_speculative = false;
+    cfg.use_jetspec = false;
+    cfg.use_turboquant = false;
+    cfg.use_bitdecoding = false;
+    cfg.use_sliminfer = false;
+    cfg.use_talon = false;
+    cfg.use_pquant = false;
+    cfg.use_littlebit2 = false;
+    cfg.speedup_target = 0.0f;
+
     return cfg;
 }
 
@@ -254,9 +267,9 @@ QwnTaskType qwn_autopilot_parse_task(const char *task_str) {
 
 const char *qwn_autopilot_describe_mode(QwnPerformanceMode mode) {
     switch (mode) {
-        case QWN_MODE_MAX_PERFORMANCE: return "max-performance (22x)";
-        case QWN_MODE_BALANCED:        return "balanced (14.8x)";
-        case QWN_MODE_MAX_QUALITY:     return "max-quality (1x)";
+        case QWN_MODE_MAX_PERFORMANCE: return "max-performance (speedup unavailable)";
+        case QWN_MODE_BALANCED:        return "balanced (speedup unavailable)";
+        case QWN_MODE_MAX_QUALITY:     return "max-quality (speedup unavailable)";
         default:                       return "unknown";
     }
 }
@@ -291,10 +304,9 @@ int qwn_autopilot_forward(
 
     if (output && max_tokens > 0) {
         snprintf(output, (size_t)max_tokens,
-                 "[Autopilot: mode=%s, task=%s, speedup=%.1fx, thinking=%s, sliminfer=%d, quant=%s, bitdec=%d, jetspec=%d, talon=%d]",
+                 "[Autopilot: mode=%s, task=%s, speedup=Unavailable, thinking=%s, sliminfer=%d, quant=%s, bitdec=%d, jetspec=%d, talon=%d]",
                  qwn_autopilot_describe_mode(config->mode),
                  qwn_autopilot_describe_task(config->task_type),
-                 config->speedup_target,
                  qwn_thinking_level_name(config->thinking_level),
                  config->use_sliminfer ? 1 : 0,
                  config->use_littlebit2 ? "littlebit2" : (config->use_pquant ? "pquant" : "twla"),

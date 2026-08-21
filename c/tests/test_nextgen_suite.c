@@ -205,7 +205,9 @@ static void test_saguaro2_speculation(void) {
     EXPECT_EQ(accepted[5], 105);
 
     float speedup = qwn_saguaro2_measured_speedup(&engine);
-    EXPECT_TRUE(speedup >= 3.6f);
+    EXPECT_EQ(speedup, 0.0f);
+    EXPECT_EQ(qwn_saguaro2_record_measurement(&engine, 10.0f, 12.0f), 0);
+    EXPECT_NEAR(qwn_saguaro2_measured_speedup(&engine), 1.2f, 1e-5f);
 }
 
 /* -------------------------------------------------------------------------

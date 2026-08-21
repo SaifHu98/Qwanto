@@ -18,8 +18,8 @@ extern "C" {
  * Performance Modes & Task Types
  * ------------------------------------------------------------------------- */
 typedef enum {
-    QWN_MODE_MAX_PERFORMANCE = 0,   /* 10x-33x speedup target, maximum hardware saturation */
-    QWN_MODE_BALANCED        = 1,   /* 5x-8x speedup target, 97%+ quality retention */
+    QWN_MODE_MAX_PERFORMANCE = 0,   /* Lower reasoning overhead; speedup unavailable */
+    QWN_MODE_BALANCED        = 1,   /* Balanced reasoning; speedup unavailable */
     QWN_MODE_MAX_QUALITY     = 2    /* Full precision reasoning baseline */
 } QwnPerformanceMode;
 
@@ -44,18 +44,18 @@ typedef struct {
     QwnThinkingLevel thinking_level;/* Reasoning depth (LOW, MEDIUM, HIGH) */
     
     /* Core Acceleration Subsystems */
-    bool use_turboquant;            /* TurboQuant 2.5b/3.5b Polar KV-Cache */
-    bool use_bitdecoding;           /* BitDecoding Tensor Core KV-Cache (HPCA 2026) */
-    bool use_sliminfer;             /* SlimInfer Dynamic Token Pruning (AAAI 2026) */
-    bool use_jetspec;               /* JetSpec Causal Parallel Tree Drafting (2026) */
-    bool use_talon;                 /* Talon Asynchronous Hybrid Speculation (AAAI 2026) */
-    bool use_pquant;                /* pQuant Decoupled 1-Bit + Sparse Branch */
-    bool use_littlebit2;            /* LittleBit-2 Sub-1-Bit Compression (ICML 2026) */
-    bool use_speculative;           /* Saguaro / Speculative Engine Active */
+    bool use_turboquant;            /* True only after a typed cache is used */
+    bool use_bitdecoding;           /* Reserved; no validated runtime path */
+    bool use_sliminfer;             /* Reserved; no validated runtime path */
+    bool use_jetspec;               /* True only after product tree validation */
+    bool use_talon;                 /* Reserved; no validated runtime path */
+    bool use_pquant;                /* Reserved; no validated runtime path */
+    bool use_littlebit2;            /* Reserved; no validated runtime path */
+    bool use_speculative;           /* True only after draft/target validation */
     bool use_agentic_opt;           /* LRU Tool Cache + Context Reuse */
     
     float quality_threshold;        /* Minimum acceptable quality score [0.0, 1.0] */
-    float speedup_target;           /* Expected speedup factor (e.g. 8.0x, 14.8x, 33.0x) */
+    float speedup_target;           /* Always zero until paired evidence exists */
 } QwnAutoPilotConfig;
 
 /* -------------------------------------------------------------------------

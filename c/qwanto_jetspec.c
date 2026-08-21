@@ -4,10 +4,6 @@
 #include <string.h>
 #include <math.h>
 
-/* -------------------------------------------------------------------------
- * JetSpec Causal Parallel Tree Drafting Implementation (UC San Diego 2026)
- * ------------------------------------------------------------------------- */
-
 bool qwn_jetspec_init(
     QwnJetSpecEngine *engine,
     int hidden_dim,
@@ -26,8 +22,9 @@ bool qwn_jetspec_init(
 
     engine->ring_head = 0;
     engine->ring_tail = 0;
-    engine->measured_acceptance_rate = 0.82;
-    engine->measured_speedup_factor = 3.65;
+    engine->measured_acceptance_rate = 0.0;
+    engine->measured_speedup_factor = 0.0;
+    engine->product_enabled = false;
     engine->is_initialized = true;
 
     return true;
@@ -64,7 +61,9 @@ bool qwn_jetspec_generate_tree(
     QwnJetSpecTree *tree = &engine->active_tree;
     memset(tree, 0, sizeof(*tree));
 
-    /* Find Top-1 Root Token from target logits */
+    /* This fixture path ranks tokens from supplied logits.  It is deliberately
+     * reference-only: a production caller must provide proposals from a
+     * compatible QWN draft model or validated MTP heads. */
     int root_tok = 0;
     float max_logit = target_logits[0];
     for (int v = 1; v < vocab_size; v++) {
@@ -79,7 +78,7 @@ bool qwn_jetspec_generate_tree(
     tree->nodes[0].token_id = root_tok;
     tree->nodes[0].parent_id = -1;
     tree->nodes[0].depth = 0;
-    tree->nodes[0].cumulative_score = 0.0f;
+    tree->nodes[0].cumulative_score = max_logit;
     tree->nodes[0].child_count = 0;
     tree->node_count = 1;
 
@@ -87,7 +86,9 @@ bool qwn_jetspec_generate_tree(
     int current_count = 1;
     current_nodes[0] = 0;
 
-    /* Expand Causal Parallel Draft Tree Level by Level */
+    /* Expand a deterministic ranked-logit fixture.  Tokens are selected from
+     * actual supplied logits and duplicates are removed; no token arithmetic
+     * or fabricated confidence is permitted. */
     for (int depth = 1; depth < engine->cfg.max_tree_depth; depth++) {
         int next_nodes[16];
         int next_count = 0;
@@ -98,15 +99,27 @@ bool qwn_jetspec_generate_tree(
 
             for (int b = 0; b < branches; b++) {
                 if (tree->node_count >= JETSPEC_MAX_TREE_NODES) break;
-
+                int draft_tok = -1;
+                float draft_score = -INFINITY;
+                for (int v = 0; v < vocab_size; v++) {
+                    int duplicate = 0;
+                    for (int n = 0; n < tree->node_count; n++) {
+                        if (tree->nodes[n].token_id == v) { duplicate = 1; break; }
+                    }
+                    if (!duplicate && target_logits[v] > draft_score) {
+                        draft_tok = v;
+                        draft_score = target_logits[v];
+                    }
+                }
+                if (draft_tok < 0) break;
                 int node_id = tree->node_count++;
-                int draft_tok = (tree->nodes[parent_idx].token_id + b + depth * 17) % vocab_size;
 
                 tree->nodes[node_id].node_id = node_id;
                 tree->nodes[node_id].token_id = draft_tok;
                 tree->nodes[node_id].parent_id = parent_idx;
                 tree->nodes[node_id].depth = depth;
-                tree->nodes[node_id].cumulative_score = tree->nodes[parent_idx].cumulative_score + (float)(-0.15 * (b + 1));
+                tree->nodes[node_id].cumulative_score =
+                    tree->nodes[parent_idx].cumulative_score + draft_score;
                 tree->nodes[node_id].child_count = 0;
 
                 if (tree->nodes[parent_idx].child_count < 8) {
@@ -137,7 +150,10 @@ bool qwn_jetspec_generate_tree(
             break;
         }
     }
-    tree->best_path_score = 0.92f;
+    tree->best_path_score = tree->nodes[curr >= 0 ? curr : 0].cumulative_score;
+    engine->tree_nodes_proposed += (uint64_t)tree->node_count;
+    engine->wasted_nodes += tree->node_count > tree->best_path_length ?
+                            (uint64_t)(tree->node_count - tree->best_path_length) : 0;
     return true;
 }
 
@@ -160,6 +176,13 @@ int qwn_jetspec_verify_tree(
 
     while (curr_node >= 0 && curr_node < tree->node_count && accepted_count < max_out_tokens) {
         int candidate_tok = tree->nodes[curr_node].token_id;
+        const float *row = target_verification_logits +
+                           (size_t)curr_node * (size_t)vocab_size;
+        int target_best = 0;
+        for (int v = 1; v < vocab_size; v++)
+            if (row[v] > row[target_best]) target_best = v;
+        engine->branches_verified++;
+        if (target_best != candidate_tok) break;
         accepted_tokens_out[accepted_count++] = candidate_tok;
 
         if (tree->nodes[curr_node].child_count > 0) {
@@ -174,6 +197,7 @@ int qwn_jetspec_verify_tree(
     if (engine->total_draft_tokens > 0) {
         engine->measured_acceptance_rate = (double)engine->total_accepted_tokens / (double)engine->total_draft_tokens;
     }
+    engine->accepted_path_tokens += (uint64_t)accepted_count;
     return accepted_count;
 }
 
@@ -206,7 +230,9 @@ void qwn_jetspec_record_acceptance(
     engine->cache[idx].prompt_hash = prompt_hash;
     engine->cache[idx].chain_len = accepted_count < JETSPEC_MAX_TREE_DEPTH ? accepted_count : JETSPEC_MAX_TREE_DEPTH;
     memcpy(engine->cache[idx].token_chain, accepted_tokens, (size_t)engine->cache[idx].chain_len * sizeof(int));
-    engine->cache[idx].confidence = 0.95f;
+    /* Confidence is unavailable here because the API receives accepted IDs,
+     * not their probabilities.  Never present a fabricated confidence. */
+    engine->cache[idx].confidence = 0.0f;
 
     /* Push into ring buffer */
     for (int i = 0; i < accepted_count; i++) {

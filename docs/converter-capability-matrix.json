@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "axes": {
+    "source_containers": {
+      "qwn": "runtime-supported",
+      "gguf": "parser-only",
+      "safetensors": "conversion-supported",
+      "pytorch": "conversion-supported"
+    },
+    "source_tensor_dtypes": {
+      "F32": "conversion-supported",
+      "F16": "conversion-supported",
+      "BF16": "conversion-supported",
+      "Q4_0": "conversion-supported",
+      "Q4_K": "conversion-supported",
+      "Q5_K": "conversion-supported",
+      "Q6_K": "conversion-supported",
+      "Q8_K": "unsupported",
+      "IQ2": "unsupported",
+      "IQ3": "unsupported",
+      "IQ4": "unsupported"
+    },
+    "architectures": {
+      "validated_transformer": "runtime-supported",
+      "qwen35_hybrid_deltanet_mtp": "unsupported"
+    },
+    "runtime_operators": {
+      "hypervsq2_gemv": "correctness-validated",
+      "full_attention": "runtime-supported",
+      "gated_deltanet": "unsupported",
+      "recurrent_state": "unsupported",
+      "mtp": "unsupported",
+      "vision_encoder": "unsupported"
+    }
+  },
+  "policy": "Unknown block layouts and unsupported required operators fail closed; no source dtype is reinterpreted."
+}

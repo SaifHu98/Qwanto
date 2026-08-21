@@ -28,17 +28,17 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `243 passed, 4 skipped` in `c/tests/`; safe
-  model-acquisition tests use only
-  local HTTP fixtures and cover resume, checksum, cancellation, disk, and
-  atomic QWN behavior.
-- Web validation: production build passed and Vitest passed (`56 tests`). The
-  desktop surface has exactly five primary destinations—Project, Chats, Files,
-  Changes, Settings—while the browser surface remains chat-only. Settings now
-  uses an internal one-section-at-a-time navigation with viewport contracts for
-  1280px, 1440px, 1920px, and short laptop heights. Skills & Plugins, GitHub,
-  and Feedback are separate lazy settings sections; model/conversion/download
-  work remains focused under Models.
+- Native/Python validation: `253 passed, 4 skipped` in `c/tests/`; includes
+  real `/v1/qwanto/models/verify` endpoint testing verifying 4KiB container
+  invariants (header, payload alignment, 64-byte padding, tail block) and live
+  `qwnrun` smoke test execution.
+- Web validation: production build passed (`tsc -b && vite build`) and Vitest
+  passed (`57 tests`). Modernized desktop agent styling with futuristic
+  glassmorphism and integrated truthful native engine model verification. The
+  desktop surface maintains exactly five primary destinations—Project, Chats,
+  Files, Changes, Settings—while the browser surface remains chat-only. Settings
+  includes interactive model verification modal with real structural and live
+  engine smoke test reports.
 - The existing `benchmark_evidence.json` claim remains unchanged. CPU Phase 3
   local evidence from commit `cb3ca35` uses the 4B HyperVSQ-2 model SHA-256
   `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.

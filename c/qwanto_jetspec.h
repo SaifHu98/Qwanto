@@ -9,11 +9,10 @@
 extern "C" {
 #endif
 
-/* -------------------------------------------------------------------------
- * JetSpec: Causal Parallel Tree Drafting Engine (UC San Diego Hao AI Lab 2026)
- * Achieves up to 9.64x speculative speedup (2x over Saguaro 2.0) using
- * single-pass causal parallel tree generation and tree-causal mask verification.
- * ------------------------------------------------------------------------- */
+/* JetSpec reference data structures.  Product execution remains disabled
+ * until a validated draft model/MTP source is wired to the speculative KV
+ * transaction engine.  This API accepts real probability/logit fixtures for
+ * deterministic tests; it does not manufacture token IDs or metrics. */
 
 #define JETSPEC_MAX_TREE_NODES 64
 #define JETSPEC_MAX_TREE_DEPTH 8
@@ -75,6 +74,11 @@ typedef struct {
     uint64_t total_accepted_tokens;
     double measured_acceptance_rate;
     double measured_speedup_factor;
+    bool product_enabled;
+    uint64_t tree_nodes_proposed;
+    uint64_t branches_verified;
+    uint64_t accepted_path_tokens;
+    uint64_t wasted_nodes;
     bool is_initialized;
 } QwnJetSpecEngine;
 
