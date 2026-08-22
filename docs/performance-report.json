@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "generated_at_utc": "2026-08-22T11:08:53.339208+00:00",
+  "generated_at_utc": "2026-08-22T11:28:49.447163+00:00",
   "generator": "benchmarks/generate_performance_report.py",
   "policy": {
     "native_inference_numbers_require": "successful qwnrun evidence with matching model hash",
@@ -67,6 +67,58 @@
         "model_sha256": "43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36",
         "artifact": "benchmark_evidence.json",
         "benchmark_id": "qwn-bench-1786962766476235400"
+      }
+    },
+    {
+      "model": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0",
+      "source_format": "QWN container",
+      "qwn_quantization": "Q4_0",
+      "file_size_bytes": 1006483816,
+      "bits_per_weight": 4.506927,
+      "ram_vram_measurement": "Unavailable",
+      "ttft_ms": 6556.075,
+      "tokens_per_second": 2.366479,
+      "backend_requested": "auto",
+      "backend_actual": "cpu",
+      "selected_cpu_isa_kernel": "Unavailable",
+      "selected_kernel": "vnni",
+      "active_cpu_thread_count": "Unavailable",
+      "gpu_device": 0,
+      "gpu_matmul_count": 0,
+      "cpu_fallback_count": 1,
+      "executable_sha256": "fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881",
+      "model_sha256": "65a63d636c0d3cb691bc705d4b92630a33c848516d297ae4b7e6f5477b9b04cd",
+      "qwn_version": "0.1.0",
+      "git_commit": "08e74866bae8a47f1fe8b8b07b603132168cda8f",
+      "prefill_tokens_per_second": 2.28796,
+      "decode_tokens_per_second": 2.366479,
+      "generated_tokens": 64,
+      "wall_seconds": 37.242456,
+      "reproduce_command": [
+        "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+        "D:\\EcoUni\\qwanto\\models\\qwn\\DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn",
+        "Explain zero-copy NVMe memory tiering in Qwanto.",
+        "64",
+        "2048",
+        "--backend",
+        "auto",
+        "--ctx-size",
+        "2048",
+        "--max-tokens",
+        "64",
+        "--seed",
+        "0",
+        "--thinking",
+        "none"
+      ],
+      "hardware": "Windows 11 (10.0.26200); CPU: AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD; GPU: NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+      "evidence_class": "MEASURED",
+      "measurement_scope": "native qwnrun inference",
+      "evidence": {
+        "manifest": "docs/model-manifest.json",
+        "model_sha256": "65a63d636c0d3cb691bc705d4b92630a33c848516d297ae4b7e6f5477b9b04cd",
+        "artifact": "benchmark_evidence.json",
+        "benchmark_id": "qwn-bench-1787396431922853800"
       }
     }
   ],
@@ -213,8 +265,8 @@
     },
     {
       "format": "Q4_0",
-      "status": "implemented and container-validated; no matching native inference row",
-      "evidence_class": "UNAVAILABLE"
+      "status": "validated conversion and measured native qwnrun evidence",
+      "evidence_class": "MEASURED"
     },
     {
       "format": "HyperVSQ-2",
@@ -234,6 +286,31 @@
     {
       "format": "TurboQuant",
       "status": "reference only; no validated end-to-end QWN evidence",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "Q8_0",
+      "status": "implemented container dtype; no current native inference row",
+      "evidence_class": "UNAVAILABLE"
+    },
+    {
+      "format": "BF16",
+      "status": "implemented container dtype; no current native inference row",
+      "evidence_class": "UNAVAILABLE"
+    },
+    {
+      "format": "VSQ",
+      "status": "implemented container dtype; local reference matrix only",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "VSQ_ULTRA",
+      "status": "implemented container dtype; local reference matrix only",
+      "evidence_class": "EXPERIMENTAL"
+    },
+    {
+      "format": "HYPER_VSQ",
+      "status": "implemented container dtype; local reference matrix only (distinct from HyperVSQ-2)",
       "evidence_class": "EXPERIMENTAL"
     },
     {

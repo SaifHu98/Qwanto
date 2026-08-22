@@ -46,48 +46,80 @@ gateway, Qwanto Web, and Qwanto Code.
 ## Verified Performance Evidence
 
 Performance claims are evidence claims, not product slogans. This table is
-generated from `benchmark_evidence.json`, `benchmarks/benchmark_matrix.json`,
-and the checked-in model manifest. The current real local CPU record is the
-validated 4B HyperVSQ-2 QWN fixture:
+generated from `benchmark_evidence.json`,
+`benchmarks/evidence/windows/2026-08-22/*.json`,
+`benchmarks/benchmark_matrix.json`, and the checked-in model manifest.
+The two real local CPU rows are the validated 4B HyperVSQ-2 QWN fixture and
+the 1.5B Q4_0 fixture converted from a DeepSeek-R1-Distill-Qwen GGUF source:
 
 | Model | Native QWN Format | Size | Backend Actually Used | Decode tok/s | TTFT | Evidence Class | Reproduce |
 | --- | --- | --- | --- | ---: | ---: | --- | --- |
 | DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB | CPU | 8.154199 | Unavailable | MEASURED | [`docs/performance-report.md`](docs/performance-report.md) |
+| DeepSeek-R1-Distill-Qwen-1.5B-Q4_0 | QWN container (Q4_0) | 959.86 MiB | CPU | 1.718469 (64 tok) | 6556 ms | MEASURED | [`1.5b_q4_0_64tok.json`](benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json) |
+| DeepSeek-R1-Distill-Qwen-1.5B-Q4_0 | QWN container (Q4_0) | 959.86 MiB | CPU | 2.474 (128 tok, 8 threads) | Unavailable | MEASURED | [`1.5b_q4_0_128tok_cpu.json`](benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json) |
 
-This row is valid only for the recorded executable hash, model hash, prompt,
-context, seed, token limit, and host. It is not a universal throughput claim.
-The detected RTX 5070 Ti is hardware inventory only; this run performed no
-CUDA matmul and is therefore not a CUDA result. The full machine-readable
-evidence and generator are in
-[`docs/performance.md`](docs/performance.md),
-[`docs/performance-report.json`](docs/performance-report.json), and
+Each row is valid only for the recorded executable hash, model hash, prompt,
+context, seed, token limit, threads, and host. They are not universal
+throughput claims. The detected RTX 5070 Ti is hardware inventory only;
+these CPU runs reported no CUDA matmul and must not be described as GPU
+results. A separate CUDA attempt on the 1.5B Q4_0 model failed closed
+(`benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_cuda_attempt.json` /
+`1.5b_cuda_probe.log`) because `qwn_cuda.dll` ABI 1 only supports
+`QWN_DT_HYPER_VSQ2` weights. The full machine-readable evidence and generators
+are in [`docs/performance.md`](docs/performance.md),
+[`docs/performance-report.json`](docs/performance-report.json),
+[`docs/model-manifest.json`](docs/model-manifest.json),
 [`benchmarks/benchmark_matrix.json`](benchmarks/benchmark_matrix.json),
+[`docs/qwn-supported-quantizations.md`](docs/qwn-supported-quantizations.md),
 [`benchmarks/generate_performance_report.py`](benchmarks/generate_performance_report.py).
 Unknown values remain `Unavailable`; the report never substitutes zeros,
 host guesses, or projections. Archived GGUF/`llama-server` measurements are
-kept in a separate `EXPERIMENTAL_EXTERNAL` section for provenance only; GGUF
-is not an executable Qwanto runtime format.
+kept in a separate `EXPERIMENTAL_EXTERNAL` section for provenance only;
+GGUF is not an executable Qwanto runtime format.
 
 ### Runtime Feature Status
 
 | Capability | Status | Evidence |
 | --- | --- | --- |
-| HyperVSQ-2 CPU kernel | Measured native CPU result | [`benchmark_matrix.json`](benchmarks/benchmark_matrix.json) |
-| HyperVSQ-2 CUDA kernel | Unavailable; no CUDA DLL or GPU matmul evidence | [`benchmark-methodology.md`](docs/benchmark-methodology.md) |
-| TWLA | Experimental/reference only | [`qwn-format.md`](docs/qwn-format.md) |
-| LittleBit-2 | Experimental/reference only | [`qwn-format.md`](docs/qwn-format.md) |
-| TurboQuant | Experimental/reference only | [`qwn-format.md`](docs/qwn-format.md) |
-| JetSpec | Experimental/reference only | [`performance-report.md`](docs/performance-report.md) |
-| SlimInfer | Experimental/reference only | [`performance-report.md`](docs/performance-report.md) |
-| BitDecoding | Experimental/reference only | [`performance-report.md`](docs/performance-report.md) |
+| FP32 / FP16 / BF16 | Implemented container dtypes; no current performance row | [`docs/qwn-format.md`](docs/qwn-format.md), [`docs/qwn-supported-quantizations.md`](docs/qwn-supported-quantizations.md) |
+| Q8_0 | Implemented container dtype; no current performance row | [`docs/qwn-format.md`](docs/qwn-format.md) |
+| Q4_0 | Measured native CPU row (1.5B) | [`benchmark_matrix.json`](benchmarks/benchmark_matrix.json) |
+| VSQ / VSQ_ULTRA / HYPER_VSQ | Experimental/reference only; local reference matrix only | [`docs/qwn-supported-quantizations.md`](docs/qwn-supported-quantizations.md) |
+| HyperVSQ-2 CPU kernel | Measured native CPU result (4B) | [`benchmark_matrix.json`](benchmarks/benchmark_matrix.json) |
+| HyperVSQ-2 CUDA kernel | Compiled and ABI-1 dispatched on detected sm_120 RTX 5070 Ti; no end-to-end Q4_0 model path is wired through it, so the Q4_0 CUDA attempt fails closed and the 4B HyperVSQ-2 local CUDA record remains diagnostic only. | [`docs/cuda-hypervsq2-design.md`](docs/cuda-hypervsq2-design.md) |
+| TWLA / LittleBit-2 / TurboQuant | Reference/experimental only; no end-to-end QWN evidence | [`docs/qwn-format.md`](docs/qwn-format.md), [`docs/qwn-supported-quantizations.md`](docs/qwn-supported-quantizations.md) |
+| JetSpec / SlimInfer / BitDecoding | Reference/experimental only | [`docs/qwn-supported-quantizations.md`](docs/qwn-supported-quantizations.md) |
+
+`TWLA`, `LittleBit-2`, `TurboQuant`, `JetSpec`, `SlimInfer`, and `BitDecoding`
+exist as decoder implementations or framework modules under `c/qwanto_*.c`
+that are compiled into `qwnrun` via the Makefile `QWNRUN_SRCS` list but are
+not exercised on any current measured native-inference path. Their dtype IDs
+are not present in the `.qwn` container envelope, so they cannot appear in a
+published `.qwn` performance row without first adding the corresponding
+`QWN_DT_*` enum entry and reader. See
+[`docs/dtype-support-roadmap.md`](docs/dtype-support-roadmap.md) for the
+planned expansion.
 
 ### How to reproduce
 
+Both rows above are reproduced end-to-end by the same harness:
+
 ```powershell
+# 4B HyperVSQ-2 row (the canonical CPU record)
 python benchmarks/benchmark_reproducible.py --model experiments/results/4B_hyper_vsq2.qwn --executable c/qwnrun.exe --backend cpu --context-size 4096 --max-tokens 64 --seed 0 --warmup-tokens 8 --output benchmark_evidence.json
-python benchmarks/generate_benchmark_matrix.py
-python benchmarks/generate_performance_report.py
+
+# 1.5B Q4_0 rows (require the converted .qwn in models/qwn/, generated from the GGUF source via `python c/tools/qwn_convert.py convert --quant q4_0`)
+python benchmarks/benchmark_reproducible.py --model "models/qwn/DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn" --executable c/qwnrun.exe --backend auto --context-size 2048 --max-tokens 64 --seed 0 --warmup-tokens 4 --output "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json"
+python benchmarks/benchmark_reproducible.py --model "models/qwn/DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn" --executable c/qwnrun.exe --backend cpu --threads 8 --context-size 2048 --max-tokens 128 --seed 0 --warmup-tokens 8 --output "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json"
+
+# Roll up the matrix and the rendered report (pass every evidence file you want to keep)
+python benchmarks/generate_benchmark_matrix.py --evidence benchmark_evidence.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json
+python benchmarks/generate_performance_report.py --evidence benchmark_evidence.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json --manifest docs/model-manifest.json
 ```
+
+Replace `-DD-CRT_SECURE_NO_WARNINGS` / `--thinking none` etc. with the actual
+flags emitted by the rows above if your local `qwnrun.exe` does not recognise
+the same switches.
 
 Research citations and projections are intentionally separate from measured
 results. A referenced paper is not an integrated Qwanto feature until code,

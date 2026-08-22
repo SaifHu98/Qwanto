@@ -11,6 +11,7 @@ Numbers below are generated from matching executable/model hashes and the local 
 | Model | Native QWN Format | Size | Backend Actually Used | Decode tok/s | TTFT | Evidence Class | Reproduce |
 | --- | --- | --- | --- | ---: | ---: | --- | --- |
 | DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB (1,266,202,104 bytes) | cpu | 8.154199 tok/s | Unavailable | MEASURED | `D:\EcoUni\qwanto\c\qwnrun.exe D:\EcoUni\qwanto\experiments\results\4B_hyper_vsq2.qwn Explain zero-copy NVMe memory tiering in Qwanto. 64 4096 --backend cpu --ctx-size 4096 --max-tokens 64 --seed 0` |
+| DeepSeek-R1-Distill-Qwen-1.5B-Q4_0 | QWN container (Q4_0) | 959.86 MiB (1,006,483,816 bytes) | cpu | 2.366479 tok/s | 6556.075 ms | MEASURED | `D:\EcoUni\qwanto\c\qwnrun.exe D:\EcoUni\qwanto\models\qwn\DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn Explain zero-copy NVMe memory tiering in Qwanto. 64 2048 --backend auto --ctx-size 2048 --max-tokens 64 --seed 0 --thinking none` |
 
 The native row above is only a product performance claim when its evidence class is `MEASURED`; otherwise it is explicitly unavailable or experimental.
 
@@ -32,28 +33,46 @@ Excluded conversion records are retained in the JSON report with their integrity
 | --- | --- | --- |
 | FP32 | implemented container dtype; no current report evidence | `UNAVAILABLE` |
 | FP16 | implemented container dtype; no current report evidence | `UNAVAILABLE` |
-| Q4_0 | implemented and container-validated; no matching native inference row | `UNAVAILABLE` |
+| Q4_0 | validated conversion and measured native qwnrun evidence | `MEASURED` |
 | HyperVSQ-2 | validated conversion and measured native qwnrun evidence | `MEASURED` |
 | TWLA | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
 | LittleBit-2 | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
 | TurboQuant | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
+| Q8_0 | implemented container dtype; no current native inference row | `UNAVAILABLE` |
+| BF16 | implemented container dtype; no current native inference row | `UNAVAILABLE` |
+| VSQ | implemented container dtype; local reference matrix only | `EXPERIMENTAL` |
+| VSQ_ULTRA | implemented container dtype; local reference matrix only | `EXPERIMENTAL` |
+| HYPER_VSQ | implemented container dtype; local reference matrix only (distinct from HyperVSQ-2) | `EXPERIMENTAL` |
 | JetSpec | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
 | SlimInfer | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
 | BitDecoding | reference only; no validated end-to-end QWN evidence | `EXPERIMENTAL` |
 
 ## How to reproduce
 
-Run the real local executable; do not substitute an external GGUF runtime:
+Run the real local executable; do not substitute an external GGUF runtime.
+Both MEASURED rows in the table above are produced by the same harness:
 
 ```powershell
+# Canonical 4B HyperVSQ-2 row
 python benchmarks/benchmark_reproducible.py --model experiments/results/4B_hyper_vsq2.qwn --executable c/qwnrun.exe --backend cpu --context-size 4096 --max-tokens 64 --seed 0 --warmup-tokens 8 --output benchmark_evidence.json
-python benchmarks/generate_benchmark_matrix.py
-python benchmarks/generate_performance_report.py
+
+# 1.5B Q4_0 rows (require the converted .qwn in models/qwn/, generated from the GGUF source via `python c/tools/qwn_convert.py convert --quant q4_0`)
+python benchmarks/benchmark_reproducible.py --model "models/qwn/DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn" --executable c/qwnrun.exe --backend auto --context-size 2048 --max-tokens 64 --seed 0 --warmup-tokens 4 --output "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json"
+python benchmarks/benchmark_reproducible.py --model "models/qwn/DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn" --executable c/qwnrun.exe --backend cpu --threads 8 --context-size 2048 --max-tokens 128 --seed 0 --warmup-tokens 8 --output "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json"
+
+# Roll up the matrix and the rendered report (every evidence file is passed)
+python benchmarks/generate_benchmark_matrix.py --evidence benchmark_evidence.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json --output benchmarks/benchmark_matrix.json
+python benchmarks/generate_performance_report.py --evidence benchmark_evidence.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json --evidence benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json --manifest docs/model-manifest.json
 ```
 
 ## Research and Future Work
 
-TWLA, LittleBit-2, TurboQuant, JetSpec, SlimInfer, and BitDecoding remain reference or experimental work until Qwanto has a tested kernel, validated end-to-end model path, and measured evidence. Projections and external GGUF results are not native performance claims.
+TWLA, LittleBit-2, TurboQuant, JetSpec, SlimInfer, and BitDecoding exist as decoder implementation modules under `c/qwanto_*.c`
+(compiled into `qwnrun` via the Makefile `QWNRUN_SRCS` list) but are not exercised by any current measured native-inference row.
+Their dtype IDs are not part of the `.qwn` container envelope, so they cannot appear in a published `.qwn` performance row
+without first adding the corresponding `QWN_DT_*` enum entry plus a verified reader + kernel pair.
+Projections and external GGUF results are not native performance claims.
+See `docs/dtype-support-roadmap.md` for the planned expansion.
 
 ## External GGUF evidence
 

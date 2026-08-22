@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "manifest_version": "2.0.0",
+  "manifest_version": "2.1.0",
   "purpose": "Local model inventory and evidence status; not a model download list.",
   "models": [
     {
       "model_id": "DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2",
       "architecture": "qwen35",
+      "family": "qwen35-dense",
       "format": "qwn",
       "target_file": "experiments/results/4B_hyper_vsq2.qwn",
       "target_size_bytes": 1266202104,
@@ -15,31 +16,97 @@
       "native_inference_evidence": {
         "classification": "MEASURED",
         "artifact": "benchmark_evidence.json",
+        "executable_sha256": "ef531123975ab13d8484b81b7347fd4bc2a8c6b7f9371c9299c2c3c9ab8ea68d",
+        "git_commit": "5ef406ad8f2a9cb08c5979aa6e91d0ab119c145e",
+        "decode_tok_per_sec": 8.154199,
+        "tokens_generated": 64,
+        "context_size": 4096,
+        "backend_actual": "cpu",
+        "kernel": "avx-vnni",
         "note": "One local Windows host run; compare only when executable and model hashes match the artifact."
       }
     },
     {
+      "model_id": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0",
+      "architecture": "qwen2",
+      "family": "qwen2-dense",
+      "format": "qwn",
+      "source_file": "models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+      "source_sha256": "1741e5b2d062b07acf048bf0d2c514dadf2a48f94e2b4aa0cfe069af3838ee2f",
+      "target_file": "models/qwn/DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn",
+      "target_size_bytes": 1006483816,
+      "target_sha256": "65a63d636c0d3cb691bc705d4b92630a33c848516d297ae4b7e6f5477b9b04cd",
+      "quantization": "Q4_0",
+      "conversion_evidence": "qwn_convert.py --quant q4_0 succeeded; structural invariants pass (4 KiB header, 4 KiB-aligned payloads, 64-byte padding, tail block present)",
+      "native_inference_evidence": [
+        {
+          "classification": "MEASURED",
+          "artifact": "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json",
+          "executable_sha256": "fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881",
+          "git_commit": "08e74866bae8a47f1fe8b8b07b603132168cda8f",
+          "decode_tok_per_sec": 1.718469,
+          "ttft_ms": 6556.075,
+          "tokens_generated": 64,
+          "context_size": 2048,
+          "backend_actual": "cpu",
+          "kernel": "vnni",
+          "gpu_matmul_count": 0,
+          "cpu_fallback_count": 1
+        },
+        {
+          "classification": "MEASURED",
+          "artifact": "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json",
+          "executable_sha256": "fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881",
+          "git_commit": "08e74866bae8a47f1fe8b8b07b603132168cda8f",
+          "decode_tok_per_sec": 2.474,
+          "tokens_generated": 128,
+          "context_size": 2048,
+          "backend_actual": "cpu",
+          "explicit_threads": 8,
+          "kernel": "vnni",
+          "gpu_matmul_count": 0,
+          "cpu_fallback_count": 1
+        }
+      ]
+    },
+    {
       "model_id": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M",
       "architecture": "qwen2",
+      "family": "qwen2-dense",
       "format": "gguf",
       "source_file": "models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-      "runtime_boundary": "conversion input only",
-      "conversion_status": "supported dense qwen2 source; validate generated QWN before activation",
+      "source_sha256": "1741e5b2d062b07acf048bf0d2c514dadf2a48f94e2b4aa0cfe069af3838ee2f",
+      "runtime_boundary": "gguf source artifact; converted artifact above",
+      "conversion_status": "supported dense qwen2 source (Q4_K dequantizer in c/tools/qwn_convert.py)",
       "inference_evidence": {
         "classification": "UNAVAILABLE",
-        "reason": "No current native QWN benchmark artifact is attached to this source."
+        "reason": "GGUF is not an executable Qwanto runtime format; the .qwn artifact above is the runtime model."
+      }
+    },
+    {
+      "model_id": "DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16",
+      "architecture": "qwen35",
+      "family": "qwen35-hybrid-mtp",
+      "format": "gguf",
+      "source_file": "models/DeepSeek-V4-Pro-Qwen3.5-4B-MTP-BF16.gguf",
+      "runtime_boundary": "conversion input only",
+      "conversion_status": "blocked: Qwen-3.5 hybrid attention/MLP with MTP heads has no native reference oracle and no committed hybrid kernel path. See docs/dtype-support-roadmap.md Phase 3.",
+      "inference_evidence": {
+        "classification": "UNAVAILABLE",
+        "reason": "Metadata may be inspected by qualification-style tooling, but no supported native inference evidence is published."
       }
     },
     {
       "model_id": "Qwen3.8-27B-UD-IQ2_M",
-      "architecture": "qwen35",
+      "architecture": "qwen38",
+      "family": "qwen38-hybrid-deltanet",
       "format": "gguf",
       "source_file": "models/Qwen3.8-27B-UD-IQ2_M.gguf",
       "runtime_boundary": "conversion input only",
-      "conversion_status": "blocked: Qwen3.5 hybrid SSM/MTP execution is not fully implemented",
+      "conversion_status": "blocked: hybrid DeltaNet/SSM + full-attention mix + MTP heads + mixed IQ dtypes (IQ2_M + others); no native Phase 4 path exists. See docs/dtype-support-roadmap.md Phase 4 and docs/qwen38-27b-qualification.md.",
       "inference_evidence": {
         "classification": "UNAVAILABLE",
-        "reason": "Metadata may be inspected, but no supported native inference evidence is published."
+        "reason": "qwen38_qualification.py records UNSUPPORTED_QWEN38_ARCHITECTURE (866 source tensors, 48 SSM, 17 full-attention, 4 MTP, mixed IQ dtypes)."
       }
     }
   ]

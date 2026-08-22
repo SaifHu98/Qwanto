@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "generated_at_utc": "2026-08-22T11:08:36.997994+00:00",
+  "generated_at_utc": "2026-08-22T11:27:59.250254+00:00",
   "source_evidence": [
     "benchmark_evidence.json",
     "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json",
