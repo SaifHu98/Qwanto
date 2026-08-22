@@ -1,0 +1,121 @@
+{
+  "schema_version": "4.0.0",
+  "benchmark_id": "qwn-bench-1787396491454930200",
+  "timestamp_utc": "2026-08-22T11:01:28.222085+00:00",
+  "evidence_classification": "INVALID",
+  "error_reason": "warmup qwnrun exited with status 1",
+  "host_environment": {
+    "os": "Windows 11 (10.0.26200)",
+    "cpu_model": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+    "cpu_threads": 32,
+    "ram_total_gb": 31.14,
+    "gpus_detected": [
+      {
+        "name": "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+        "vram_mb": 12227.0,
+        "driver_version": "592.02",
+        "vendor": "NVIDIA"
+      }
+    ],
+    "gpu_query_status": "queried"
+  },
+  "runtime_metadata": {
+    "qwn_version": "0.1.0",
+    "git_commit": "08e74866bae8a47f1fe8b8b07b603132168cda8f",
+    "git_worktree_dirty": true,
+    "executable_path": "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+    "executable_sha256": "fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881",
+    "cuda_library_path": "D:\\EcoUni\\qwanto\\c\\qwn_cuda.dll",
+    "cuda_dll_sha256": "7bf5e3e595ed47fba17b79ccf74c334c42b53ba7ea5766738d721e372edd4dcb",
+    "compiler": "clang",
+    "optimization_flags": "O3,mavx2,mf16c,mfma,openmp",
+    "openmp_enabled": "Unavailable",
+    "active_thread_count": "Unavailable",
+    "selected_cpu_isa_kernel": "Unavailable",
+    "gpu_kernel_coverage": "versioned-qwn-cuda-abi-source-runtime-dll-check-required",
+    "build_info": "{\"compiler\":\"clang\",\"compiler_version\":\"21.1.6\",\"optimization_flags\":\"O3,mavx2,mf16c,mfma,openmp\",\"openmp_compiled\":true,\"openmp_runtime_loaded\":true,\"openmp_version\":\"202011\",\"requested_threads\":0,\"active_threads\":\"Unavailable\",\"cpu_features\":{\"avx2\":true,\"f16c\":true,\"fma\":true,\"vnni\":true,\"avx512f\":true},\"binary_avx2_kernel\":true,\"binary_vnni_kernel\":true,\"compiled_kernels\":{\"avx2\":true,\"vnni\":true},\"detected_cpu_features\":{\"avx2\":true,\"f16c\":true,\"fma\":true,\"vnni\":true,\"avx512f\":true},\"preferred_kernel_candidate\":\"vnni\",\"delayed_reduction_compiled\":true,\"delayed_reduction_executed\":false,\"actual_executed_kernel\":\"Unavailable\",\"selected_isa_kernel\":\"Unavailable\",\"binary_sha256\":\"fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881\",\"backend_requested\":\"auto\",\"backend_actual\":\"Unavailable\",\"gpu_matmul_count\":0,\"cpu_fallback_count\":0,\"gpu_kernel_coverage\":\"versioned-qwn-cuda-abi-source-runtime-dll-check-required\",\"model_dtype\":\"Unavailable\",\"thinking_mode\":\"medium\",\"kv_cache_mode\":\"fp16\",\"quantization\":\"auto\",\"kernel_requested\":\"auto\",\"pid\":26004}",
+    "build_info_returncode": 0,
+    "preferred_kernel_candidate": "vnni"
+  },
+  "model_metadata": {
+    "architecture": "Unavailable",
+    "qwn_dtype": "Unavailable",
+    "model_id": "Unavailable",
+    "path": "D:\\EcoUni\\qwanto\\models\\qwn\\DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn",
+    "file_size_bytes": 1006483816,
+    "sha256": "65a63d636c0d3cb691bc705d4b92630a33c848516d297ae4b7e6f5477b9b04cd"
+  },
+  "benchmark_parameters": {
+    "prompt": "Explain zero-copy NVMe memory tiering in Qwanto.",
+    "prompt_length_chars": 48,
+    "max_tokens_requested": 64,
+    "command_argv": [
+      "D:\\EcoUni\\qwanto\\c\\qwnrun.exe",
+      "D:\\EcoUni\\qwanto\\models\\qwn\\DeepSeek_R1_Distill_Qwen_1.5B_Q4_0.qwn",
+      "Explain zero-copy NVMe memory tiering in Qwanto.",
+      "64",
+      "2048",
+      "--backend",
+      "cuda",
+      "--ctx-size",
+      "2048",
+      "--max-tokens",
+      "64",
+      "--seed",
+      "0",
+      "--thinking",
+      "none"
+    ],
+    "backend_requested": "cuda",
+    "context_size": 2048,
+    "seed": 0,
+    "warmup_tokens": 4,
+    "cpu_threads_requested": null,
+    "warmup_returncode": 1,
+    "warmup_timed_out": false
+  },
+  "runtime_config_snapshot": {
+    "backend_requested": "cuda",
+    "backend_actual": "Unavailable",
+    "gpu_device": "auto",
+    "cpu_threads_requested": "auto",
+    "cpu_threads_active": "Unavailable",
+    "context_size": 2048,
+    "max_tokens": 64,
+    "seed": 0,
+    "prompt": "Explain zero-copy NVMe memory tiering in Qwanto.",
+    "prompt_length_chars": 48,
+    "prompt_sha256": "7144d74dae62bc9168f77631a0e883898541b796ce43ecc8bdf998f8e1f57d7f",
+    "warmup_tokens": 4,
+    "thinking_mode": "none",
+    "decode_function": "qwn_decoder_generate",
+    "kv_cache_mode": "fp16",
+    "quantization": "auto",
+    "kernel_requested": "auto",
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "batch_size": 1,
+    "sampler": {
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "greedy": true
+    },
+    "speculative_decoding": false,
+    "fused_kernel": false,
+    "activation_sum_mode": "Unavailable"
+  },
+  "execution_evidence": {
+    "returncode": null,
+    "timed_out": false,
+    "stdout_sha256": null,
+    "stderr_sha256": null
+  },
+  "measured_evidence": null,
+  "unavailable_metrics": {
+    "vram_allocated_gb": "NVML process polling inactive",
+    "nvme_bandwidth_mb_s": "Direct block device counter inactive",
+    "prefill_throughput_tok_s": "qwnrun did not report a prefill counter",
+    "gpu_utilization": "Direct GPU utilization polling inactive",
+    "execution": "warmup qwnrun exited with status 1"
+  }
+}
