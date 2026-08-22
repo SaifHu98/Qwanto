@@ -75,13 +75,15 @@ and NVMe mmap.
   HyperVSQ-2 CUDA reference path has compiled and passed synthetic and real-model
   decoder comparisons.
 - Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, `v0.1.0-beta.3`, the
-  explicitly unsigned `v0.1.0-beta.4`, and the explicitly unsigned `v0.1.0-beta.5`
-  are published GitHub prereleases. Beta.4 package/publish run `31974921398`
-  passed and its assets contain only installers plus SHA-256 coverage. Beta.5
-  republished the same installer matrix under the new green-CI window on
-  `cb432f2`. The current follow-up changes are after the existing Beta.5 tag and
-  must not be silently described as part of that release; Beta.6 will be tagged
-  only after the new hosted CI run is green.
+  explicitly unsigned `v0.1.0-beta.4`, the explicitly unsigned `v0.1.0-beta.5`,
+  and the explicitly unsigned `v0.1.0-beta.6` are published GitHub prereleases.
+  Beta.6 was tagged on `61fb963` (post-fast-forward merge) and, per the user
+  confirmation in this session, the GitHub releases page is publicly visible
+  under https://github.com/SaifHu98/Qwanto/releases/tag/v0.1.0-beta.6 with the
+  standard unsigned-platform banner and SHA-256 checksum attachment. The
+  signed-credentials pipeline remained disabled so SmartScreen and Gatekeeper
+  warnings still apply until credentials are configured in the `release-signing`
+  GitHub environment.
 - Hosted CI run `32017547742` exposed two integration issues in this follow-up:
   the POSIX native build needed `_GNU_SOURCE` before the project header for
   `Dl_info`, and `setup-python` needed an explicit CI dependency manifest for
@@ -401,3 +403,40 @@ and NVMe mmap.
   `v0.1.0-beta.6` as an explicit UNSIGNED prerelease with the standard
   checksum coverage. Existing Beta.4 / Beta.5 installers remain available
   and unchanged.
+
+## 2026-08-22 — v0.1.0-beta.6 closeout
+
+- **Tag:** `v0.1.0-beta.6` annotated, peeled to commit `61fb963a82bdbc0b8121ea4503885aa4fa4d0acc`.
+- **Branch state at tag:** `main` fast-forwarded to `61fb963` from `cb432f2`
+  via `git merge --ff-only feature/beta6-redesign`. The three commits now on
+  `main` are:
+  - `08e7486` feat(ui): modern desktop redesign + fixed bottom composer.
+  - `2fb5b5d` docs(quantization): supported/unsupported matrix + 4-phase roadmap.
+  - `61fb963` docs(perf): honest README/manifest/format audit + Q4_0 row.
+- **Release signature:** UNSIGNED on Windows, macOS, and Linux. No signing
+  credentials present in the `release-signing` GitHub environment, so the
+  publish job ran with the explicit unsigned-prerelease banner and the
+  standard SHA-256 checksum file. SmartScreen and Gatekeeper warnings apply.
+- **Verified locally before tag push:**
+  - `python -m pytest c/tests/ -q` → 253 passed, 4 skipped.
+  - `npm test` → 61 passed; `npm run build` clean (81.43 kB CSS, 280.87 kB JS, gzip 15.20 / 84.24).
+  - `python c/tools/build_and_run_c_tests.py` → 17/17 binaries clean (HyperVSQ-2 140/140, speculative 433/433, runtime config, KV, scheduler, protocol).
+  - `python -m pytest c/tests/test_gateway_integration.py -q` → 3/3 (real `/v1/qwanto/models/verify` PING -> PONG subprocess roundtrip).
+- **What changed in this release, attested by the tagged commit:**
+  - Modern professional Qwanto Code UI with fixed bottom input bar (OpenCode / Claude.ai style composer) at desktop surface; browser chat stayed in-card.
+  - New `docs/qwn-supported-quantizations.md` with the full container-dtype table mapped to `c/qwanto_native.h` lines 53-62 and a complete "what we will not claim" closing section that points at the assertion file for each refusal.
+  - New `docs/dtype-support-roadmap.md` as a 4-phase forward plan with prerequisites, reference-oracle requirements, acceptance gates, and out-of-scope enumeration per phase. No code shipped for any phase.
+  - `docs/model-manifest.json` upgraded to `2.1.0` with the new `DeepSeek-R1-Distill-Qwen-1.5B-Q4_0` QWN row (two MEASURED executions: 1.718 tok/s @ 64 tokens, 2.474 tok/s @ 128 tokens with `--threads 8`) plus the existing 4B HyperVSQ-2 canonical row. The Qwen-3.5-4B-MTP and Qwen-3.8-27B-IQ2_M source GGUF entries are recorded with `architecture` / `family` fields and the exact blocker reason in each `inference_evidence.reason`. No fabrication of round-trip numbers.
+  - `benchmarks/generate_performance_report.py` made data-driven: the format-status table is now driven by the actual MEASURED rows in the evidence set rather than a stale hardcoded UNVAILABLE for Q4_0, with Q8_0 / BF16 / VSQ / VSQ_ULTRA / HYPER_VSQ rows added so the table covers every implemented dtype.
+  - `benchmarks/generate_performance_report.py` tests tightened: schema requires `model_architecture` and `qwn_dtype` even when those values are tagged Unavailable before promotion. CUDA classifier now rejects rows where `--backend cuda` reports zero `gpu_matmul_count`, so a CUDA-classified run that never executed any GPU matmul cannot be promoted to MEASURED.
+  - README, `docs/performance.md`, `docs/qwn-format.md`, and `docs/performance-report.{md,json}` all updated to reflect the new Q4_0 MEASURED row, the corrected dtype table, the CUDA fail-closed status on the 1.5B model, and the new reproduce commands for both MEASURED fixtures.
+- **Decision (release closeout):** the release workflow attached the
+  standard UNSIGNED banner and the SHA-256 coverage; hosted CI for the branch
+  was green before `main` was fast-forwarded, and the tag was created from
+  the final `61fb963` commit. No README performance claim was edited to
+  advertise Beta.6 beyond the documented MEASURED rows.
+- **Decision (next steps):** no further work is scheduled on this session.
+  Future Qwen-3.5-MTP and Qwen-3.8-27B work must follow
+  `docs/dtype-support-roadmap.md` Phases 3 and 4 respectively, gated on
+  reference oracles. Speculative decoding with a non-native QWN draft remains
+  refused. TurboQuant, JetSpec, SlimInfer, BitDecoding remain reference only.
