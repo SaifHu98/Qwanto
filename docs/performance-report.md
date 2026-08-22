@@ -89,5 +89,5 @@ are shown for provenance only and must not be read as native QWN results.
 - [QWN container format](qwn-format.md)
 - [Benchmark methodology](benchmark-methodology.md)
 - Manifest: `docs/model-manifest.json`
-- Native evidence: `benchmark_evidence.json, benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json, benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json`
+- Native evidence: `benchmark_evidence.json, benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json, benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json, benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda.json, benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda_128.json, benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cpu_128_for_compare.json`
 - Conversion evidence: `experiments/results/bpw_report.csv`

@@ -54,19 +54,30 @@ the 1.5B Q4_0 fixture converted from a DeepSeek-R1-Distill-Qwen GGUF source:
 
 | Model | Native QWN Format | Size | Backend Actually Used | Decode tok/s | TTFT | Evidence Class | Reproduce |
 | --- | --- | --- | --- | ---: | ---: | --- | --- |
-| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB | CPU | 8.154199 | Unavailable | MEASURED | [`docs/performance-report.md`](docs/performance-report.md) |
+| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB | CPU (avx-vnni) | 8.154199 | Unavailable | MEASURED | [`docs/performance-report.md`](docs/performance-report.md) |
+| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB | CPU (vnni, 8 threads) | 8.784 | Unavailable | MEASURED | [`4b_hyper_vsq2_cpu_128_for_compare.json`](benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cpu_128_for_compare.json) |
+| DeepSeek-V4-Pro-Qwen3.5-4B-HyperVSQ2 | QWN container (HyperVSQ-2) | 1.18 GiB | CUDA (RTX 5070 Ti, hypervsq2-74-q8-reference) | 8.216 (128 tok) | Unavailable | MEASURED | [`4b_hyper_vsq2_cuda_128.json`](benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda_128.json) |
 | DeepSeek-R1-Distill-Qwen-1.5B-Q4_0 | QWN container (Q4_0) | 959.86 MiB | CPU | 1.718469 (64 tok) | 6556 ms | MEASURED | [`1.5b_q4_0_64tok.json`](benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json) |
 | DeepSeek-R1-Distill-Qwen-1.5B-Q4_0 | QWN container (Q4_0) | 959.86 MiB | CPU | 2.474 (128 tok, 8 threads) | Unavailable | MEASURED | [`1.5b_q4_0_128tok_cpu.json`](benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json) |
 
 Each row is valid only for the recorded executable hash, model hash, prompt,
 context, seed, token limit, threads, and host. They are not universal
-throughput claims. The detected RTX 5070 Ti is hardware inventory only;
-these CPU runs reported no CUDA matmul and must not be described as GPU
-results. A separate CUDA attempt on the 1.5B Q4_0 model failed closed
+throughput claims.
+
+On RTX 5070 Ti Laptop with the current `qwn_cuda.dll` ABI 1 (74-byte
+HyperVSQ-2 reference path), the CUDA execution reports
+`backend_actual=cuda` with `gpu_matmul_count=11264` and `cpu_fallback_count=0`
+at 128 tokens, but the CUDA reference path produces `8.216 tok/s` while the
+local CPU VNNI path produces `8.784 tok/s` for the same model and prompt
+(CUDA 5.9% slower at 128 tokens on this hardware). The CUDA ABI supports
+HYPER_VSQ2 only — a CUDA attempt on the 1.5B Q4_0 model fails closed
 (`benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_cuda_attempt.json` /
-`1.5b_cuda_probe.log`) because `qwn_cuda.dll` ABI 1 only supports
-`QWN_DT_HYPER_VSQ2` weights. The full machine-readable evidence and generators
-are in [`docs/performance.md`](docs/performance.md),
+`1.5b_cuda_probe.log`) with `rc=-1` and `layer 0 attn matmul failed`. A
+release-quality Q4_K / Q5_K / Q6_K CUDA path is not implemented and is
+tracked under `docs/dtype-support-roadmap.md` Phase 1.
+
+The full machine-readable evidence and generators are in
+[`docs/performance.md`](docs/performance.md),
 [`docs/performance-report.json`](docs/performance-report.json),
 [`docs/model-manifest.json`](docs/model-manifest.json),
 [`benchmarks/benchmark_matrix.json`](benchmarks/benchmark_matrix.json),

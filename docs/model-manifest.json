@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "manifest_version": "2.1.0",
+  "manifest_version": "2.2.0",
   "purpose": "Local model inventory and evidence status; not a model download list.",
   "models": [
     {
@@ -24,7 +24,53 @@
         "backend_actual": "cpu",
         "kernel": "avx-vnni",
         "note": "One local Windows host run; compare only when executable and model hashes match the artifact."
-      }
+      },
+      "additional_local_measurements": [
+        {
+          "measurement": "CPU vs CUDA on RTX 5070 Ti Laptop (12 GB VRAM)",
+          "date_utc": "2026-08-22",
+          "executable_sha256": "fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881",
+          "git_commit": "8d6d0ebe84de42d4905e47792fccd53913349923",
+          "rows": [
+            {
+              "backend_requested": "cpu",
+              "backend_actual": "cpu",
+              "kernel": "vnni",
+              "tokens_generated": 128,
+              "wall_seconds": 14.572639,
+              "decode_tok_per_sec": 8.783584,
+              "evidence_file": "benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cpu_128_for_compare.json"
+            },
+            {
+              "backend_requested": "cuda",
+              "backend_actual": "cuda",
+              "kernel": "hypervsq2-74-q8-reference",
+              "cuda_dll_sha256": "7bf5e3e595ed47fba17b79ccf74c334c42b53ba7ea5766738d721e372edd4dcb",
+              "gpu_device": 0,
+              "gpu_matmul_count": 11264,
+              "cpu_fallback_count": 0,
+              "tokens_generated": 128,
+              "wall_seconds": 15.579313,
+              "decode_tok_per_sec": 8.216023,
+              "evidence_file": "benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda_128.json"
+            },
+            {
+              "backend_requested": "cuda",
+              "backend_actual": "cuda",
+              "kernel": "hypervsq2-74-q8-reference",
+              "cuda_dll_sha256": "7bf5e3e595ed47fba17b79ccf74c334c42b53ba7ea5766738d721e372edd4dcb",
+              "gpu_device": 0,
+              "gpu_matmul_count": 7168,
+              "cpu_fallback_count": 0,
+              "tokens_generated": 64,
+              "wall_seconds": 14.500431,
+              "decode_tok_per_sec": 4.413662,
+              "evidence_file": "benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda.json"
+            }
+          ],
+          "note": "On this RTX 5070 Ti Laptop GPU the CUDA reference path (q8-quantized 74-byte block) is not faster than the CPU VNNI path at 128 tokens. Both paths produce real forward passes; CUDA reports gpu_matmul_count > 0 and cpu_fallback_count = 0. CPU 128-tok: 8.784 tok/s vs CUDA 128-tok: 8.216 tok/s (CUDA 5.9% slower). The Q4_0/Q5_K/Q6_K CUDA ABIs are not implemented; CUDA-side q8 is the only HyperVSQ-2 CUDA path today. No nvprof or Nsight trace was captured."
+        }
+      ]
     },
     {
       "model_id": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_0",
@@ -66,6 +112,12 @@
           "kernel": "vnni",
           "gpu_matmul_count": 0,
           "cpu_fallback_count": 1
+        },
+        {
+          "classification": "FAILED",
+          "artifact": "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_cuda_attempt.json",
+          "reason": "--backend cuda exits rc=-1 with 'CUDA projection failed or returned no GPU matmul. layer 0 attn matmul failed'. CUDA ABI 1 supports HYPER_VSQ2 only; Q4_0 has no CUDA path. Refused.",
+          "backend_actual": null
         }
       ]
     },
@@ -93,7 +145,7 @@
       "conversion_status": "blocked: Qwen-3.5 hybrid attention/MLP with MTP heads has no native reference oracle and no committed hybrid kernel path. See docs/dtype-support-roadmap.md Phase 3.",
       "inference_evidence": {
         "classification": "UNAVAILABLE",
-        "reason": "Metadata may be inspected by qualification-style tooling, but no supported native inference evidence is published."
+        "reason": "qwen3.5 hybrid+MTP lacks a reference oracle and the converter refuses to emit a partially-converted .qwn."
       }
     },
     {

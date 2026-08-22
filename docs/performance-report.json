@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "generated_at_utc": "2026-08-22T11:28:49.447163+00:00",
+  "generated_at_utc": "2026-08-22T11:47:28.329784+00:00",
   "generator": "benchmarks/generate_performance_report.py",
   "policy": {
     "native_inference_numbers_require": "successful qwnrun evidence with matching model hash",
@@ -13,7 +13,10 @@
     "benchmark_evidence": [
       "benchmark_evidence.json",
       "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_64tok.json",
-      "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json"
+      "benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_128tok_cpu.json",
+      "benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda.json",
+      "benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cuda_128.json",
+      "benchmarks/evidence/windows/2026-08-22/4b_hyper_vsq2_cpu_128_for_compare.json"
     ],
     "conversion_evidence": "experiments/results/bpw_report.csv",
     "external_evidence": "experiments/results/empirical_summary.json"
