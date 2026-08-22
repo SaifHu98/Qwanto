@@ -13,8 +13,9 @@
 - **Zero-overhead hot path** in native decoder: no `snprintf`, no `expf`/`powf`/`cosf`/`sinf`, no scalar bit-conversion, no hash lookups in per-token forward pass. All descriptors resolved at load time.
 - **`.qwn` container invariants**: 4KiB header, 4KiB-aligned tensor payloads, 64-byte padding, tail-block offset in last 8 bytes.
 - **OpenAI compatibility**: `/v1/chat/completions`, `/v1/completions`, `/v1/models`, SSE streaming, `QWANTO_API_KEY` bearer auth.
-- **No second UI**: web dashboard (`web/`) is the single source of truth; Tauri (`desktop/`) only packages it.
+- **No second UI**: web dashboard (`web/`) is the single source of truth; Tauri (`desktop/`) only packages it. Browser surface stays chat-only; Qwanto Code (desktop) is the only surface that owns the agent workspace.
 - **No second localization system**.
+- **Fixed bottom composer**: in Qwanto Code, the chat input bar is sticky at the bottom of the main column (`desktop-composer`). The center panel and inspector must reserve bottom padding so the composer never covers content. This pattern is desktop-only; the browser chat surface keeps its in-card composer.
 
 ## Commands
 - Python tests: `python -m pytest c/tests/ -q`

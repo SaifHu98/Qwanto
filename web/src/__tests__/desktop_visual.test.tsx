@@ -37,9 +37,17 @@ describe("desktop settings visual contract", () => {
     expect(html).toContain('data-settings-tab="models"')
     for (const section of ["models", "runtime", "agent", "memory", "skills", "github", "privacy", "diagnostics", "feedback"]) expect(html).toContain(`data-settings-tab="${section}"`)
     expect(html).toContain('aria-orientation="vertical"')
-    expect(css).toContain(".desktop-settings-layout { display: grid; grid-template-columns: 208px")
+    expect(css).toContain(".desktop-settings-layout { display: grid; grid-template-columns: 220px")
     expect(css).toContain(".settings-section-nav button.active")
     if (width <= 760) expect(css).toContain(".desktop-settings-layout { grid-template-columns: 1fr;")
     if (height <= 700) expect(css).toContain("@media (max-height: 700px) and (min-width: 761px)")
+  })
+
+  it("defines the verification modal status classes", () => {
+    expect(css).toContain(".verification-status-bar.passed")
+    expect(css).toContain(".verification-status-bar.failed")
+    expect(css).toContain(".verification-facts { display: grid")
+    expect(css).toContain(".verification-invariants {")
+    expect(css).toContain(".verification-section-header")
   })
 })

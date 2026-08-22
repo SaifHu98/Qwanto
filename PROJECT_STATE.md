@@ -33,12 +33,17 @@ and NVMe mmap.
   invariants (header, payload alignment, 64-byte padding, tail block) and live
   `qwnrun` smoke test execution.
 - Web validation: production build passed (`tsc -b && vite build`) and Vitest
-  passed (`57 tests`). Modernized desktop agent styling with futuristic
-  glassmorphism and integrated truthful native engine model verification. The
-  desktop surface maintains exactly five primary destinations—Project, Chats,
-  Files, Changes, Settings—while the browser surface remains chat-only. Settings
-  includes interactive model verification modal with real structural and live
-  engine smoke test reports.
+  passed (`61 tests`). Qwanto Code desktop UI now uses a calmer, professional
+  visual system with a fixed bottom input bar that mirrors modern chat
+  surfaces (OpenCode, Claude.ai, ChatGPT desktop). The bar exposes a draft
+  textarea, attach pill, send/stop button, token usage, and `Enter /
+  Shift+Enter` shortcut affordance. The center panel and inspector reserve
+  bottom padding so the composer never covers content. Browser chat stays
+  chat-only with refreshed tokens. The verification modal reports structural
+  invariants plus a live qwnrun `PING → PONG` roundtrip latency sourced from
+  `/v1/qwanto/models/verify` and `native_smoke_test`. The desktop surface
+  maintains exactly five primary destinations—Project, Chats, Files,
+  Changes, Settings.
 - The existing `benchmark_evidence.json` claim remains unchanged. CPU Phase 3
   local evidence from commit `cb3ca35` uses the 4B HyperVSQ-2 model SHA-256
   `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
@@ -69,11 +74,14 @@ and NVMe mmap.
   MSVC 19.44, CMake 4.4.2, and Ninja 1.13.2 are now installed and the local
   HyperVSQ-2 CUDA reference path has compiled and passed synthetic and real-model
   decoder comparisons.
-- Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, `v0.1.0-beta.3`, and the
-  explicitly unsigned `v0.1.0-beta.4` are published GitHub prereleases. Beta.4
-  package/publish run `31974921398` passed and its assets contain only installers
-  plus SHA-256 coverage. The current follow-up changes are after the existing
-  Beta.4 tag and must not be silently described as part of that release.
+- Release status: `v0.1.0-beta.1`, `v0.1.0-beta.2`, `v0.1.0-beta.3`, the
+  explicitly unsigned `v0.1.0-beta.4`, and the explicitly unsigned `v0.1.0-beta.5`
+  are published GitHub prereleases. Beta.4 package/publish run `31974921398`
+  passed and its assets contain only installers plus SHA-256 coverage. Beta.5
+  republished the same installer matrix under the new green-CI window on
+  `cb432f2`. The current follow-up changes are after the existing Beta.5 tag and
+  must not be silently described as part of that release; Beta.6 will be tagged
+  only after the new hosted CI run is green.
 - Hosted CI run `32017547742` exposed two integration issues in this follow-up:
   the POSIX native build needed `_GNU_SOURCE` before the project header for
   `Dl_info`, and `setup-python` needed an explicit CI dependency manifest for
@@ -335,3 +343,61 @@ and NVMe mmap.
   installed on this workstation.
 - **Decision:** README performance claims were intentionally not changed. No
   tag or release was created; existing Beta.4 remains unchanged.
+
+## 2026-08-21 — Beta.6 desktop UX redesign (Qwanto Code)
+
+- **Change:** Replaced the Beta.5 cyberpunk-heavy visual system with a calmer,
+  professional Qwanto Code design system: tokenised dark palette
+  (`--bg-0..3`, `--primary` `#7c9eff`, `--purple` `#a78bfa`, `--green` `#5fd9a8`),
+  consistent `--radius-sm|md|lg|xl` and `--space-1..8`, focus rings,
+  motion-respectful animations, and `prefers-reduced-motion` honored.
+- **Change:** Introduced a fixed bottom input bar in Qwanto Code only. The new
+  `desktop-composer` is sticky at the bottom of the main column with a
+  send/stop button, attach pill, draft textarea, and a meta footer showing
+  `Enter / Shift+Enter` shortcut and live token usage. The center panel and
+  inspector reserve 150–180px bottom padding so the composer never covers
+  content. The composer is disabled with explicit placeholders when the
+  gateway is not connected or no validated model is active.
+- **Change:** Refactored message rendering: avatar + role label + content
+  inside a dedicated `desktop-message-content` grid, with a `chat-skill-preview`
+  block surfaced above the timeline whenever `@skill-name` is being invoked.
+  Auto-scroll on new messages. Mobile breakpoints collapse the sidebar and
+  stack the workspace under the inspector.
+- **Change:** Refreshed the Settings surface and verification modal with the
+  same design tokens. The verification modal now uses a status bar
+  (`passed` / `failed` variants), an evidence grid (format, quantization,
+  tensors, smoke latency), an invariants checklist, and a live handshake row
+  reporting `PING → PONG` with measured latency. SHA-256 stays honest: shown
+  when `validate_qwn` returns one, otherwise the structural-bound reason.
+- **Verification wiring:** Real native verification goes through the existing
+  `/v1/qwanto/models/verify` endpoint. The handler resolves the path against
+  `_is_safe_path()` + configured model dirs + project root, returns
+  `incompatible_format` for non-`.qwn` artifacts, runs `validate_qwn` for
+  header / tail / payload / padding invariants, then runs `native_smoke_test`
+  to spawn `qwnrun <model> --serve`, send `PING\n`, and parse `PONG`. The
+  test gateway run reports `latency_ms` from a `time.perf_counter()` window
+  around the live process. No client-side fabrication — when the gateway is
+  unreachable or the executable is missing the modal reflects `failed` with
+  the upstream reason.
+- **Files:** `web/src/index.css`, `web/src/components/DesktopAgentView.tsx`,
+  `web/src/components/DesktopSettingsView.tsx` (verification modal only),
+  `web/src/__tests__/desktop_ui.test.tsx`,
+  `web/src/__tests__/desktop_visual.test.tsx`,
+  `web/src/__tests__/responsive_ui.test.ts`. Browser chat visual tokens are
+  refreshed for consistency; the browser surface keeps its own shell and
+  stays chat-only.
+- **Validation:** Web `61 passed` and `tsc -b && vite build` clean
+  (81.43 kB CSS / 280.87 kB JS, gzip 15.20 kB / 84.24 kB). Full Python suite
+  `253 passed, 4 skipped` in 93.54s. Native C/OpenMP rebuild via
+  `python c/tools/build_and_run_c_tests.py` passed all 17 binaries
+  (including the HyperVSQ-2 differential 140/140, speculative 433/433,
+  runtime config, KV-cache, decode batch, scheduler, and protocol suites).
+  Gateway integration test `test_gateway_integration.py` (which exercises
+  `/v1/qwanto/models/verify` end-to-end with a real subprocess) passed
+  3/3 in 4.43s.
+- **Decision:** Do not tag or publish Beta.6 from this workstation. Push the
+  change, wait for a full green hosted CI run (Linux native, Windows native,
+  Python, web build, docs, security, Rust/Tauri), then publish
+  `v0.1.0-beta.6` as an explicit UNSIGNED prerelease with the standard
+  checksum coverage. Existing Beta.4 / Beta.5 installers remain available
+  and unchanged.

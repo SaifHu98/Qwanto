@@ -32,6 +32,7 @@ import type { AgentProfile } from "@/lib/agent"
 import { AGENT_PROFILES, profileConfig } from "@/lib/agent"
 import { BUILTIN_SKILLS, capabilitiesNeedApproval, PLUGIN_CAPABILITIES, validatePluginManifest, type InstalledPlugin, type PluginManifest } from "@/lib/extensions"
 import { desktopInvoke, pickFeedbackScreenshot, pickModelLibraryFolder, pickModelSource, pickPluginPackage, type DesktopToolResult, type FeedbackBundle, type ProjectMemory } from "@/lib/desktop"
+import { cn } from "@/lib/utils"
 
 type SettingsSection = "models" | "runtime" | "agent" | "memory" | "skills" | "github" | "privacy" | "diagnostics" | "feedback"
 type ModelDialog = "import" | "download" | "convert" | null
@@ -170,12 +171,14 @@ function VerificationModal({
 }) {
   if (!report && !loading) return null
 
+  const passed = report?.status === "verified"
+  const failed = report?.status === "failed" || report?.status === "invalid_qwn" || report?.smoke_test?.status === "failed"
   return (
     <div className="settings-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section className="settings-dialog verification-dialog glass-panel-glow" role="dialog" aria-modal="true" aria-labelledby="verification-dialog-title">
         <div className="settings-dialog-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ padding: "6px", borderRadius: "8px", background: "rgba(0, 240, 255, 0.12)", border: "1px solid rgba(0, 240, 255, 0.3)", color: "var(--cyan)" }}>
+            <div style={{ padding: "8px", borderRadius: "var(--radius-md)", background: "rgba(124, 158, 255, 0.1)", border: "1px solid rgba(124, 158, 255, 0.3)", color: "var(--primary)" }}>
               <ShieldCheck className="size-5" />
             </div>
             <div>
@@ -187,91 +190,92 @@ function VerificationModal({
         </div>
 
         {loading && (
-          <div style={{ padding: "32px 16px", textAlign: "center", display: "grid", gap: "12px" }}>
-            <RefreshCw className="size-8 animate-spin" style={{ color: "var(--cyan)", margin: "0 auto" }} />
-            <strong style={{ color: "var(--foreground)", fontSize: "0.9rem" }}>Executing native container validation &amp; qwnrun smoke test…</strong>
+          <div className="verification-loading">
+            <RefreshCw className="size-7 animate-spin" style={{ color: "var(--primary)" }} />
+            <strong>Executing native container validation &amp; qwnrun smoke test…</strong>
             <span className="desktop-muted">Probing 4KiB container alignment, 64-byte padding, and PING/PONG line protocol roundtrip</span>
           </div>
         )}
 
         {!loading && report && (
-          <div style={{ display: "grid", gap: "14px", paddingTop: "14px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--border)", background: "rgba(14, 23, 40, 0.65)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: report.status === "verified" ? "var(--green)" : report.status === "invalid_qwn" ? "var(--destructive)" : "var(--gold)", boxShadow: report.status === "verified" ? "0 0 12px var(--green)" : "none" }} />
-                <div>
-                  <strong style={{ fontSize: "0.85rem", color: "var(--foreground)", textTransform: "capitalize" }}>
-                    {report.status === "verified" ? "Passed All Native Verification Gates" : report.status.replace("_", " ")}
+          <div className="settings-dialog-form">
+            <div className={cn("verification-status-bar", passed && "passed", failed && "failed")}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <span className="verification-status-dot" />
+                <div className="verification-status-info">
+                  <strong>
+                    {passed ? "Passed All Native Verification Gates" : report.status.replace("_", " ")}
                   </strong>
-                  <p className="desktop-muted" style={{ margin: "2px 0 0", fontSize: "0.72rem" }}>{report.qwn_validation?.reason || report.smoke_test?.reason || "Verification complete."}</p>
+                  <span>{report.qwn_validation?.reason || report.smoke_test?.reason || "Verification complete."}</span>
                 </div>
               </div>
-              <span className={`settings-state state-${report.status === "verified" ? "valid" : "invalid"}`}>
-                {report.status === "verified" ? "100% Genuine QWN" : report.status}
+              <span className={cn("settings-state", passed ? "state-valid" : "state-invalid")}>
+                {passed ? "100% Genuine QWN" : report.status}
               </span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "8px" }}>
-              <div style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", background: "rgba(11, 17, 30, 0.72)" }}>
+            <div className="verification-facts">
+              <div>
                 <span className="desktop-eyebrow">Format</span>
-                <strong style={{ display: "block", marginTop: "4px", fontSize: "0.78rem", color: "var(--cyan)", fontFamily: "monospace" }}>{report.format}</strong>
+                <strong>{report.format}</strong>
               </div>
-              <div style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", background: "rgba(11, 17, 30, 0.72)" }}>
+              <div>
                 <span className="desktop-eyebrow">Quantization</span>
-                <strong style={{ display: "block", marginTop: "4px", fontSize: "0.78rem", color: "var(--foreground)", fontFamily: "monospace" }}>{report.quantization || "Unknown"}</strong>
+                <strong>{report.quantization || "Unknown"}</strong>
               </div>
-              <div style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", background: "rgba(11, 17, 30, 0.72)" }}>
+              <div>
                 <span className="desktop-eyebrow">Tensors</span>
-                <strong style={{ display: "block", marginTop: "4px", fontSize: "0.78rem", color: "var(--purple)", fontFamily: "monospace" }}>{report.n_tensors != null ? `${report.n_tensors}` : "Unavailable"}</strong>
+                <strong style={{ color: "var(--purple)" }}>{report.n_tensors != null ? `${report.n_tensors}` : "Unavailable"}</strong>
               </div>
-              <div style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", background: "rgba(11, 17, 30, 0.72)" }}>
+              <div>
                 <span className="desktop-eyebrow">Smoke Latency</span>
-                <strong style={{ display: "block", marginTop: "4px", fontSize: "0.78rem", color: "var(--green)", fontFamily: "monospace" }}>{report.smoke_test?.latency_ms != null ? `${report.smoke_test.latency_ms} ms` : "Not Run"}</strong>
+                <strong style={{ color: "var(--green)" }}>{report.smoke_test?.latency_ms != null ? `${report.smoke_test.latency_ms} ms` : "Not Run"}</strong>
               </div>
             </div>
 
-            <div style={{ padding: "14px", borderRadius: "10px", border: "1px solid var(--border)", background: "rgba(17, 26, 45, 0.4)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--foreground)", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <ShieldCheck className="size-4" style={{ color: "var(--cyan)" }} /> .QWN Container Invariants Proof
-                </span>
-                <span style={{ fontSize: "0.68rem", fontFamily: "monospace", color: "var(--muted-foreground)" }}>Version {report.invariants?.container_version || 1}</span>
+            <div className="verification-section">
+              <div className="verification-section-header">
+                <strong><ShieldCheck className="size-4" style={{ color: "var(--primary)" }} /> .QWN Container Invariants Proof</strong>
+                <span>Version {report.invariants?.container_version || 1}</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", fontSize: "0.72rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--foreground)" }}><Check className="size-3.5" style={{ color: "var(--green)" }} /> <span>4096B Fixed Header Magic</span></div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--foreground)" }}><Check className="size-3.5" style={{ color: "var(--green)" }} /> <span>4KiB Tail Block Aligned</span></div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--foreground)" }}><Check className="size-3.5" style={{ color: "var(--green)" }} /> <span>4KiB Tensor Payload Aligned</span></div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--foreground)" }}><Check className="size-3.5" style={{ color: "var(--green)" }} /> <span>64-Byte Tensor Padding Verified</span></div>
+              <div className="verification-invariants">
+                <div><Check className="check size-3.5" /> <span>4096B Fixed Header Magic</span></div>
+                <div><Check className="check size-3.5" /> <span>4KiB Tail Block Aligned</span></div>
+                <div><Check className="check size-3.5" /> <span>4KiB Tensor Payload Aligned</span></div>
+                <div><Check className="check size-3.5" /> <span>64-Byte Tensor Padding Verified</span></div>
               </div>
             </div>
 
             {report.smoke_test && (
-              <div style={{ padding: "14px", borderRadius: "10px", border: "1px solid var(--border)", background: "rgba(17, 26, 45, 0.4)" }}>
-                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--foreground)", display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                  <Zap className="size-4" style={{ color: "var(--gold)" }} /> Native Engine Probe (qwnrun --serve)
-                </span>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--muted-foreground)" }}>
+              <div className="verification-section">
+                <div className="verification-section-header">
+                  <strong><Zap className="size-4" style={{ color: "var(--gold)" }} /> Native Engine Probe (qwnrun --serve)</strong>
+                  <span>Live roundtrip</span>
+                </div>
+                <div className="verification-smoke-row">
                   <span>Engine Handshake Protocol:</span>
-                  <strong style={{ fontFamily: "monospace", color: report.smoke_test.status === "passed" ? "var(--green)" : "var(--destructive)" }}>
-                    {report.smoke_test.status === "passed" ? "PING -> PONG Handshake Passed" : report.smoke_test.reason || "Failed"}
+                  <strong style={{ color: report.smoke_test.status === "passed" ? "var(--green)" : "var(--destructive)" }}>
+                    {report.smoke_test.status === "passed" ? "PING → PONG Handshake Passed" : report.smoke_test.reason || "Failed"}
                   </strong>
                 </div>
                 {report.smoke_test.latency_ms != null && (
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--muted-foreground)", marginTop: "4px" }}>
+                  <div className="verification-smoke-row">
                     <span>Roundtrip Ping Latency:</span>
-                    <strong style={{ fontFamily: "monospace", color: "var(--cyan)" }}>{report.smoke_test.latency_ms} ms</strong>
+                    <strong style={{ color: "var(--cyan)" }}>{report.smoke_test.latency_ms} ms</strong>
                   </div>
                 )}
               </div>
             )}
 
-            <div style={{ fontSize: "0.68rem", fontFamily: "monospace", color: "var(--muted-foreground)", wordBreak: "break-all", background: "rgba(6, 9, 17, 0.6)", padding: "8px 10px", borderRadius: "6px", border: "1px solid var(--border)" }}>
-              SHA-256: {report.sha256 || "Integrity verified via structural container bounds."}
+            <div className="verification-section" style={{ padding: "10px 12px" }}>
+              <span style={{ font: "0.72rem ui-monospace, monospace", color: "var(--muted-foreground)", wordBreak: "break-all" }}>
+                SHA-256: {report.sha256 || "Integrity verified via structural container bounds."}
+              </span>
             </div>
 
             <div className="settings-action-row" style={{ justifyContent: "flex-end", marginTop: "6px" }}>
               {onReverify && <Button size="sm" variant="secondary" onClick={onReverify}><RefreshCw className="size-3.5" /> Re-Verify</Button>}
-              {report.status === "verified" && onActivate && <Button size="sm" onClick={onActivate}><Play className="size-3.5" /> Activate Validated Model</Button>}
+              {passed && onActivate && <Button size="sm" onClick={onActivate}><Play className="size-3.5" /> Activate Validated Model</Button>}
               <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
             </div>
           </div>
