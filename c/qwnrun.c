@@ -536,25 +536,39 @@ int main(int argc,char **argv){
     }
     if (argc >= 3 && strcmp(argv[2], "--serve") == 0) {
         QwnRuntimeConfig config; char config_error[256];
-        if (qwn_runtime_config_parse(&config, argc, argv, 2, config_error, sizeof(config_error)) != 0) {
+        if (qwn_runtime_config_parse(&config, argc, argv, 3, config_error, sizeof(config_error)) != 0) {
             fprintf(stderr, "qwnrun: %s\n", config_error); return 2;
         }
         return serve_mode(argv[1], &config);
     }
     if (argc >= 2 && strcmp(argv[1], "--serve") == 0) {
         const char *model = getenv("SNAP");
-        if (!model || !*model) { fprintf(stderr, "SNAP missing\n"); return 2; }
+        if (!model || !*model) {
+            if (argc >= 3 && argv[2][0] != '-') model = argv[2];
+            else { fprintf(stderr, "SNAP missing\n"); return 2; }
+        }
         QwnRuntimeConfig config; char config_error[256];
-        if (qwn_runtime_config_parse(&config, argc, argv, 2, config_error, sizeof(config_error)) != 0) {
+        int start_idx = (argc >= 3 && argv[2][0] != '-') ? 3 : 2;
+        if (qwn_runtime_config_parse(&config, argc, argv, start_idx, config_error, sizeof(config_error)) != 0) {
             fprintf(stderr, "qwnrun: %s\n", config_error); return 2;
         }
         return serve_mode(model, &config);
     }
 
     if(getenv("SERVE")){
-        const char *model=getenv("SNAP");if(!model||!*model){fprintf(stderr,"SNAP missing\n");return 2;}
+        const char *model=getenv("SNAP");
+        int config_start = 1;
+        if(!model||!*model){
+            if (argc >= 2 && argv[1][0] != '-') {
+                model = argv[1];
+                config_start = 2;
+            } else {
+                fprintf(stderr,"SNAP missing\n");
+                return 2;
+            }
+        }
         QwnRuntimeConfig config; char config_error[256];
-        if (qwn_runtime_config_parse(&config, argc, argv, 1, config_error, sizeof(config_error)) != 0) {
+        if (qwn_runtime_config_parse(&config, argc, argv, config_start, config_error, sizeof(config_error)) != 0) {
             fprintf(stderr, "qwnrun: %s\n", config_error); return 2;
         }
         return serve_mode(model, &config);

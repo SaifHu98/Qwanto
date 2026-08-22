@@ -915,6 +915,54 @@ def _dequantize_k_payload(raw: bytes, dtype: int):
     return out.reshape(-1)
 
 
+def _dequantize_q8_0_payload(raw: bytes):
+    """Vectorized dequantization of a contiguous GGML Q8_0 payload (32 elements per 34-byte block)."""
+    np = _get_numpy()
+    if np is None:
+        raise RuntimeError("NumPy is required for Q8_0 dequantization")
+    if len(raw) == 0 or len(raw) % 34 != 0:
+        raise ValueError("invalid Q8_0 payload length")
+    blocks = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 34)
+    count = blocks.shape[0]
+    scales = blocks[:, 0:2].copy().view(np.float16).reshape(count).astype(np.float32)
+    quants = blocks[:, 2:34].copy().view(np.int8).astype(np.float32)
+    return (quants * scales[:, None]).reshape(-1)
+
+
+def _make_q8_0_quant_writer(source_path: str, byte_offset: int, rows: int,
+                            cols: int, target_quant: str, name: str = "tensor"):
+    np = _get_numpy()
+    if np is None:
+        raise RuntimeError("NumPy is required to convert GGUF Q8_0")
+    blocks_per_row = (cols + 31) // 32
+    source_row_bytes = blocks_per_row * 34
+    chunk_rows = max(1, (16 << 20) // max(1, source_row_bytes))
+
+    if target_quant == "none":
+        out_dtype = DT_F32
+        payload_size = rows * cols * 4
+    else:
+        out_dtype, payload_size = _get_quant_dtype_and_size(target_quant, rows, cols)
+
+    def write(out):
+        with open(source_path, "rb") as source:
+            source.seek(byte_offset)
+            for row_start in range(0, rows, chunk_rows):
+                cur_rows = min(chunk_rows, rows - row_start)
+                raw = source.read(cur_rows * source_row_bytes)
+                if len(raw) != cur_rows * source_row_bytes:
+                    raise ValueError("truncated GGUF Q8_0 payload")
+                f32 = _dequantize_q8_0_payload(raw).reshape(cur_rows, -1)[:, :cols].astype(np.float32)
+                if not np.isfinite(f32).all():
+                    raise ValueError(f"non-finite values after GGUF Q8_0 dequantization: {name}")
+                if target_quant == "none":
+                    out.write(f32.astype(np.float32, copy=False).tobytes())
+                else:
+                    out.write(quantize_matrix_rows(f32.tobytes(), cur_rows, cols, target_quant))
+
+    return out_dtype, payload_size, write
+
+
 def _make_k_quant_writer(source_path: str, byte_offset: int, rows: int,
                          cols: int, dtype: int, quant: str, name: str = "tensor"):
     np = _get_numpy()
@@ -1094,11 +1142,31 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                 f"unsupported GGUF dtype {dtype} for {name}; "
                 "convert from F32/F16/BF16/Q4_0/Q8_0/Q4_K/Q5_K/Q6_K or add a verified decoder"
             )
-        if dtype == 8 and quant not in ("none", "q8_0"):
-            raise ValueError(
-                f"cannot re-quantize GGUF Q8_0 tensor {name} without a "
-                "verified dequantization path; use --quant none"
-            )
+        if dtype == 8:
+            if quant in ("none", "q8_0"):
+                out_dtype = DT_Q8_0
+                def make_copy_writer(b_off, b_len):
+                    def write(out):
+                        with open(path, "rb") as sf:
+                            sf.seek(b_off)
+                            remaining = b_len
+                            while remaining > 0:
+                                chunk = sf.read(min(remaining, 16 << 20))
+                                if not chunk: break
+                                out.write(chunk)
+                                remaining -= len(chunk)
+                    return write
+                tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                                "payload_size": byte_len,
+                                "write_payload": make_copy_writer(byte_offset, byte_len)})
+                continue
+            else:
+                out_dtype, payload_size, writer = _make_q8_0_quant_writer(
+                    path, byte_offset, shape[1] if len(shape) == 2 else 1,
+                    shape[0] if len(shape) == 2 else numel, quant, name)
+                tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                                "payload_size": payload_size, "write_payload": writer})
+                continue
 
         if dtype in (12, 13, 14):
             out_dtype, payload_size, writer = _make_k_quant_writer(
@@ -1336,45 +1404,6 @@ def _read_pytorch_tensors(path: str, quant: str = "q4_0"):
 
 def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
     """Universal Model Converter: Auto-detects .gguf, .safetensors, .pt/.pth/.bin, .onnx, .h5 and converts to .qwn."""
-    src_path = Path(src)
-    ext = src_path.suffix.lower()
-
-    is_gguf = ext == ".gguf" or (src_path.is_file() and open(src_path, "rb").read(4) == b"GGUF")
-    if is_gguf:
-        tensors, dims = _read_gguf_tensors(str(src_path), quant)
-        # Check for companion mmproj file in same directory
-        parent_dir = src_path.parent
-        for mmproj_cand in parent_dir.glob("*mmproj*.gguf"):
-            if mmproj_cand.is_file() and mmproj_cand != src_path:
-                try:
-                    mm_tensors, _ = _read_gguf_tensors(str(mmproj_cand), quant="none")
-                    for mt in mm_tensors:
-                        if not mt["name"].startswith("mmproj.") and not mt["name"].startswith("vision_tower."):
-                            mt["name"] = f"mmproj.{mt['name']}"
-                        tensors.append(mt)
-                except Exception:
-                    pass
-        return write_qwn(dst, tensors, arch_dims=dims)
-    elif ext in (".pt", ".pth", ".bin"):
-        tensors, dims = _read_pytorch_tensors(str(src_path), quant)
-        return write_qwn(dst, tensors, arch_dims=dims)
-    elif ext == ".safetensors" or src_path.is_dir() or any(src_path.glob("*.safetensors") if src_path.is_dir() else ()):
-        return convert_safetensors(src, dst, quant)
-    else:
-        # Default fallback to safetensors
-        return convert_safetensors(src, dst, quant)
-
-
-def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
-    tensors = []
-    for meta in _read_safetensors_meta(src):
-        name, dtype, shape = meta["name"], meta["dtype"], meta["shape"]
-        # Safetensors is row-major [N,K]; .qwn stores fastest dimension first.
-    return tensors, dims
-
-
-def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
-    """Convert a verified GGUF, Safetensors, or PyTorch source to .qwn."""
     src_path = Path(src)
     ext = src_path.suffix.lower()
 

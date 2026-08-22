@@ -94,6 +94,11 @@ typedef struct {
     int *history;
     int history_count;
     int history_capacity;
+    float *draft_all;
+    float *draft_probs;
+    float *target_probs;
+    size_t draft_all_capacity;
+    size_t probs_capacity;
     QwnSpecCounters counters;
 } QwnSpecContext;
 

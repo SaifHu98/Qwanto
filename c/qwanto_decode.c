@@ -863,7 +863,10 @@ static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
             d->runtime_metrics.unsupported_projection_count++;
         }
         if (d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) {
-            fprintf(stderr, "[ERROR] CUDA projection failed or returned no GPU matmul.\n");
+            char err_buf[256] = "none";
+            if (d->qwn_cuda.last_error) d->qwn_cuda.last_error(err_buf, sizeof(err_buf));
+            fprintf(stderr, "[ERROR] CUDA projection failed (res=%d, last_error=%s).\n",
+                    cuda_result, err_buf);
             return -1;
         }
         fprintf(stderr, "[WARN] qwn CUDA projection failed; auto backend returns to CPU.\n");
@@ -1615,16 +1618,14 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         int I  = lt->ffn_out ? lt->ffn_out : c->intermediate;
         int O_IN = (lt->o_proj && lt->o_proj->n_dims == 2) ? (int)lt->o_proj->shape[0] : (H ? H * HD : Q);
         int hd_this = (Q && H) ? Q / H : HD;
-        /* Prefetch next layer's heavy weights -- zero-cost cached pointer lookup */
+        /* Prefetch next layer's heavy weights via single batched syscall */
         if(l + 1 < c->layers) {
             const QwnLayerTensors *next = &d->layer_cache[l+1];
-            qwn_prefetch(&d->model, next->q_proj);
-            qwn_prefetch(&d->model, next->k_proj);
-            qwn_prefetch(&d->model, next->v_proj);
-            qwn_prefetch(&d->model, next->o_proj);
-            qwn_prefetch(&d->model, next->gate_proj);
-            qwn_prefetch(&d->model, next->up_proj);
-            qwn_prefetch(&d->model, next->down_proj);
+            const QwnTensorDesc *batch_tensors[7] = {
+                next->q_proj, next->k_proj, next->v_proj, next->o_proj,
+                next->gate_proj, next->up_proj, next->down_proj
+            };
+            qwn_prefetch_batch(&d->model, batch_tensors, 7);
         }
         /* Skip attention entirely for SSM-only hybrid layers */
         if (lt->is_ssm) {

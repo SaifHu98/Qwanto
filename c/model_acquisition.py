@@ -528,10 +528,12 @@ def native_smoke_test(path: Path | str, executable: Optional[Path | str]) -> dic
     if executable is None or not Path(executable).is_file():
         return {"status": "unavailable", "reason": "qwnrun executable is not available on this host"}
     try:
+        resolved_path = str(Path(path).resolve())
         env = dict(os.environ)
         env["SERVE"] = "1"
+        env["SNAP"] = resolved_path
         process = subprocess.Popen(
-            [str(executable), str(Path(path)), "--serve"],
+            [str(executable), resolved_path, "--serve"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=env,
             **_hidden_process_kwargs(),

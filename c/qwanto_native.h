@@ -222,6 +222,7 @@ int qwn_plan_residency(const QwnModel *m, uint64_t gpu_budget,
 
 /* Ask the OS to prefetch/drop the pages of one tensor. */
 int qwn_prefetch(const QwnModel *m, const QwnTensorDesc *t);
+int qwn_prefetch_batch(const QwnModel *m, const QwnTensorDesc *const *tensors, uint32_t count);
 int qwn_drop_pages(const QwnModel *m, const QwnTensorDesc *t);
 
 #ifdef __cplusplus

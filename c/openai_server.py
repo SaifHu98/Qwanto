@@ -1204,12 +1204,21 @@ def generation_options(body, limit):
     return maximum, float(temperature), float(top_p)
 
 
-def read_engine_turn(stream, sentinel, on_bytes):
+def read_engine_turn(stream, sentinel, on_bytes, process=None):
     pending = b""
     while True:
         byte = stream.read(1)
         if byte == b"":
-            raise RuntimeError("colibri engine exited unexpectedly")
+            stderr_msg = ""
+            if process is not None and process.stderr:
+                try:
+                    err_bytes = process.stderr.read()
+                    if err_bytes:
+                        stderr_msg = err_bytes.decode("utf-8", "replace").strip()
+                except Exception:
+                    pass
+            detail = f": {stderr_msg}" if stderr_msg else ""
+            raise RuntimeError(f"qwnrun engine exited unexpectedly (code {process.poll() if process else 'unknown'}){detail}")
         pending += byte
         if pending.endswith(sentinel):
             data = pending[:-len(sentinel)]
@@ -1266,7 +1275,7 @@ class Engine:
                 command += [flag, str(value)]
         self.process = subprocess.Popen(
             command, env=child_env, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, bufsize=0,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
             **_hidden_process_kwargs(),
         )
         self.write_lock = threading.Lock()
@@ -1282,7 +1291,7 @@ class Engine:
         self.emap = None
         self.hits = None
         self.hits_seq = 0                      # latest "TIERS" snapshot from the engine
-        read_engine_turn(self.process.stdout, READY, lambda _: None)
+        read_engine_turn(self.process.stdout, READY, lambda _: None, process=self.process)
         self.dispatcher = threading.Thread(target=self._dispatch_stdout,
                                             name="qwanto-stdout", daemon=True)
         self.dispatcher.start()

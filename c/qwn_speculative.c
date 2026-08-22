@@ -252,6 +252,22 @@ int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
     ctx->history_capacity = target->cfg.max_ctx > 0 ? target->cfg.max_ctx : 4096;
     ctx->history = (int *)malloc((size_t)ctx->history_capacity * sizeof(int));
     if (!ctx->history) return QWN_SPEC_INVALID_ARGUMENT;
+
+    int vocab = target->cfg.vocab;
+    ctx->draft_all_capacity = (size_t)QWN_SPEC_MAX_GAMMA * (size_t)vocab;
+    ctx->probs_capacity = (size_t)vocab;
+    ctx->draft_all = (float *)malloc(ctx->draft_all_capacity * sizeof(float));
+    ctx->draft_probs = (float *)malloc(ctx->probs_capacity * sizeof(float));
+    ctx->target_probs = (float *)malloc(ctx->probs_capacity * sizeof(float));
+    if (!ctx->draft_all || !ctx->draft_probs || !ctx->target_probs) {
+        free(ctx->history);
+        free(ctx->draft_all);
+        free(ctx->draft_probs);
+        free(ctx->target_probs);
+        memset(ctx, 0, sizeof(*ctx));
+        return QWN_SPEC_INVALID_ARGUMENT;
+    }
+
     snprintf(ctx->counters.status, sizeof(ctx->counters.status),
              "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL");
     return QWN_SPEC_OK;
@@ -260,6 +276,9 @@ int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
 void qwn_speculative_free(QwnSpecContext *ctx) {
     if (!ctx) return;
     free(ctx->history);
+    free(ctx->draft_all);
+    free(ctx->draft_probs);
+    free(ctx->target_probs);
     memset(ctx, 0, sizeof(*ctx));
 }
 
@@ -351,12 +370,9 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
         int lookahead = ctx->gamma < max_new_tokens - generated ?
                         ctx->gamma : max_new_tokens - generated;
         int vocab = ctx->target->cfg.vocab;
-        float *draft_all = (float *)malloc((size_t)lookahead * (size_t)vocab * sizeof(float));
-        float *draft_probs = (float *)malloc((size_t)vocab * sizeof(float));
-        float *target_probs = (float *)malloc((size_t)vocab * sizeof(float));
-        if (!draft_all || !draft_probs || !target_probs) {
-            free(draft_all); free(draft_probs); free(target_probs); return -1;
-        }
+        float *draft_all = ctx->draft_all;
+        float *draft_probs = ctx->draft_probs;
+        float *target_probs = ctx->target_probs;
         double draft_start = spec_now();
         for (int k = 0; k < lookahead; k++) {
             spec_softmax(draft_logits, draft_all + (size_t)k * (size_t)vocab,
@@ -366,7 +382,7 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
             draft_tokens[k] = spec_sample(ctx, draft_probs, vocab);
             ctx->counters.proposed_tokens++;
             if (qwn_decoder_forward(ctx->draft, draft_tokens[k], &draft_logits) != 0) {
-                free(draft_all); free(draft_probs); free(target_probs); return -1;
+                return -1;
             }
         }
         ctx->counters.draft_ms += (spec_now() - draft_start) * 1000.0;
@@ -384,7 +400,7 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
                 ctx->counters.committed_tokens++;
                 if (spec_append_history(ctx, draft_tokens[k]) != QWN_SPEC_OK ||
                     qwn_decoder_forward(ctx->target, draft_tokens[k], &target_logits) != 0) {
-                    free(draft_all); free(draft_probs); free(target_probs); return -1;
+                    return -1;
                 }
             } else {
                 rejected = 1;
@@ -411,7 +427,7 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
                 ctx->counters.committed_tokens++;
                 if (spec_append_history(ctx, correction) != QWN_SPEC_OK ||
                     qwn_decoder_forward(ctx->target, correction, &target_logits) != 0) {
-                    free(draft_all); free(draft_probs); free(target_probs); return -1;
+                    return -1;
                 }
                 break;
             }
@@ -422,7 +438,7 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
             double rollback_start = spec_now();
             if (spec_replay(ctx->draft, ctx->history, ctx->history_count,
                             &draft_logits) != 0) {
-                free(draft_all); free(draft_probs); free(target_probs); return -1;
+                return -1;
             }
             ctx->counters.rollback_ms += (spec_now() - rollback_start) * 1000.0;
         }

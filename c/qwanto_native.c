@@ -460,6 +460,45 @@ int qwn_prefetch(const QwnModel *m, const QwnTensorDesc *t) {
 #endif
 }
 
+int qwn_prefetch_batch(const QwnModel *m, const QwnTensorDesc *const *tensors, uint32_t count) {
+    if (!m || !tensors || count == 0) return 0;
+#ifdef _WIN32
+    typedef BOOL (WINAPI *prefetch_fn)(HANDLE, ULONG_PTR,
+                                      PWIN32_MEMORY_RANGE_ENTRY, ULONG);
+    static prefetch_fn cached_fn = NULL;
+    static int resolved = 0;
+    if (!resolved) {
+        cached_fn = (prefetch_fn)(void *)(uintptr_t)GetProcAddress(GetModuleHandleA("kernel32.dll"),
+                                                                    "PrefetchVirtualMemory");
+        resolved = 1;
+    }
+    if (!cached_fn) return 0;
+    WIN32_MEMORY_RANGE_ENTRY ranges[16];
+    ULONG valid_count = 0;
+    for (uint32_t i = 0; i < count && valid_count < 16; i++) {
+        const QwnTensorDesc *t = tensors[i];
+        if (t && t->byte_offset + t->byte_size <= m->file_size) {
+            ranges[valid_count].VirtualAddress = m->base + t->byte_offset;
+            ranges[valid_count].NumberOfBytes = (SIZE_T)t->byte_size;
+            valid_count++;
+        }
+    }
+    if (valid_count == 0) return 0;
+    return cached_fn(GetCurrentProcess(), valid_count, ranges, 0) ? 0 : -1;
+#else
+    for (uint32_t i = 0; i < count; i++) {
+        const QwnTensorDesc *t = tensors[i];
+        if (t && t->byte_offset + t->byte_size <= m->file_size) {
+            uintptr_t addr = (uintptr_t)(m->base + t->byte_offset);
+            uintptr_t page_addr = addr & ~((uintptr_t)4095);
+            size_t len = (size_t)(addr + t->byte_size - page_addr);
+            madvise((void *)page_addr, len, MADV_WILLNEED);
+        }
+    }
+    return 0;
+#endif
+}
+
 int qwn_drop_pages(const QwnModel *m, const QwnTensorDesc *t) {
     if (!m || !t || t->byte_offset + t->byte_size > m->file_size) return -1;
 #ifdef _WIN32

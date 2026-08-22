@@ -1,5 +1,14 @@
 # AGENT_LOG.md
 
+## 2026-08-22 — Heterogeneous Parallel Acceleration & Model Loading/Conversion Repair (SaifHu98)
+
+- **Fix (Loading):** Fixed model selection/loading error reporting in `c/openai_server.py` (`read_engine_turn` and `Engine.__init__`) by capturing child process `stderr` on termination instead of throwing misleading generic `colibri engine exited unexpectedly`.
+- **Fix (Conversion):** Fixed conversion failure in `c/model_acquisition.py` by setting `env["SNAP"]` in `native_smoke_test`, and updated `c/qwnrun.c` to accept `qwnrun <model> --serve` directly.
+- **Feature (GGUF Q8_0):** Added vectorized `_dequantize_q8_0_payload` and `_make_q8_0_quant_writer` in `c/tools/qwn_convert.py` to enable seamless conversion of GGUF Q8_0 matrices into `hyper_vsq2`, `q4_0`, and `f16`. Removed duplicate conversion stubs.
+- **CUDA Kernel Optimization:** Re-architected `hypervsq2_gemv_q8` in `c/cuda/qwn_hypervsq2_cuda_abi.cu` with 4 warps/block (128 threads), register accumulation, eliminated 128 intra-loop warp reductions in favor of 1 final float warp reduction, and eliminated dynamic `cudaEventCreate`/`cudaEventDestroy` allocations in the hot path.
+- **Prefetch & Speculative Optimization:** Added `qwn_prefetch_batch` in `c/qwanto_native.c` & `c/qwanto_native.h` (reducing 7 layer syscalls to 1), and preallocated draft probability buffers in `c/qwn_speculative.c` & `c/qwn_speculative.h` (zero allocations in hot loop).
+- **Validation:** `native_smoke_test` passed on 4B HyperVSQ2 and 1.5B Q4_0 models. `test_qwn_hypervsq2_cuda_decoder.exe` passed (0 mismatches, token_agreement=true). Full test suite: 253 passed, 4 skipped in `c/tests/`.
+
 ## 2026-08-16 — Gateway contract, dashboard gating, and beta.2 release hardening
 
 - **Change:** Added a real local subprocess integration test for `/health`,
