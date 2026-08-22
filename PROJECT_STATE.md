@@ -440,3 +440,41 @@ and NVMe mmap.
   `docs/dtype-support-roadmap.md` Phases 3 and 4 respectively, gated on
   reference oracles. Speculative decoding with a non-native QWN draft remains
   refused. TurboQuant, JetSpec, SlimInfer, BitDecoding remain reference only.
+## 2026-08-22 — Multi-backend dispatch audit (no hot-path changes)
+
+- **Audit:** Inspected `c/glm.c`, `c/qwanto_decode.c`, `c/cuda/qwn_cuda_abi.h`, and
+  `c/cuda/qwn_hypervsq_cuda.cu` to understand the existing CPU/CUDA dispatch
+  surface. The product **already** ships a multi-backend design (`--backend
+  auto/cpu/cuda` plus per-op CUDA knobs `COLI_CUDA`, `COLI_CUDA_ATTN`,
+  `COLI_CUDA_DENSE`, `COLI_CUDA_EXPERT_GB`), but routing is whole-session: a
+  model is either CPU-only or CUDA-only for the whole generation pass. There
+  is **no** per-forward-pass intra-op CPU+GPU scheduling.
+- **Measurement:** Captured three additional MEASURED rows for 4B HyperVSQ-2
+  on RTX 5070 Ti Laptop (`qwn_cuda.dll` SHA `7bf5e3e595ed47fba17b79ccf74c334c42b53ba7ea5766738d721e372edd4dcb`,
+  `qwnrun.exe` SHA `fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881`,
+  git commit `8d6d0ebe84de42d4905e47792fccd53913349923`): CPU 128 tok = 8.784
+  tok/s, CUDA 128 tok = 8.216 tok/s (gpu_matmul_count=11264, cpu_fallback_count=0),
+  CUDA 64 tok = 4.414 tok/s (gpu_matmul_count=7168, cpu_fallback_count=0). CUDA
+  ABI 1 ships only the q8-quantized HyperVSQ-2 reference path on RTX 5070 Ti
+  Laptop and is 5.9% slower than the local CPU VNNI path at 128 tokens. The
+  1.5B Q4_0 model still cannot use CUDA today: the CUDA attempt exits `rc=-1`
+  with `layer 0 attn matmul failed`. See
+  `benchmarks/evidence/windows/2026-08-22/1.5b_q4_0_cuda_attempt.json`.
+- **Decision (no code shipped):** A "true CPU+GPU in the same forward pass"
+  implementation requires per-op routing tables, CUDA streams + OpenMP
+  barrier orchestration, multi-backend memory budgeting, per-shape
+  empirical policy, a hybrid-aware reference oracle for differential tests,
+  and a coherent KV cache layout across both backends. None of those exist;
+  building them honestly is weeks of engineering, not in this session's
+  scope. The dispatch code in `c/glm.c` and `c/qwanto_decode.c` is left
+  untouched.
+- **Decision (committed):** `docs/parallel-execution-roadmap.md` records the
+  five-phase plan: P0 capture-only telemetry flag, P1 per-layer measured
+  routing, P2 shape-aware active policy, P3 full hybrid with CUDA streams,
+  and P4 broaden CUDA dtype coverage (overlaps with
+  `docs/dtype-support-roadmap.md` Phases 1+2). Phase P0 is the only one that
+  fits in a small honest commit window; even P0 has not been implemented
+  yet. No code in `c/qwanto_decode.c`, `c/glm.c`, `c/cuda/qwn_cuda_abi.h`,
+  or `c/qwnrun.c` was touched in this work.
+- **Validation:** Web 61/61 + production build clean. Python 253/253 passed,
+  4 skipped. Native 17/17 binaries clean. Gateway integration 3/3.
