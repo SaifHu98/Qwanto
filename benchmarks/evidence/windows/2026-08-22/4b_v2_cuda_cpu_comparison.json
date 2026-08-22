@@ -1,0 +1,62 @@
+{
+  "schema": "benchmark_reproducible_v4",
+  "binary_sha256": "bf66b211f3ed4e755c9e1ba30655f9ccabf30910104601a373aed241b2e68f94",
+  "binary_mtime_utc": "2026-08-22T15:46:31Z",
+  "git_commit_local": "2a9bba45d600a3e18a2a20c9f45c8d35667e3cd0 (HETEROGENEOUS_ACCELERATION_COMMIT, NOT YET ON ORIGIN/MAIN)",
+  "model_path": "D:\\EcoUni\\qwanto\\experiments\\results\\4B_hyper_vsq2.qwn",
+  "model_sha256": "43C128CDBF164E5AEE8A192075961A514F87EDA1C7C97C5D897D02EDA2D29E36",
+  "host": {
+    "os": "Windows 11",
+    "gpu": "NVIDIA GeForce RTX 5070 Ti Laptop GPU (12 GB VRAM)",
+    "cuda_dll": "c/qwn_cuda.dll"
+  },
+  "rows": [
+    {
+      "rows_id": "v2_cuda_64tok",
+      "backend_requested": "cuda",
+      "backend_actual": "cuda",
+      "kernel": "hypervsq2-74-q8-reference",
+      "cuda_dll_sha256": "067e16702358fdc95bbff73ad22e765cdf28bb2b2190d0b7d237dd2c3ec42e29",
+      "gpu_matmul_count": 6720,
+      "cpu_fallback_count": 0,
+      "tokens_generated": 64,
+      "wall_seconds": 4.312000,
+      "tok_per_sec": 14.842301,
+      "evidence_log": "benchmarks/evidence/windows/2026-08-22/4b_cuda_after_v2.txt"
+    },
+    {
+      "rows_id": "v2_cuda_128tok",
+      "backend_requested": "cuda",
+      "backend_actual": "cuda",
+      "kernel": "hypervsq2-74-q8-reference",
+      "cuda_dll_sha256": "067e16702358fdc95bbff73ad22e765cdf28bb2b2190d0b7d237dd2c3ec42e29",
+      "gpu_matmul_count": 10816,
+      "cpu_fallback_count": 0,
+      "tokens_generated": 128,
+      "wall_seconds": 7.000000,
+      "tok_per_sec": 18.285714,
+      "evidence_log": "benchmarks/evidence/windows/2026-08-22/4b_cuda_after_v2_128.txt"
+    },
+    {
+      "rows_id": "v2_cpu_128tok",
+      "backend_requested": "cpu",
+      "backend_actual": "cpu",
+      "kernel": "vnni",
+      "cuda_dll_sha256": "Unavailable",
+      "gpu_matmul_count": 0,
+      "cpu_fallback_count": 0,
+      "tokens_generated": 128,
+      "wall_seconds": 9.328000,
+      "tok_per_sec": 13.722127,
+      "evidence_log": "benchmarks/evidence/windows/2026-08-22/4b_cpu_after_v2_128.txt"
+    }
+  ],
+  "honest_comparison": {
+    "note": "Direct before/after is complicated because the prior measurements used qwnrun.exe SHA fc9086962f9ba0fa77d758a972ccfce6a0fc04b1cce27fdbc75df04109b22881 and this binary uses bf66b211f3ed4e755c9e1ba30655f9ccabf30910104601a373aed241b2e68f94. Both binaries were built from c/qwrun.c with overlapping source; the v2 binary includes the heterogeneous acceleration patch commit 2a9bba45 (CPU VNNI path was also retuned). The user-visible CUDA speedup is real but isolating the kernel contribution from compiler/optimizer drift needs an A/B test with binary sha pinning, which is not reproduced here.",
+    "prior_cuda_128tok": 8.216023,
+    "v2_cuda_128tok": 18.285714,
+    "v2_cuda_delta_pct": 122.5,
+    "v2_cpu_at_128tok": 13.722127,
+    "v2_cuda_advantage_over_cpu_pct": 33.3
+  }
+}
