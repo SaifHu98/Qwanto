@@ -15,20 +15,23 @@
       "Q4_K": "conversion-supported",
       "Q5_K": "conversion-supported",
       "Q6_K": "conversion-supported",
-      "Q8_K": "unsupported",
-      "IQ2": "unsupported",
-      "IQ3": "unsupported",
-      "IQ4": "unsupported"
+      "Q2_K": "conversion-supported",
+      "Q3_K": "conversion-supported",
+      "Q8_K": "conversion-supported",
+      "IQ1": "unsupported",
+      "IQ2": "native-qwn-preserving-and-runtime-row-verified",
+      "IQ3": "native-qwn-preserving-and-runtime-row-verified",
+      "IQ4": "native-qwn-preserving-and-runtime-row-verified"
     },
     "architectures": {
       "validated_transformer": "runtime-supported",
-      "qwen35_hybrid_deltanet_mtp": "unsupported"
+      "qwen35_hybrid_deltanet_mtp": "cpu-main-path-integration-verified"
     },
     "runtime_operators": {
       "hypervsq2_gemv": "correctness-validated",
       "full_attention": "runtime-supported",
-      "gated_deltanet": "unsupported",
-      "recurrent_state": "unsupported",
+      "gated_deltanet": "cpu-main-path-integration-verified",
+      "recurrent_state": "cpu-main-path-integration-verified",
       "mtp": "unsupported",
       "vision_encoder": "unsupported"
     }

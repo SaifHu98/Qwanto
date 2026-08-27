@@ -267,7 +267,6 @@ int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
         memset(ctx, 0, sizeof(*ctx));
         return QWN_SPEC_INVALID_ARGUMENT;
     }
-
     snprintf(ctx->counters.status, sizeof(ctx->counters.status),
              "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL");
     return QWN_SPEC_OK;
@@ -438,7 +437,7 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
             double rollback_start = spec_now();
             if (spec_replay(ctx->draft, ctx->history, ctx->history_count,
                             &draft_logits) != 0) {
-                return -1;
+                    return -1;
             }
             ctx->counters.rollback_ms += (spec_now() - rollback_start) * 1000.0;
         }
@@ -455,7 +454,7 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
             if (spec_append_history(ctx, bonus) != QWN_SPEC_OK ||
                 qwn_decoder_forward(ctx->target, bonus, &target_logits) != 0 ||
                 qwn_decoder_forward(ctx->draft, bonus, &draft_logits) != 0) {
-                free(draft_all); free(draft_probs); free(target_probs); return -1;
+                return -1;
             }
         }
         for (int i = 0; i < accepted && generated < max_new_tokens; i++) {
@@ -463,10 +462,9 @@ int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
             generated++;
             spec_emit(ctx->target, token, callback, opaque);
             if (token == ctx->target->cfg.eos_id) {
-                free(draft_all); free(draft_probs); free(target_probs); return generated;
+                return generated;
             }
         }
-        free(draft_all); free(draft_probs); free(target_probs);
     }
     ctx->total_drafted = (int)ctx->counters.proposed_tokens;
     ctx->total_accepted = (int)ctx->counters.accepted_tokens;

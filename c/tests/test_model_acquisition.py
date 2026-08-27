@@ -18,6 +18,8 @@ from model_acquisition import (
     provider_catalog,
     validate_download_url,
     convert_to_qwn,
+    model_preset_catalog,
+    model_preset_manifests,
 )
 from tools import qwn_convert
 
@@ -80,6 +82,40 @@ class ModelAcquisitionTests(unittest.TestCase):
         self.assertEqual(manifest.verification, "verified")
         with self.assertRaises(AcquisitionError):
             HuggingFaceProvider.manifest("Qwanto/example", "model.gguf", gated=True)
+
+    def test_official_model_presets_are_metadata_only_and_have_safe_shard_manifests(self):
+        presets = model_preset_catalog()
+        self.assertEqual(
+            {preset["id"] for preset in presets},
+            {"qwen38-flash-next-ud-q4-k-xl", "qwen38-27b-q4-k-m"},
+        )
+        flash, manifests = model_preset_manifests("qwen38-flash-next-ud-q4-k-xl")
+        self.assertEqual(flash["runtime_state"], "external_source_only")
+        self.assertEqual(len(manifests), 4)
+        self.assertIn("/UD-Q4_K_XL/", manifests[0].url)
+        self.assertEqual(manifests[0].format, "gguf")
+
+    def test_bundle_download_publishes_each_shard_and_resume_manifest(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifests = [
+                DirectHttpsProvider.manifest(
+                    self.url, filename=f"shard-{index}.gguf",
+                    allowed_hosts={"127.0.0.1"}, allow_localhost_http=True,
+                    expected_size=len(PAYLOAD), sha256=hashlib.sha256(PAYLOAD).hexdigest(),
+                )
+                for index in (1, 2)
+            ]
+            manager = SafeDownloadManager(root, max_bytes=len(PAYLOAD) + 1024)
+            manager.start_bundle("test-bundle", manifests, allow_localhost_http=True)
+            manager.thread.join(timeout=5)
+            status = manager.get_status()
+            self.assertEqual(status["status"], "completed")
+            self.assertEqual(status["files_done"], 2)
+            self.assertEqual((root / "test-bundle" / "shard-1.gguf").read_bytes(), PAYLOAD)
+            self.assertEqual((root / "test-bundle" / "shard-2.gguf").read_bytes(), PAYLOAD)
+            marker = json.loads((root / "test-bundle" / ".qwanto-bundle.json").read_text(encoding="utf-8"))
+            self.assertEqual(marker["completed_files"], ["shard-1.gguf", "shard-2.gguf"])
 
     def test_url_and_destination_boundaries(self):
         validate_download_url(self.url, allowed_hosts={"127.0.0.1"}, allow_localhost_http=True)

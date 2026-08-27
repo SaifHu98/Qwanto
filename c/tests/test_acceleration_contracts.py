@@ -54,5 +54,7 @@ def test_converter_capability_axes_are_machine_readable():
         "architectures",
         "runtime_operators",
     }
-    assert matrix["axes"]["source_tensor_dtypes"]["IQ2"] == "unsupported"
-    assert matrix["axes"]["architectures"]["qwen35_hybrid_deltanet_mtp"] == "unsupported"
+    assert matrix["axes"]["source_tensor_dtypes"]["IQ1"] == "unsupported"
+    assert matrix["axes"]["source_tensor_dtypes"]["IQ2"] == "native-qwn-preserving-and-runtime-row-verified"
+    assert matrix["axes"]["source_tensor_dtypes"]["IQ3"] == "native-qwn-preserving-and-runtime-row-verified"
+    assert matrix["axes"]["architectures"]["qwen35_hybrid_deltanet_mtp"] == "cpu-main-path-integration-verified"

@@ -10,6 +10,11 @@ import struct
 import sys
 from pathlib import Path
 
+try:
+    from .ggml_iq_grids import unpack_grid
+except ImportError:  # pragma: no cover - direct script execution
+    from ggml_iq_grids import unpack_grid
+
 MAGIC = b"QWANTO_NATIVE_V1"
 VERSION = 1
 HEADER_SIZE = 4096
@@ -25,11 +30,23 @@ TAIL_FMT = "<IIQQQ"
 TAIL_SIZE = struct.calcsize(TAIL_FMT)  # 32
 
 DT_F32, DT_F16, DT_Q4_0, DT_Q8_0, DT_BF16, DT_BYTES, DT_VSQ, DT_VSQ_ULTRA, DT_HYPER_VSQ, DT_HYPER_VSQ2 = range(10)
+DT_Q2_K, DT_Q3_K, DT_Q8_K = 10, 11, 12
+DT_IQ2_XXS, DT_IQ2_XS, DT_IQ3_XXS = 13, 14, 15
+DT_IQ3_S, DT_IQ2_S, DT_IQ4_NL, DT_IQ4_XS = 16, 17, 18, 19
 DT_NAME = {DT_F32: "F32", DT_F16: "F16", DT_Q4_0: "Q4_0",
            DT_Q8_0: "Q8_0", DT_BF16: "BF16", DT_BYTES: "BYTES",
            DT_VSQ: "VSQ", DT_VSQ_ULTRA: "VSQ_ULTRA", DT_HYPER_VSQ: "HYPER_VSQ",
-           DT_HYPER_VSQ2: "HYPER_VSQ2"}
-QUANT_BLOCK_SIZES = {"q4_0": 32, "vsq": 64, "vsq_ultra": 128,
+           DT_HYPER_VSQ2: "HYPER_VSQ2", DT_Q2_K: "Q2_K", DT_Q3_K: "Q3_K",
+           DT_Q8_K: "Q8_K", DT_IQ2_XXS: "IQ2_XXS", DT_IQ2_XS: "IQ2_XS",
+           DT_IQ3_XXS: "IQ3_XXS", DT_IQ3_S: "IQ3_S", DT_IQ2_S: "IQ2_S",
+           DT_IQ4_NL: "IQ4_NL", DT_IQ4_XS: "IQ4_XS"}
+IQ_DTYPE_MAP = {16: DT_IQ2_XXS, 17: DT_IQ2_XS, 18: DT_IQ3_XXS,
+                21: DT_IQ3_S, 22: DT_IQ2_S, 20: DT_IQ4_NL, 23: DT_IQ4_XS}
+IQ_DTYPE_SPECS = {DT_IQ2_XXS: (256, 66), DT_IQ2_XS: (256, 74),
+                  DT_IQ3_XXS: (256, 98), DT_IQ3_S: (256, 110),
+                  DT_IQ2_S: (256, 82), DT_IQ4_NL: (32, 18),
+                  DT_IQ4_XS: (256, 136)}
+QUANT_BLOCK_SIZES = {"q4_0": 32, "q8_0": 32, "vsq": 64, "vsq_ultra": 128,
                      "hyper_vsq": 256, "hyper_vsq2": 256}
 
 
@@ -172,6 +189,41 @@ def quantize_q4_0_rows(src: bytes, rows: int, cols: int) -> bytes:
     for row in range(rows):
         row_bytes = struct.pack(f"<{cols}f", *values[row * cols:(row + 1) * cols])
         out += quantize_q4_0(row_bytes)
+    return bytes(out)
+
+
+def quantize_q8_0_rows(src: bytes, rows: int, cols: int) -> bytes:
+    """Quantize each matrix row to symmetric Q8_0 (32 values -> 34 bytes)."""
+    if len(src) != rows * cols * 4:
+        raise ValueError("matrix payload/shape mismatch")
+    np = _get_numpy()
+    if np is not None:
+        arr = np.frombuffer(src, dtype=np.float32).reshape(rows, cols)
+        blocks_per_row = (cols + 31) // 32
+        padded = np.zeros((rows, blocks_per_row * 32), dtype=np.float32)
+        padded[:, :cols] = arr
+        blocks = padded.reshape(rows * blocks_per_row, 32)
+        amax = np.max(np.abs(blocks), axis=1)
+        scales = np.where(amax > 0, amax / 127.0, 1.0).astype(np.float16)
+        denom = np.where(scales > 0, scales, np.float16(1.0))[:, None]
+        quantized = np.clip(np.rint(blocks / denom), -127, 127).astype(np.int8)
+        out_buf = np.empty((rows * blocks_per_row, 34), dtype=np.uint8)
+        out_buf[:, :2] = np.frombuffer(scales.tobytes(), dtype=np.uint8).reshape(-1, 2)
+        out_buf[:, 2:] = quantized.view(np.uint8)
+        return out_buf.tobytes()
+
+    values = struct.unpack(f"<{rows * cols}f", src)
+    out = bytearray()
+    for row in range(rows):
+        row_values = list(values[row * cols:(row + 1) * cols])
+        for start in range(0, cols, 32):
+            block = row_values[start:start + 32]
+            block.extend([0.0] * (32 - len(block)))
+            amax = max(abs(value) for value in block)
+            scale = amax / 127.0 if amax else 1.0
+            out += struct.pack("<H", f32_to_f16(scale))
+            out += bytes((max(-127, min(127, int(round(value / scale)))) & 0xff)
+                         for value in block)
     return bytes(out)
 
 
@@ -479,6 +531,8 @@ def quantize_matrix_rows(raw_f32: bytes, rows: int, cols: int, quant_mode: str) 
         return quantize_vsq_ultra_rows(raw_f32, rows, cols)
     elif quant_mode == "vsq":
         return quantize_vsq_rows(raw_f32, rows, cols)
+    elif quant_mode == "q8_0":
+        return quantize_q8_0_rows(raw_f32, rows, cols)
     return quantize_q4_0_rows(raw_f32, rows, cols)
 
 
@@ -491,6 +545,8 @@ def _get_quant_dtype_and_size(quant: str, rows: int, cols: int):
         return DT_VSQ_ULTRA, rows * ((cols + 127) // 128) * 70
     elif quant == "vsq":
         return DT_VSQ, rows * ((cols + 63) // 64) * 36
+    elif quant == "q8_0":
+        return DT_Q8_0, rows * ((cols + 31) // 32) * 34
     return DT_Q4_0, rows * ((cols + 31) // 32) * 18
 
 
@@ -511,6 +567,10 @@ def _desc(t: dict) -> dict:
         expected = shape[1] * ((shape[0] + 31) // 32) * 18
         if payload_size != expected:
             raise ValueError(f"Q4_0 row layout mismatch for {name}: {payload_size} != {expected}")
+    elif int(t["dtype"]) == DT_Q8_0 and len(shape) == 2:
+        expected = shape[1] * ((shape[0] + 31) // 32) * 34
+        if payload_size != expected:
+            raise ValueError(f"Q8_0 row layout mismatch for {name}: {payload_size} != {expected}")
     elif int(t["dtype"]) == DT_VSQ and len(shape) == 2:
         expected = shape[1] * ((shape[0] + 63) // 64) * 36
         if payload_size != expected:
@@ -523,11 +583,22 @@ def _desc(t: dict) -> dict:
         expected = shape[1] * ((shape[0] + 255) // 256) * 138
         if payload_size != expected:
             raise ValueError(f"HYPER_VSQ row layout mismatch for {name}: {payload_size} != {expected}")
+    elif int(t["dtype"]) in (DT_Q2_K, DT_Q3_K, DT_Q8_K) and len(shape) == 2:
+        block_elems, block_bytes = {DT_Q2_K: (256, 84), DT_Q3_K: (256, 110),
+                                    DT_Q8_K: (256, 292)}[int(t["dtype"])]
+        expected = shape[1] * ((shape[0] + block_elems - 1) // block_elems) * block_bytes
+        if payload_size != expected:
+            raise ValueError(f"native K row layout mismatch for {name}: {payload_size} != {expected}")
+    elif int(t["dtype"]) in IQ_DTYPE_SPECS and len(shape) == 2:
+        block_elems, block_bytes = IQ_DTYPE_SPECS[int(t["dtype"])]
+        expected = shape[1] * ((shape[0] + block_elems - 1) // block_elems) * block_bytes
+        if payload_size != expected:
+            raise ValueError(f"native IQ row layout mismatch for {name}: {payload_size} != {expected}")
     return {"name": name, "dtype": int(t["dtype"]), "shape": shape,
             "numel": numel, "payload": payload,
             "write_payload": t.get("write_payload"), "payload_size": payload_size,
             "byte_offset": 0, "byte_size": align(payload_size, 64),
-            "block_q": 256 if int(t["dtype"]) == DT_HYPER_VSQ else (128 if int(t["dtype"]) == DT_VSQ_ULTRA else (64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0) else 0)))}
+            "block_q": 256 if int(t["dtype"]) in (DT_HYPER_VSQ, DT_HYPER_VSQ2, DT_Q2_K, DT_Q3_K, DT_Q8_K) or int(t["dtype"]) in IQ_DTYPE_SPECS and IQ_DTYPE_SPECS[int(t["dtype"])][0] == 256 else (128 if int(t["dtype"]) == DT_VSQ_ULTRA else (64 if int(t["dtype"]) == DT_VSQ else (32 if int(t["dtype"]) in (DT_Q4_0, DT_Q8_0, DT_IQ4_NL) else 0)))}
 
 
 def pack_desc(t: dict) -> bytes:
@@ -555,6 +626,16 @@ def unpack_desc(data: bytes, offset: int) -> dict:
         DT_VSQ_ULTRA: ((numel + 127) // 128) * 70,
         DT_HYPER_VSQ: ((numel + 255) // 256) * 138,
         DT_HYPER_VSQ2: ((numel + 255) // 256) * 74,
+        DT_Q2_K: ((numel + 255) // 256) * 84,
+        DT_Q3_K: ((numel + 255) // 256) * 110,
+        DT_Q8_K: ((numel + 255) // 256) * 292,
+        DT_IQ2_XXS: ((numel + 255) // 256) * 66,
+        DT_IQ2_XS: ((numel + 255) // 256) * 74,
+        DT_IQ3_XXS: ((numel + 255) // 256) * 98,
+        DT_IQ3_S: ((numel + 255) // 256) * 110,
+        DT_IQ2_S: ((numel + 255) // 256) * 82,
+        DT_IQ4_NL: ((numel + 31) // 32) * 18,
+        DT_IQ4_XS: ((numel + 255) // 256) * 136,
     }
     return {"name": name, "name_len": row[1], "dtype": dtype,
             "n_dims": n_dims, "shape": tuple(row[4:4 + n_dims]),
@@ -773,9 +854,21 @@ def map_gguf_tensor_name(name: str) -> str:
                 "ffn_gate.weight": "mlp.gate_proj.weight",
                 "ffn_up.weight": "mlp.up_proj.weight",
                 "ffn_down.weight": "mlp.down_proj.weight",
+                "attn_gate.weight": "self_attn.gdn_gate.weight",
+                "attn_qkv.weight": "self_attn.gdn_qkv.weight",
+                "post_attention_norm.weight": "post_attention_layernorm.weight",
+                "ssm_a": "self_attn.gdn_a",
+                "ssm_alpha.weight": "self_attn.gdn_alpha.weight",
+                "ssm_beta.weight": "self_attn.gdn_beta.weight",
+                "ssm_conv1d.weight": "self_attn.gdn_conv1d.weight",
+                "ssm_dt.bias": "self_attn.gdn_dt.bias",
+                "ssm_norm.weight": "self_attn.gdn_norm.weight",
+                "ssm_out.weight": "self_attn.gdn_out.weight",
             }
             if sub in name_map:
                 return f"model.layers.{layer}.{name_map[sub]}"
+            if sub.startswith("nextn."):
+                return f"model.layers.{layer}.mtp.{sub[7:]}"
     return name
 
 
@@ -862,9 +955,11 @@ def _dequantize_q6_k_block(block_bytes: bytes, numel: int = 256):
 def _dequantize_k_payload(raw: bytes, dtype: int):
     """Vectorized dequantization of a contiguous GGML K-quant payload."""
     np = _get_numpy()
-    specs = {12: (144, _dequantize_q4_k_block),
+    specs = {10: (84, None), 11: (110, None),
+             12: (144, _dequantize_q4_k_block),
              13: (176, _dequantize_q5_k_block),
-             14: (210, _dequantize_q6_k_block)}
+             14: (210, _dequantize_q6_k_block),
+             15: (292, None)}
     if np is None or dtype not in specs:
         raise ValueError(f"unsupported K-quant dtype {dtype}")
     block_bytes, _ = specs[dtype]
@@ -873,7 +968,40 @@ def _dequantize_k_payload(raw: bytes, dtype: int):
     blocks = np.frombuffer(raw, dtype=np.uint8).reshape(-1, block_bytes)
     count = blocks.shape[0]
     out = np.empty((count, 256), dtype=np.float32)
-    if dtype in (12, 13):
+    if dtype == 10:
+        scales = blocks[:, 0:16]
+        qs = blocks[:, 16:80]
+        d = blocks[:, 80:82].copy().view(np.float16).reshape(count).astype(np.float32)
+        dmin = blocks[:, 82:84].copy().view(np.float16).reshape(count).astype(np.float32)
+        dl = (d[:, None] * (scales & 0x0F).astype(np.float32)).reshape(count, 16, 1)
+        ml = (dmin[:, None] * (scales >> 4).astype(np.float32)).reshape(count, 16, 1)
+        shift = np.array([0, 2, 4, 6], dtype=np.uint8).reshape(1, 1, 4, 1)
+        q = (qs.reshape(count, -1, 1, 32) >> shift) & np.uint8(3)
+        out[:] = (dl * q.reshape(count, 16, 16).astype(np.float32) - ml).reshape(count, 256)
+    elif dtype == 11:
+        hmask = blocks[:, 0:32]
+        qs = blocks[:, 32:96]
+        packed_scales = blocks[:, 96:108]
+        d = blocks[:, 108:110].copy().view(np.float16).reshape(count).astype(np.float32)
+        lscales = packed_scales[:, :8].reshape(count, 1, 8) >> np.array([0, 4], dtype=np.uint8).reshape(1, 2, 1)
+        lscales = lscales.reshape(count, 16)
+        hscales = packed_scales[:, 8:].reshape(count, 1, 4) >> np.array([0, 2, 4, 6], dtype=np.uint8).reshape(1, 4, 1)
+        hscales = hscales.reshape(count, 16)
+        scales = (lscales & np.uint8(0x0F)) | ((hscales & np.uint8(0x03)) << np.uint8(4))
+        scales = (scales.astype(np.int8) - np.int8(32)).astype(np.float32)
+        dl = (d[:, None] * scales).reshape(count, 16, 1)
+        ql = qs.reshape(count, -1, 1, 32) >> np.array([0, 2, 4, 6], dtype=np.uint8).reshape(1, 1, 4, 1)
+        ql = ql.reshape(count, 16, 16) & np.uint8(3)
+        qh = hmask.reshape(count, -1, 1, 32) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 8, 1)
+        qh = (qh.reshape(count, 16, 16) & np.uint8(1)) ^ np.uint8(1)
+        q = ql.astype(np.int8) - (qh << np.uint8(2)).astype(np.int8)
+        out[:] = (dl * q.astype(np.float32)).reshape(count, 256)
+    elif dtype == 15:
+        d = blocks[:, 0:4].copy().view(np.float32).reshape(count)
+        qs = blocks[:, 4:260].view(np.int8).astype(np.float32)
+        # bsums[16] is an auxiliary dot-product cache, not part of decode.
+        out[:] = d[:, None] * qs
+    elif dtype in (12, 13):
         d = blocks[:, 0:2].copy().view(np.float16).reshape(count).astype(np.float32)
         dmin = blocks[:, 2:4].copy().view(np.float16).reshape(count).astype(np.float32)
         scales, minimum = _k4_scale_min(blocks[:, 4:16])
@@ -915,8 +1043,141 @@ def _dequantize_k_payload(raw: bytes, dtype: int):
     return out.reshape(-1)
 
 
+def _dequantize_iq4_nl_payload(raw: bytes):
+    """Dequantize GGML IQ4_NL blocks (32 values, 18 bytes per block)."""
+    np = _get_numpy()
+    if np is None or len(raw) == 0 or len(raw) % 18:
+        raise ValueError("invalid IQ4_NL payload length")
+    blocks = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 18)
+    d = blocks[:, :2].copy().view(np.float16).reshape(-1).astype(np.float32)
+    qs = blocks[:, 2:].reshape(blocks.shape[0], -1, 1, 16)
+    qs = (qs >> np.array([0, 4], dtype=np.uint8).reshape(1, 1, 2, 1)) & np.uint8(0x0F)
+    qs = qs.reshape(blocks.shape[0], -1)
+    kvalues = np.array((-127, -104, -83, -65, -49, -35, -22, -10,
+                        1, 13, 25, 38, 53, 69, 89, 113), dtype=np.int8)
+    return (d[:, None] * kvalues[qs]).astype(np.float32).reshape(-1)
+
+
+def _dequantize_iq4_xs_payload(raw: bytes):
+    """Dequantize GGML IQ4_XS blocks (256 values, 136 bytes per block)."""
+    np = _get_numpy()
+    if np is None or len(raw) == 0 or len(raw) % 136:
+        raise ValueError("invalid IQ4_XS payload length")
+    blocks = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 136)
+    count = blocks.shape[0]
+    d = blocks[:, :2].copy().view(np.float16).reshape(count).astype(np.float32)
+    scales_h = blocks[:, 2:4].copy().view(np.uint16)
+    scales_l = blocks[:, 4:8].reshape(count, -1, 1) >> np.array([0, 4], dtype=np.uint8).reshape(1, 1, 2)
+    scales_h = scales_h.reshape(count, 1, 1) >> np.array([2 * i for i in range(8)], dtype=np.uint16).reshape(1, 8, 1)
+    scales_l = (scales_l.reshape(count, -1) & np.uint8(0x0F))
+    scales_h = scales_h.reshape(count, -1).astype(np.uint8) & np.uint8(0x03)
+    scales = (scales_l | (scales_h << np.uint8(4))).astype(np.int8) - np.int8(32)
+    dl = (d[:, None] * scales.astype(np.float32)).reshape(count, 8, 1)
+    qs = blocks[:, 8:].reshape(count, -1, 1, 16)
+    qs = qs >> np.array([0, 4], dtype=np.uint8).reshape(1, 1, 2, 1)
+    qs = (qs.reshape(count, -1, 32, 1) & np.uint8(0x0F))
+    kvalues = np.array((-127, -104, -83, -65, -49, -35, -22, -10,
+                        1, 13, 25, 38, 53, 69, 89, 113), dtype=np.int8)
+    qs = np.take_along_axis(kvalues.reshape(1, 1, 1, 16), qs, axis=-1)
+    return (dl * qs.astype(np.float32).reshape(count, 8, 32)).reshape(-1)
+
+
+_IQ_GRID_CACHE = {}
+
+
+def _get_iq_grid(name, np):
+    grid = _IQ_GRID_CACHE.get(name)
+    if grid is None:
+        grid = unpack_grid(name, np)
+        _IQ_GRID_CACHE[name] = grid
+    return grid
+
+
+def _dequantize_iq2_iq3_payload(raw: bytes, dtype: int):
+    """Dequantize GGML IQ2/IQ3 blocks using canonical grid tables."""
+    np = _get_numpy()
+    specs = {16: (66, "iq2_xxs"), 17: (74, "iq2_xs"),
+             18: (98, "iq3_xxs"), 21: (110, "iq3_s"), 22: (82, "iq2_s")}
+    if np is None or dtype not in specs:
+        raise ValueError(f"unsupported IQ2/IQ3 dtype {dtype}")
+    block_bytes, grid_name = specs[dtype]
+    if len(raw) == 0 or len(raw) % block_bytes:
+        raise ValueError(f"invalid IQ payload length for dtype {dtype}")
+    blocks = np.frombuffer(raw, dtype=np.uint8).reshape(-1, block_bytes)
+    count = blocks.shape[0]
+    d = blocks[:, :2].copy().view(np.float16).reshape(count).astype(np.float32)
+    ksigns = np.array([i | (0x80 if bin(i).count("1") & 1 else 0) for i in range(128)], dtype=np.uint8)
+    grid = _get_iq_grid(grid_name, np)
+
+    if dtype == 16:
+        qs = blocks[:, 2:].copy().view(np.uint32).reshape(count, -1, 2)
+        db = (d[:, None] * (0.5 + (qs[..., 1] >> 28).astype(np.float32)) * 0.25).reshape(count, -1, 1, 1)
+        signs = qs[..., 1].reshape(count, -1, 1) >> np.array([0, 7, 14, 21], dtype=np.uint32).reshape(1, 1, 4)
+        signs = ksigns[signs & np.uint32(0x7F)]
+        signs = (signs.reshape(count, -1, 4, 1) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 1, 8)) & 1
+        signs = np.where(signs == 0, 1.0, -1.0)
+        signs = signs.reshape(count, -1, 4, 8)
+        indexes = qs[..., 0].copy().view(np.uint8).reshape(count, -1, 1, 1)
+        values = np.take_along_axis(grid.reshape(1, 1, 256, 8), indexes, axis=-2)
+        values = values.reshape(count, -1, 4, 8)
+        return (db * values * signs).astype(np.float32).reshape(-1)
+
+    if dtype == 17:
+        qs = blocks[:, 2:66].copy().view(np.uint16)
+        scales = blocks[:, 66:74].reshape(count, -1, 1) >> np.array([0, 4], dtype=np.uint8).reshape(1, 1, 2)
+        scales = (scales & 0x0F).reshape(count, -1)
+        db = (d[:, None] * (0.5 + scales.astype(np.float32)) * 0.25).reshape(count, -1, 1, 1)
+        signs = ksigns[(qs >> np.uint16(9)) & np.uint16(0x7F)]
+        signs = (signs.reshape(count, -1, 1) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 8)) & 1
+        signs = np.where(signs == 0, 1.0, -1.0).reshape(count, -1, 2, 8)
+        values = np.take_along_axis(grid.reshape(1, 1, 512, 8), (qs & np.uint16(511)).reshape(count, -1, 1, 1), axis=-2)
+        values = values.reshape(count, -1, 2, 8)
+        return (db * values * signs).astype(np.float32).reshape(-1)
+
+    if dtype == 18:
+        qs = blocks[:, 2:66]
+        scales = blocks[:, 66:98].copy().view(np.uint32)
+        db = (d[:, None] * (0.5 + (scales >> 28).astype(np.float32)) * 0.5).reshape(count, -1, 1, 1)
+        signs = scales.reshape(count, -1, 1) >> np.array([0, 7, 14, 21], dtype=np.uint32).reshape(1, 1, 4)
+        signs = ksigns[signs & np.uint32(0x7F)]
+        signs = (signs.reshape(count, -1, 4, 1) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 1, 8)) & 1
+        signs = np.where(signs == 0, 1.0, -1.0).reshape(count, -1, 4, 8)
+        values = np.take_along_axis(grid.reshape(1, 1, 256, 4), qs.reshape(count, -1, 1, 1), axis=-2)
+        values = values.reshape(count, -1, 4, 8)
+        return (db * values * signs).astype(np.float32).reshape(-1)
+
+    if dtype == 21:
+        qs = blocks[:, 2:66]
+        qh = blocks[:, 66:74]
+        signs = blocks[:, 74:106]
+        scales = blocks[:, 106:110]
+        scales = ((scales.reshape(count, -1, 1) >> np.array([0, 4], dtype=np.uint8).reshape(1, 1, 2)) & 0x0F).reshape(count, -1)
+        db = (d[:, None] * (1.0 + 2.0 * scales.astype(np.float32))).reshape(count, -1, 1, 1)
+        signs = (signs.reshape(count, -1, 1) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 8)) & 1
+        signs = np.where(signs == 0, 1.0, -1.0).reshape(count, -1, 4, 8)
+        qh = (qh.reshape(count, -1, 1) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 8)) & 1
+        indexes = qs.astype(np.uint16) | (qh.reshape(count, -1).astype(np.uint16) << 8)
+        values = np.take_along_axis(grid.reshape(1, 1, 512, 4), indexes.reshape(count, -1, 1, 1), axis=-2)
+        values = values.reshape(count, -1, 4, 8)
+        return (db * values * signs).astype(np.float32).reshape(-1)
+
+    qs = blocks[:, 2:34]
+    signs = blocks[:, 34:66]
+    qh = blocks[:, 66:74]
+    scales = blocks[:, 74:82]
+    scales = ((scales.reshape(count, -1, 1) >> np.array([0, 4], dtype=np.uint8).reshape(1, 1, 2)) & 0x0F).reshape(count, -1)
+    db = (d[:, None] * (0.5 + scales.astype(np.float32)) * 0.25).reshape(count, -1, 1, 1)
+    signs = (signs.reshape(count, -1, 1) >> np.arange(8, dtype=np.uint8).reshape(1, 1, 8)) & 1
+    signs = np.where(signs == 0, 1.0, -1.0).reshape(count, -1, 2, 8)
+    qh = (qh.reshape(count, -1, 1) >> np.array([0, 2, 4, 6], dtype=np.uint8).reshape(1, 1, 4)) & 3
+    indexes = qs.astype(np.uint16) | (qh.reshape(count, -1).astype(np.uint16) << 8)
+    values = np.take_along_axis(grid.reshape(1, 1, 1024, 8), indexes.reshape(count, -1, 1, 1), axis=-2)
+    values = values.reshape(count, -1, 2, 8)
+    return (db * values * signs).astype(np.float32).reshape(-1)
+
+
 def _dequantize_q8_0_payload(raw: bytes):
-    """Vectorized dequantization of a contiguous GGML Q8_0 payload (32 elements per 34-byte block)."""
+    """Vectorized dequantization of contiguous GGML Q8_0 blocks."""
     np = _get_numpy()
     if np is None:
         raise RuntimeError("NumPy is required for Q8_0 dequantization")
@@ -937,7 +1198,6 @@ def _make_q8_0_quant_writer(source_path: str, byte_offset: int, rows: int,
     blocks_per_row = (cols + 31) // 32
     source_row_bytes = blocks_per_row * 34
     chunk_rows = max(1, (16 << 20) // max(1, source_row_bytes))
-
     if target_quant == "none":
         out_dtype = DT_F32
         payload_size = rows * cols * 4
@@ -956,7 +1216,7 @@ def _make_q8_0_quant_writer(source_path: str, byte_offset: int, rows: int,
                 if not np.isfinite(f32).all():
                     raise ValueError(f"non-finite values after GGUF Q8_0 dequantization: {name}")
                 if target_quant == "none":
-                    out.write(f32.astype(np.float32, copy=False).tobytes())
+                    out.write(f32.tobytes())
                 else:
                     out.write(quantize_matrix_rows(f32.tobytes(), cur_rows, cols, target_quant))
 
@@ -968,12 +1228,32 @@ def _make_k_quant_writer(source_path: str, byte_offset: int, rows: int,
     np = _get_numpy()
     if np is None:
         raise RuntimeError("NumPy is required to convert GGUF K-quants")
-    block_bytes = {12: 144, 13: 176, 14: 210}[dtype]
-    if cols <= 0 or cols % 256 != 0:
-        raise ValueError(f"K-quant tensor width must be a multiple of 256: {cols}")
-    blocks_per_row = cols // 256
+    source_specs = {10: (256, 84), 11: (256, 110), 12: (256, 144),
+                    13: (256, 176), 14: (256, 210), 15: (256, 292),
+                    16: (256, 66), 17: (256, 74), 18: (256, 98),
+                    20: (32, 18), 21: (256, 110), 22: (256, 82),
+                    23: (256, 136)}
+    block_elems, block_bytes = source_specs[dtype]
+    if cols <= 0 or cols % block_elems != 0:
+        raise ValueError(f"source quantized tensor width must be a multiple of {block_elems}: {cols}")
+    blocks_per_row = cols // block_elems
     source_row_bytes = blocks_per_row * block_bytes
     chunk_rows = max(1, (16 << 20) // source_row_bytes)
+
+    if quant == "none" and dtype in (10, 11, 15) + tuple(IQ_DTYPE_MAP):
+        out_dtype = {10: DT_Q2_K, 11: DT_Q3_K, 15: DT_Q8_K, **IQ_DTYPE_MAP}[dtype]
+        payload_size = rows * source_row_bytes
+        def write_source(out):
+            with open(source_path, "rb") as source:
+                source.seek(byte_offset)
+                remaining = payload_size
+                while remaining:
+                    chunk = source.read(min(16 << 20, remaining))
+                    if not chunk:
+                        raise ValueError("truncated GGUF native K payload")
+                    out.write(chunk)
+                    remaining -= len(chunk)
+        return out_dtype, payload_size, write_source
 
     if quant == "none":
         out_dtype = DT_F32
@@ -989,7 +1269,14 @@ def _make_k_quant_writer(source_path: str, byte_offset: int, rows: int,
                 raw = source.read(cur_rows * source_row_bytes)
                 if len(raw) != cur_rows * source_row_bytes:
                     raise ValueError("truncated GGUF K-quant payload")
-                f32 = _dequantize_k_payload(raw, dtype).reshape(cur_rows, cols)
+                if dtype in (16, 17, 18, 21, 22):
+                    f32 = _dequantize_iq2_iq3_payload(raw, dtype).reshape(cur_rows, cols)
+                elif dtype == 20:
+                    f32 = _dequantize_iq4_nl_payload(raw).reshape(cur_rows, cols)
+                elif dtype == 23:
+                    f32 = _dequantize_iq4_xs_payload(raw).reshape(cur_rows, cols)
+                else:
+                    f32 = _dequantize_k_payload(raw, dtype).reshape(cur_rows, cols)
                 if not np.isfinite(f32).all():
                     raise ValueError(f"non-finite values after GGUF K-quant dequantization: {name}")
                 if quant == "none":
@@ -1010,6 +1297,7 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     # be quantized (the writer will keep it at its source precision).
     _BLOCK_SIZES = {
         "q4_0":       32,
+        "q8_0":       32,
         "vsq":        64,
         "vsq_ultra":  128,
         "hyper_vsq":  256,
@@ -1062,21 +1350,6 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                     f.seek(count * 4, 1)
 
         architecture = str(metadata.get("general.architecture", "")).lower()
-        blocked_features = []
-        if architecture in {"qwen35", "qwen3.5", "qwen3_5"}:
-            blocked_features.append("Qwen3.5 hybrid Transformer/SSM execution")
-        if any("ssm" in str(key).lower() or "mamba" in str(key).lower()
-               for key in metadata):
-            blocked_features.append("SSM state/tensor execution")
-        if any("mtp" in str(key).lower() or "multi_token" in str(key).lower()
-               for key in metadata):
-            blocked_features.append("MTP head execution")
-        if blocked_features:
-            raise ValueError(
-                "native QWN conversion is unavailable until the architecture is fully implemented: "
-                + ", ".join(dict.fromkeys(blocked_features))
-            )
-
         alignment = metadata.get("general.alignment", 32)
         raw_tensors = []
         for _ in range(tensor_count):
@@ -1108,9 +1381,11 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         16: (256, 66),  # IQ2_XXS
         17: (256, 74),  # IQ2_XS
         18: (256, 98),  # IQ3_XXS
-        19: (256, 110), # IQ3_S
-        20: (256, 136), # IQ4_XS
-        21: (256, 144), # IQ4_NL
+        19: (256, 50),  # IQ1_S (not yet decoded)
+        20: (32, 18),   # IQ4_NL
+        21: (256, 110), # IQ3_S
+        22: (256, 82),  # IQ2_S
+        23: (256, 136), # IQ4_XS
         28: (1, 2),     # BF16 (legacy)
         29: (1, 2),     # BF16
         30: (1, 2),     # BF16 (GGML_TYPE_BF16 modern standard)
@@ -1137,10 +1412,10 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         # F32/F16/BF16 and GGML Q4_0. Reject every other source block ABI
         # before a container is created; an apparently valid .qwn with an
         # opaque payload is worse than a conversion error.
-        if dtype not in (0, 1, 2, 8, 12, 13, 14, 28, 29, 30):
+        if dtype not in (0, 1, 2, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 28, 29, 30):
             raise ValueError(
                 f"unsupported GGUF dtype {dtype} for {name}; "
-                "convert from F32/F16/BF16/Q4_0/Q8_0/Q4_K/Q5_K/Q6_K or add a verified decoder"
+                "convert from F32/F16/BF16/Q4_0/Q8_0/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K/Q8_K/IQ2/IQ3/IQ4 or add a verified decoder"
             )
         if dtype == 8:
             if quant in ("none", "q8_0"):
@@ -1152,7 +1427,8 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                             remaining = b_len
                             while remaining > 0:
                                 chunk = sf.read(min(remaining, 16 << 20))
-                                if not chunk: break
+                                if not chunk:
+                                    break
                                 out.write(chunk)
                                 remaining -= len(chunk)
                     return write
@@ -1160,15 +1436,14 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                                 "payload_size": byte_len,
                                 "write_payload": make_copy_writer(byte_offset, byte_len)})
                 continue
-            else:
-                out_dtype, payload_size, writer = _make_q8_0_quant_writer(
-                    path, byte_offset, shape[1] if len(shape) == 2 else 1,
-                    shape[0] if len(shape) == 2 else numel, quant, name)
-                tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
-                                "payload_size": payload_size, "write_payload": writer})
-                continue
+            out_dtype, payload_size, writer = _make_q8_0_quant_writer(
+                path, byte_offset, shape[1] if len(shape) == 2 else 1,
+                shape[0] if len(shape) == 2 else numel, quant, name)
+            tensors.append({"name": name, "dtype": out_dtype, "shape": shape,
+                            "payload_size": payload_size, "write_payload": writer})
+            continue
 
-        if dtype in (12, 13, 14):
+        if dtype in (10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23):
             out_dtype, payload_size, writer = _make_k_quant_writer(
                 path, byte_offset, shape[1] if len(shape) == 2 else 1,
                 shape[0] if len(shape) == 2 else numel, dtype, quant, name)
@@ -1179,7 +1454,7 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         if dtype == 0:  # F32
             out_dtype = DT_F32
             _ok_2d = (len(shape) == 2 and shape[0] >= _block)
-            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and _ok_2d:
+            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "q8_0") and _ok_2d:
                 rows, cols = shape[1], shape[0]
                 out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
                 def make_writer(b_off, r, c, qm):
@@ -1200,7 +1475,7 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         elif dtype == 1:  # F16
             out_dtype = DT_F16
             _ok_2d = (len(shape) == 2 and shape[0] >= _block)
-            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and _ok_2d:
+            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "q8_0") and _ok_2d:
                 rows, cols = shape[1], shape[0]
                 out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
                 def make_writer(b_off, r, c, qm):
@@ -1222,7 +1497,7 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         elif dtype in (28, 29, 30):  # BF16
             out_dtype = DT_BF16
             _ok_2d = (len(shape) == 2 and shape[0] >= _block)
-            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and _ok_2d:
+            if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "q8_0") and _ok_2d:
                 rows, cols = shape[1], shape[0]
                 out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
                 def make_writer(b_off, r, c, qm):
@@ -1288,8 +1563,20 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         q_head_dim = hidden // max(1, heads)
     k_head_dim = metadata.get(f"{arch_prefix}.attention.key_length", q_head_dim)
     v_head_dim = metadata.get(f"{arch_prefix}.attention.value_length", k_head_dim)
+    if architecture in {"qwen35", "qwen3.5", "qwen3_5"}:
+        # GGUF metadata in some Qwen3.8 exports reports a packed Q+gate
+        # width as query_length. Derive the actual attention head width from
+        # the full-attention tensor shape instead.
+        for mapped_name, mapped_shape, _, _ in raw_tensors:
+            if mapped_name.endswith("self_attn.q_proj.weight") and len(mapped_shape) == 2:
+                packed_q = int(mapped_shape[1])
+                if heads and packed_q % (2 * heads) == 0:
+                    q_head_dim = packed_q // (2 * heads)
+                    break
     head_dim = q_head_dim
-    layers = metadata.get(f"{arch_prefix}.block_count", 0)
+    total_layers = metadata.get(f"{arch_prefix}.block_count", 0)
+    has_mtp = any(".mtp." in t[0] for t in raw_tensors)
+    layers = total_layers - 1 if architecture in {"qwen35", "qwen3.5", "qwen3_5"} and has_mtp else total_layers
     vocab = metadata.get(f"{arch_prefix}.vocab_size", 0)
     if not vocab:
         for t in tensors:
@@ -1298,6 +1585,18 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
                 break
     ctx = metadata.get(f"{arch_prefix}.context_length", 2048)
 
+    ssm_inner = ssm_state = ssm_groups = ssm_dt_rank = ssm_conv_kernel = 0
+    if architecture in {"qwen35", "qwen3.5", "qwen3_5"}:
+        for mapped_name, mapped_shape, _, _ in raw_tensors:
+            if mapped_name.endswith("self_attn.gdn_qkv.weight") and len(mapped_shape) == 2:
+                ssm_inner = int(mapped_shape[1])
+            elif mapped_name.endswith("self_attn.gdn_norm.weight") and len(mapped_shape) == 1:
+                ssm_state = int(mapped_shape[0])
+            elif mapped_name.endswith("self_attn.gdn_beta.weight") and len(mapped_shape) == 2:
+                ssm_groups = int(mapped_shape[1])
+                ssm_dt_rank = ssm_groups
+            elif mapped_name.endswith("self_attn.gdn_conv1d.weight") and len(mapped_shape) == 2:
+                ssm_conv_kernel = int(mapped_shape[0])
     config_data = json.dumps({
         "hidden_size": hidden, "intermediate_size": inter,
         "num_attention_heads": heads, "num_key_value_heads": kv_heads,
@@ -1307,6 +1606,14 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         "k_dim": kv_heads * k_head_dim if kv_heads and k_head_dim else 0,
         "v_dim": kv_heads * v_head_dim if kv_heads and v_head_dim else 0,
         "num_hidden_layers": layers,
+        "architecture": architecture,
+        "is_qwen35": int(architecture in {"qwen35", "qwen3.5", "qwen3_5"}),
+        "total_layers": total_layers,
+        "mtp_layers": int(has_mtp),
+        "mtp_layer_start": layers if has_mtp else 0,
+        "ssm_inner": ssm_inner, "ssm_state": ssm_state,
+        "ssm_groups": ssm_groups, "ssm_dt_rank": ssm_dt_rank,
+        "ssm_conv_kernel": ssm_conv_kernel,
         "vocab_size": vocab, "max_position_embeddings": ctx,
         "bos_token_id": int(metadata.get("tokenizer.ggml.bos_token_id", -1)),
         "eos_token_id": int(metadata.get("tokenizer.ggml.eos_token_id", -1)),
@@ -1403,7 +1710,7 @@ def _read_pytorch_tensors(path: str, quant: str = "q4_0"):
 
 
 def convert_model(src: str, dst: str, quant: str = "q4_0") -> int:
-    """Universal Model Converter: Auto-detects .gguf, .safetensors, .pt/.pth/.bin, .onnx, .h5 and converts to .qwn."""
+    """Convert a verified GGUF, Safetensors, or PyTorch source to .qwn."""
     src_path = Path(src)
     ext = src_path.suffix.lower()
 
@@ -1445,7 +1752,7 @@ def convert_safetensors(src: str, dst: str, quant: str = "q4_0") -> int:
         name, dtype, shape = meta["name"], meta["dtype"], meta["shape"]
         # Safetensors is row-major [N,K]; .qwn stores fastest dimension first.
         qwn_shape = tuple(reversed(shape))
-        if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0") and dtype in ("F32", "F16", "BF16") and len(shape) == 2 and shape[1] >= QUANT_BLOCK_SIZES.get(quant, 32):
+        if quant in ("hyper_vsq2", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "q8_0") and dtype in ("F32", "F16", "BF16") and len(shape) == 2 and shape[1] >= QUANT_BLOCK_SIZES.get(quant, 32):
             rows, cols = shape
             out_dtype, payload_size = _get_quant_dtype_and_size(quant, rows, cols)
             tensor = {"name": name, "dtype": out_dtype, "shape": qwn_shape,
@@ -1517,7 +1824,7 @@ def main(argv=None):
     convert = sub.add_parser("convert")
     convert.add_argument("source")
     convert.add_argument("output")
-    convert.add_argument("--quant", choices=("pquant", "littlebit2", "hyper_vsq2", "twla", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "none"), default="hyper_vsq2")
+    convert.add_argument("--quant", choices=("pquant", "littlebit2", "hyper_vsq2", "twla", "hyper_vsq", "vsq_ultra", "vsq", "q4_0", "q8_0", "none"), default="hyper_vsq2")
     inspect = sub.add_parser("inspect")
     inspect.add_argument("model")
     args = parser.parse_args(argv)

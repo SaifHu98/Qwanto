@@ -1,10 +1,9 @@
 """Qualification evidence generator for the local Qwen3.8-27B GGUF source.
 
-This module deliberately stops before conversion.  GGUF is a source artifact
-in Qwanto Native, and the current native runtime has no validated Qwen3.8
-hybrid/DeltaNet/MTP execution path.  The parser is intentionally self
-contained so qualification can inspect a large GGUF header without importing
-an external runtime or allocating model weights.
+This module deliberately stops before conversion. It reports source and
+runtime gates without claiming that a converted model has been benchmarked.
+The parser is intentionally self contained so qualification can inspect a
+large GGUF header without importing an external runtime or allocating weights.
 """
 from __future__ import annotations
 
@@ -65,7 +64,8 @@ GGML_TYPES: Dict[int, Tuple[str, int, int]] = {
 
 # This is intentionally the same conservative source set enforced by the
 # current qwn_convert.py reader.  IQ dtypes are not silently reinterpreted.
-CURRENT_CONVERTER_DTYPES = {0, 1, 2, 8, 12, 13, 14, 28, 29, 30}
+CURRENT_CONVERTER_DTYPES = {0, 1, 2, 8, 10, 11, 12, 13, 14, 15,
+                            16, 17, 18, 20, 21, 22, 23, 28, 29, 30}
 MATRIX_QUANT_DTYPE = "HYPER_VSQ2 (planned; not emitted)"
 
 GGUF_SCALAR_SIZES = {
@@ -270,10 +270,12 @@ def _status_for(dtype_id: int, operator: str) -> Tuple[str, str, str]:
     reasons = []
     if dtype_id not in CURRENT_CONVERTER_DTYPES:
         reasons.append(f"GGUF dtype {_dtype_name(dtype_id)} ({dtype_id}) is not implemented by qwn_convert")
-    if operator in {"gated_deltanet", "gated_deltanet_state", "mtp_head"}:
-        reasons.append(f"native operator {operator} is not end-to-end implemented")
+    if operator in {"gated_deltanet", "gated_deltanet_state"}:
+        return "CONVERSION_READY", "CPU_INTEGRATION_PENDING_ORACLE", "CPU Gated DeltaNet path exists; model-level oracle is pending"
+    if operator == "mtp_head":
+        return "CONVERSION_READY", "RUNTIME_PENDING", "MTP tensors are mapped but prediction execution is pending"
     if operator == "full_attention" and dtype_id in CURRENT_CONVERTER_DTYPES:
-        return "BLOCKED_BY_MODEL_GATE", "BLOCKED_BY_MODEL_GATE", "Qwen3.8 hybrid model gate has not passed"
+        return "CONVERSION_READY", "CPU_INTEGRATION_PENDING_ORACLE", "full-attention tensor path is available; model-level oracle is pending"
     if reasons:
         detail = "; ".join(reasons)
         return "UNAVAILABLE", "UNAVAILABLE", detail
@@ -614,7 +616,7 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
     metadata = inspection["metadata"]
     architecture = inspection["architecture"]
     unsupported = inspection["dtype_summary"]["unsupported_by_current_converter"]
-    primary_decision = "UNSUPPORTED_QWEN38_ARCHITECTURE"
+    primary_decision = "READY_FOR_CONVERSION_RUNTIME_GATE"
     common = {
         "schema_version": 1,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -627,7 +629,7 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
         "document_type": "required_tensor_coverage_manifest",
         "source_tensor_count": inspection["gguf"]["tensor_count"],
         "coverage_complete": len(inspection["tensors"]) == inspection["gguf"]["tensor_count"],
-        "conversion_status": "BLOCKED_BEFORE_OUTPUT",
+        "conversion_status": "CONVERTER_READY_NOT_EXECUTED",
         "architecture": architecture,
         "dtypes": inspection["dtype_summary"],
         "tensors": inspection["tensors"],
@@ -638,16 +640,17 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
         "document_type": "conversion_feasibility_report",
         "decision": primary_decision,
         "secondary_blockers": [
-            "UNSUPPORTED_SOURCE_QUANTIZATION",
             "CONVERSION_SOURCE_SUPPORTED_RUNTIME_INCOMPLETE",
+            "MTP_RUNTIME_PENDING",
+            "MOE_RUNTIME_PENDING",
         ],
         "architecture_gate": {
-            "status": "BLOCKED",
+            "status": "PARTIAL_CPU_MAIN_PATH",
             "architecture": architecture["general_architecture"],
             "reasons": [
-                "48 Gated DeltaNet/SSM layer state tensors have no native execution path",
-                "4 MTP tensors have no validated target execution path",
-                "current decoder cannot prove full hybrid layer coverage",
+                "CPU Gated DeltaNet and full-attention main-path execution is integrated",
+                "4 MTP tensors are mapped but have no native prediction execution path",
+                "MTP prediction, MoE dispatch, CUDA hybrid coverage, and model oracle remain pending",
             ],
         },
         "source_quantization": {
@@ -657,21 +660,21 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
             "unsupported_dtype_ids": unsupported,
             "unsupported_dtype_names": inspection["dtype_summary"]["unsupported_names"],
             "status": "UNSUPPORTED_SOURCE_QUANTIZATION" if unsupported else "SUPPORTED_SOURCE_QUANTIZATION",
-            "reason": "Current converter has no exact IQ2/IQ3/IQ4 block decoder for these source tensor dtypes; no reinterpretation is permitted.",
+            "reason": "Verified IQ2/IQ3/IQ4 source blocks are decoded and supported native QWN IQ row kernels; model-level architecture gates remain separate.",
         },
         "conversion_policy": {
             "attempted": False,
             "temporary_output": None,
             "managed_output_directory": str(_managed_model_dir()),
-            "atomic_rename": "not reached because feasibility gate failed",
+            "atomic_rename": "not reached; this command is a descriptor-only preflight",
             "no_model_weights_written": True,
         },
         "estimates": _projected_qwn_size(inspection["tensors"], _tokenizer_estimate(metadata)),
         "safety": {
-            "status": "REFUSED_BEFORE_CONVERSION",
-            "peak_ram": "not claimed; exact hybrid conversion path unavailable",
+            "status": "READY_FOR_CONVERSION_RUNTIME_GATE",
+            "peak_ram": "not claimed; this preflight does not convert or execute weights",
             "temporary_disk": "projected output plus safety margin only",
-            "reason": "Do not spend memory or disk on a partial QWN artifact.",
+            "reason": "Conversion and native execution are separate gates; no output is written by this preflight.",
         },
     })
     hardware = _hardware_fit(inspection, ram_bytes, vram_bytes, gpu_name, _managed_model_dir())
@@ -700,8 +703,8 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
             "tool_call_prompts": 0,
         },
         "blocked_reasons": [
-            "No valid QWN output exists because Qwen3.8 hybrid architecture is unsupported.",
-            "Source IQ dtypes have no exact current converter decoder.",
+            "This descriptor-only qualification does not execute the local QWN artifact.",
+            "MTP, MoE, CUDA hybrid, and model-quality oracle gates remain.",
         ],
     })
     agent_quality = dict(common)
@@ -723,7 +726,7 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
         ],
         "recording_contract": ["prompt", "response", "seed", "patch", "test_result", "timing", "runtime_config"],
         "executed_tasks": 0,
-        "reason": "Agent evaluation requires a validated native QWN model and complete hybrid runtime; neither exists.",
+        "reason": "Agent evaluation requires a model-quality oracle and complete hybrid runtime; the CPU main path alone is insufficient.",
     })
     benchmark = dict(common)
     benchmark.update({
@@ -742,7 +745,7 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
         "gpu_matmul_count": 0,
         "cpu_fallback_count": None,
         "throughput": {"prefill_tok_per_sec": None, "decode_tok_per_sec": None, "ttft_ms": None},
-        "reason_unavailable": "No validated QWN conversion; GGUF source cannot be activated by qwnrun.",
+        "reason_unavailable": "No promoted Qwen3.8 benchmark exists; the local CPU integration run is intentionally excluded.",
         "contexts_requested": [4096, 8192],
         "no_projected_performance_claim": True,
     })
@@ -751,11 +754,11 @@ def build_reports(inspection: Dict[str, Any], output_dir: Path,
         "document_type": "qwen38_qualification_summary",
         "decision": primary_decision,
         "decision_alternatives_not_selected": {
-            "QWN_27B_VALIDATED": "not eligible: no conversion, correctness, or runtime coverage",
-            "CONVERSION_SOURCE_SUPPORTED_RUNTIME_INCOMPLETE": "secondary description, but source quantization also fails current converter support",
-            "UNSUPPORTED_SOURCE_QUANTIZATION": "secondary blocker; hybrid architecture is the primary decision",
+            "QWN_27B_VALIDATED": "not eligible: MTP/MoE/quality/benchmark gates remain",
+            "CONVERSION_SOURCE_SUPPORTED_RUNTIME_INCOMPLETE": "CPU main path integrated, full architecture runtime incomplete",
+            "UNSUPPORTED_SOURCE_QUANTIZATION": "not selected when all observed source dtypes have verified readers",
             "HARDWARE_FIT_FAILED": "fit cannot be finalized before required operators exist",
-            "QUALITY_GATE_FAILED": "quality tests did not run because runtime gate failed closed",
+            "QUALITY_GATE_FAILED": "quality tests did not run because the transformer-level oracle is pending",
         },
         "source_facts": {
             "gguf_version": inspection["gguf"]["version"],

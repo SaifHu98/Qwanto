@@ -1,32 +1,35 @@
-# Qwen3.8-27B qualification — fail-closed result
+# Qwen3.8-27B qualification — current integration status
 
-Generated from commit `a1984025880cd2de41c442472f1b2c951b882b5f` for the
-local source artifact:
+The original fail-closed source qualification was generated from commit
+`a1984025880cd2de41c442472f1b2c951b882b5f`. The current working tree has since
+added the source conversion contract and a native CPU main-path integration
+for the same local source artifact:
 
 `models/Qwen3.8-27B-UD-IQ2_M.gguf`
 
-The source is an offline conversion input only. It was not activated through
-`qwnrun`, no QWN output was created, and no 31.5 GB Q8 file was downloaded.
+The source remains an offline conversion input. The current local QWN artifact
+is `models/Qwen3.8-27B-Q4_0.qwn`; it is an ignored local diagnostic artifact,
+not benchmark evidence or a release asset.
 
 ## Decision
 
-**`UNSUPPORTED_QWEN38_ARCHITECTURE`**
+**`CPU_MAIN_PATH_INTEGRATION_VERIFIED`**
 
-The decision is fail-closed and has two independent blockers:
+This status is intentionally narrower than full Qwen3.8 support. The local
+Q4_0 conversion and one-token native CPU run execute the main transformer path,
+including full attention and Gated DeltaNet recurrent layers. Independent
+blockers remain:
 
-1. The file is a `qwen35` hybrid model. It contains 65 layers, 48
-   Gated DeltaNet/SSM state-bearing layers, 17 full-attention layers, and
-   four MTP tensors in layer 64. The current native decoder does not have a
-   validated Gated DeltaNet recurrent-state, hybrid scheduling, or MTP
-   execution path.
-2. The file advertises GGUF file type 14 (`IQ2_M`) but its tensor table is a
-   mixed quantization set: Q2_K/Q3_K, IQ3_XXS, IQ3_S, IQ2_S, IQ4_XS, F32, and
-   BF16. The current converter has no exact decoder for the IQ tensor types;
-   none may be reinterpreted as another QWN dtype.
+1. MTP tensors are preserved by conversion but the native decoder does not yet
+   execute the MTP prediction head or speculative MTP transaction path.
+2. The local artifact is Q4_0; native QWN IQ2/IQ3/IQ4 payload preservation and
+   row decoding are now verified independently, but they are not yet integrated
+   into this full hybrid model path. Q2_K/Q3_K/Q8_K have native scalar QWN
+   payload support.
+3. MoE dispatch, hybrid CUDA execution, independent quality/reference-oracle
+   validation, and benchmark evidence remain unavailable.
 
-This is not a Qwen3.8 support claim. The valid future outcome remains blocked
-until every required operator, tensor mapping, tokenizer path, correctness
-oracle, and hardware placement plan is implemented and tested.
+Therefore this is not a full Qwen3.8 support or performance claim.
 
 ## Source inspection
 
@@ -44,7 +47,7 @@ oracle, and hardware placement plan is implemented and tested.
 | Attention heads / KV heads | 24 / 4 |
 | Key/value head length | 256 / 256 |
 | Gated DeltaNet state size | 128 |
-| DeltaNet groups / inner size | 16 / 6144 |
+| DeltaNet groups / inner size | 48 / 10240 |
 | MTP prediction layers | 1 |
 | Chat template | present; includes optional image/video branches |
 | Vision tensors | none |
@@ -70,29 +73,28 @@ separate CPU/CUDA implementation statuses:
 
 [architecture-coverage.json](qwen38-27b-evidence/architecture-coverage.json)
 
-The manifest reports `coverage_complete=true`, `source_tensor_count=866`, and
-`conversion_status=BLOCKED_BEFORE_OUTPUT`. No partial model is represented as a
-valid QWN model.
+The historical manifest reports `coverage_complete=true` for the inspected
+source tensor table. Current conversion uses the expanded tensor mapping in
+`c/tools/qwn_convert.py`; no partial model is represented as a valid QWN model.
 
-## Conversion feasibility
+## Conversion and native integration
 
-The converter was exercised against the real source with `--quant hyper_vsq2`.
-It failed before writing an output:
+The converter was exercised against the real source with `--quant q4_0` and
+produced `models/Qwen3.8-27B-Q4_0.qwn`. Structural inspection confirmed the
+4 KiB header/alignment contract, 868 QWN tensors including configuration and
+tokenizer metadata, and `ssm_inner=10240`.
 
 ~~~text
-ValueError: native QWN conversion is unavailable until the architecture is fully implemented:
-Qwen3.5 hybrid Transformer/SSM execution, SSM state/tensor execution
+qwnrun result: status=ok tokens=1 wall_seconds=24.610000
+backend=cpu kernel=avx2-fma-f16c-forced kv_cache_mode=fp16
 ~~~
 
-The target was confirmed absent after the failure. The report also records the
-actual unsupported source dtype IDs and a clearly labelled projected size. The
-projection is not a converted artifact or a performance claim:
+This is a single local integration diagnostic. It is not a benchmark row; no
+performance evidence file was changed and no throughput claim is made.
 
-- projected QWN payload: 7,917,248,270 bytes;
-- projected QWN container size: 7,918,161,952 bytes;
-- source quantization support: `UNSUPPORTED_SOURCE_QUANTIZATION` for the IQ
-  dtypes present;
-- conversion state: `REFUSED_BEFORE_CONVERSION`;
+- source quantization support: IQ2/IQ3/IQ4 source decoding is available;
+- target conversion state: `CONVERTED_Q4_0_LOCAL`;
+- native target dtype state: Q4_0 main path verified; supported native IQ row kernels are verified independently;
 - managed destination model directory: the Qwanto Code OS app-data model
   directory, never the installation directory.
 
@@ -111,11 +113,10 @@ were computed for the 17 full-attention layers only:
 | 16384 | 1,140,850,688 bytes |
 | 32768 | 2,281,701,376 bytes |
 
-The Gated DeltaNet recurrent-state size is intentionally `UNAVAILABLE`; the
-native state layout is not implemented. Therefore complete VRAM residency,
-RAM placement, or measured streaming cannot be proven. Context 262K was not
-attempted. The report is classified `HARDWARE_FIT_FAILED` for qualification,
-not as evidence that a future complete implementation could never fit.
+The Gated DeltaNet recurrent state is allocated by the current CPU decoder,
+but complete VRAM residency, RAM placement, long-context streaming, or
+production memory fit cannot be proven by the one-token run. Context 262K was
+not attempted. CUDA hybrid execution remains unavailable.
 
 [hardware-fit.json](qwen38-27b-evidence/hardware-fit.json)
 
@@ -126,8 +127,8 @@ claim Qwen3.8 coverage.
 
 ## Correctness and agent quality
 
-The correctness oracle and agent evaluation were not run. Running them before
-a valid conversion would make skipped layers or a partial QWN appear valid.
+The correctness oracle and agent evaluation were not run. The one-token native
+run proves execution of the current main path, not model-quality parity.
 Acceptance criteria were defined in advance in the machine-readable report:
 tensor finite/error bounds, layer cosine/error bounds, top-k overlap, KL
 divergence, greedy agreement over 100 prompts, chat-template parity, tool-call
@@ -141,17 +142,17 @@ was invoked and none is bundled or selectable by production code.
 
 ## Benchmark evidence
 
-No Qwen3.8 benchmark was executed. The evidence record has no executable hash,
-QWN model hash, backend result, token rate, or CUDA matmul claim. It is
-classified `UNAVAILABLE` and records contexts 4096 and 8192 as future gates;
-262K is outside this qualification phase.
+No Qwen3.8 benchmark was executed. The historical evidence record has no
+promoted performance row; the local integration run is deliberately excluded
+from benchmark evidence. Contexts 4096 and 8192 remain future measurement
+gates; 262K is outside this qualification phase.
 
 [benchmark-evidence.json](qwen38-27b-evidence/benchmark-evidence.json)
 
 ## Validation boundary
 
-The local qualification tests cover unknown-IQ rejection, hybrid conversion
-failure before output, complete real-source header coverage when the fixture is
-present, and the no-QWN-output invariant. Full native CUDA model validation,
-Rust/Tauri, and hosted CI remain separate gates. No README performance values,
-tag, or release were changed by this qualification experiment.
+The local qualification tests cover source tensor/header contracts, native K
+dequantization, real-source conversion metadata, and the native CPU decoder
+integration. Full MTP, MoE, CUDA hybrid, model-quality, Rust/Tauri,
+and hosted CI validation remain separate gates. No README performance values,
+benchmark evidence, tag, or release were changed by this integration work.

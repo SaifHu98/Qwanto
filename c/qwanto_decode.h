@@ -18,6 +18,9 @@ typedef struct {
     int vocab, max_ctx, bos_id, eos_id;
     float rms_eps, rope_theta;
     int tie_embeddings;
+    int is_qwen35;
+    int total_layers, mtp_layers, mtp_layer_start;
+    int ssm_inner, ssm_state, ssm_groups, ssm_dt_rank, ssm_conv_kernel;
 } QwnConfig;
 
 /* Per-layer tensor descriptor cache — resolved once at load, zero lookup cost at runtime.
@@ -33,7 +36,12 @@ typedef struct {
     const QwnTensorDesc *q_norm, *k_norm;
     const QwnTensorDesc *input_norm, *post_norm;
     const QwnTensorDesc *gate_proj, *up_proj, *down_proj;
+    const QwnTensorDesc *ssm_qkv, *ssm_gate;
+    const QwnTensorDesc *ssm_alpha, *ssm_beta, *ssm_a, *ssm_dt;
+    const QwnTensorDesc *ssm_conv1d, *ssm_norm, *ssm_out;
     int q_out;            /* = shape[1] of q_proj, 0 if no q_proj */
+    int q_proj_out;       /* raw q projection width (Qwen3.5 includes Q+gate) */
+    int q_gate_out;       /* gate width paired with q_out, normally q_out */
     int k_out;            /* = shape[1] of k_proj, 0 if no k_proj */
     int v_out;            /* = shape[1] of v_proj, 0 if no v_proj */
     int q_head_dim;
@@ -183,6 +191,10 @@ typedef struct QwnDecoder {
     void *kv_allocation;
     float *x, *xb, *q, *k, *v, *att, *ctx, *gate, *up, *hidden, *logits;
     float *norm_weights;
+    float *ssm_states;
+    float *ssm_conv_states;
+    size_t ssm_state_layer_stride;
+    size_t ssm_conv_layer_stride;
     int position;
     QwnLayerTensors *layer_cache; /* resolved at load time */
     const QwnTensorDesc *embed_weight;

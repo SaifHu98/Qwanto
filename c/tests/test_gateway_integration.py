@@ -66,6 +66,7 @@ def test_local_gateway_exposes_stable_control_plane_endpoints(tmp_path):
 
         models = _get_json(f"{base}/v1/models")
         config = _get_json(f"{base}/v1/qwanto/config")
+        model_presets = _get_json(f"{base}/v1/qwanto/model-presets")
         telemetry = _get_json(f"{base}/v1/qwanto/telemetry")
 
         assert health["gateway"] == "qwanto"
@@ -75,6 +76,10 @@ def test_local_gateway_exposes_stable_control_plane_endpoints(tmp_path):
         assert isinstance(models["data"], list)
         assert config["schema_version"] == "1"
         assert "backend" in config
+        assert {preset["id"] for preset in model_presets["presets"]} == {
+            "qwen38-flash-next-ud-q4-k-xl", "qwen38-27b-q4-k-m"
+        }
+        assert len(next(p for p in model_presets["presets"] if p["id"] == "qwen38-flash-next-ud-q4-k-xl")["files"]) == 4
         assert telemetry["schema_version"] == "1"
         assert "request_count" in telemetry
     finally:
@@ -186,4 +191,3 @@ def test_models_verify_endpoint(tmp_path):
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate(timeout=5)
-

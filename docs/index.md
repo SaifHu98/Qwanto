@@ -20,6 +20,7 @@ model.
 - [Web UI boundary](web-ui.md)
 - [Packaging](packaging.md)
 - [Release engineering plan](release-engineering-plan.md)
+- [Native quality and benchmark gates](quality-and-benchmarking.md)
 - [Release readiness](../RELEASE_READINESS.md)
 
 The browser is a chat-only client. Project inspection, file access, terminal

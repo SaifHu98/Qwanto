@@ -167,6 +167,12 @@ fn get_telemetry_snapshot() -> Result<TelemetrySnapshot, String> {
 }
 
 #[tauri::command]
+fn record_error(source: String, message: String, context: Option<String>, app: AppHandle) -> Result<(), String> {
+    let root = app.path().app_data_dir().map_err(|error| format!("Application data directory is unavailable: {error}"))?;
+    diagnostics::record_error(&root, &source, &message, context.as_deref().unwrap_or(""))
+}
+
+#[tauri::command]
 fn set_workspace_root(root_path: String, state: State<AppState>) -> Result<String, String> {
     let path = PathBuf::from(&root_path);
     let mut policy = state.permission_policy.lock().map_err(|e| e.to_string())?;
@@ -526,6 +532,7 @@ pub fn run() {
             cancel_generation,
             get_runtime_status,
             get_telemetry_snapshot,
+            record_error,
             set_workspace_root,
             set_execution_mode,
             execute_agent_tool,

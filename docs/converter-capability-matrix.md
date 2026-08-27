@@ -7,15 +7,24 @@ that its tensor dtype can be dequantized, and conversion does not imply that
 the native runtime can execute the resulting operators.
 
 The converter currently supports exact scalar handling for the listed F32,
-F16, BF16, Q4_0, Q4_K, Q5_K, and Q6_K paths where the tensor descriptor and
-shape meet their implemented rules. Q8_K and IQ2/IQ3/IQ4 are unsupported
-source dtypes in the current converter. An unknown block layout fails closed.
+F16, BF16, Q4_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, Q8_K, IQ2, IQ3, IQ4_XS, and
+IQ4_NL source paths where the tensor descriptor and shape meet their implemented
+rules. IQ1 source dtypes remain unsupported. An unknown block layout fails
+closed.
 
-Qwen3.8/Qwen3.5 hybrid models remain
-`UNSUPPORTED_QWEN38_ARCHITECTURE`. Their required Gated DeltaNet state,
-hybrid scheduling, MTP tensors, and mixed IQ dtypes are not silently skipped
-or reinterpreted. The qualification evidence under
-[`qwen38-27b-qualification.md`](qwen38-27b-qualification.md) remains the authority.
+Qwen3.8/Qwen3.5 hybrid conversion is available for the validated local Q4_0
+main-path contract. The native CPU decoder executes the converted Qwen3.8
+Gated DeltaNet/full-attention layers, while MTP execution,
+MoE dispatch, CUDA hybrid execution, and quality/reference-oracle validation
+remain separate gates. The qualification evidence under
+[`qwen38-27b-qualification.md`](qwen38-27b-qualification.md) remains the
+authority; it does not promote this integration run to benchmark evidence.
+
+Native QWN `Q2_K`, `Q3_K`, and `Q8_K` payloads are supported by the scalar
+decoder path. Supported IQ2/IQ3/IQ4 payloads can be preserved as native QWN
+IQ descriptors and have differential row-kernel coverage against the Python
+GGML reference. This is dtype/runtime evidence only; it does not promote a
+hybrid Flash-Next model to full architecture support.
 
 Conversion is a streaming source-block → canonical FP32/FP16 chunk → QWN
 quantization pipeline where the source decoder supports it. Publication is

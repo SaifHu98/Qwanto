@@ -50,7 +50,7 @@ export function ConverterView({
 }: ConverterViewProps) {
   const [sourcePath, setSourcePath] = useState("")
   const [outputPath, setOutputPath] = useState("")
-  const [quantMode, setQuantMode] = useState<"hyper_vsq" | "vsq_ultra" | "vsq" | "q4_0" | "none">("hyper_vsq")
+  const [quantMode, setQuantMode] = useState<"hyper_vsq" | "vsq_ultra" | "vsq" | "q4_0" | "q8_0" | "none">("hyper_vsq")
   const [autoActivate, setAutoActivate] = useState(true)
   const [status, setStatus] = useState<ConversionStatus>({
     status: "idle",
@@ -384,6 +384,24 @@ export function ConverterView({
 
                 <button
                   type="button"
+                  onClick={() => setQuantMode("q8_0")}
+                  className={`p-2 rounded-lg border text-left transition ${
+                    quantMode === "q8_0"
+                      ? "bg-primary/15 border-primary text-foreground"
+                      : "bg-background/40 border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="font-semibold text-xs flex items-center justify-between">
+                    <span>Q8_0 SIMD</span>
+                    <Badge className="text-[9px] bg-muted text-muted-foreground">Native</Badge>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Symmetric 32-element blocks for quality-first local inference.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setQuantMode("none")}
                   className={`p-2 rounded-lg border text-left transition ${
                     quantMode === "none"
@@ -403,7 +421,7 @@ export function ConverterView({
             </div>
 
             {/* Memory & Size Comparison Card */}
-            {(quantMode === "hyper_vsq" || quantMode === "vsq_ultra" || quantMode === "vsq" || quantMode === "q4_0") && (
+            {(quantMode === "hyper_vsq" || quantMode === "vsq_ultra" || quantMode === "vsq" || quantMode === "q4_0" || quantMode === "q8_0") && (
               <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium text-foreground flex items-center gap-1.5">

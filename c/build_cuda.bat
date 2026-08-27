@@ -31,6 +31,7 @@ nvcc -O3 -std=c++17 --shared -DQWN_CUDA_BUILDING_DLL ^
   -gencode arch=compute_80,code=sm_80 ^
   -gencode arch=compute_86,code=sm_86 ^
   -gencode arch=compute_89,code=sm_89 ^
+  -gencode arch=compute_89,code=compute_89 ^
   -gencode arch=compute_120,code=sm_120 ^
   -Xcompiler="/O2 /MD /D_CRT_SECURE_NO_WARNINGS" ^
   c/cuda/qwn_hypervsq2_cuda_abi.cu -o c/qwn_cuda.dll -lcudart
@@ -40,14 +41,12 @@ if %ERRORLEVEL% NEQ 0 (
   exit /b 1
 )
 echo [OK] Built c/qwn_cuda.dll. qwnrun will load it dynamically when present.
-
 echo [INFO] Building the legacy multi-GPU backend used by COLI_CUDA...
 nvcc -O3 -std=c++17 --shared -DCOLI_CUDA_BUILDING_DLL ^
   -gencode arch=compute_75,code=sm_75 ^
   -gencode arch=compute_80,code=sm_80 ^
   -gencode arch=compute_86,code=sm_86 ^
   -gencode arch=compute_89,code=sm_89 ^
-  -gencode arch=compute_89,code=compute_89 ^
   -Xcompiler="/O2 /MD /D_CRT_SECURE_NO_WARNINGS" ^
   c/backend_cuda.cu -o c/coli_cuda.dll -lcublas -lcudart
 if %ERRORLEVEL% NEQ 0 (

@@ -22,7 +22,7 @@ from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL_LIBRARY = PROJECT_ROOT / "models"
-DEFAULT_MAX_BYTES = 64 * 1024 * 1024 * 1024
+DEFAULT_MAX_BYTES = 128 * 1024 * 1024 * 1024
 MIN_FREE_BYTES = 64 * 1024 * 1024
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 SUPPORTED_SOURCE_FORMATS = {"gguf", "safetensors", "pytorch"}
@@ -56,6 +56,76 @@ class ProviderManifest:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# Official, metadata-only model choices exposed by the local UI.  The URLs are
+# resolved only after the user explicitly starts a download.  HF does not
+# publish checksums in the model-card directory listing, so these artifacts
+# remain honestly marked as unverified until a checksum is supplied.
+OFFICIAL_MODEL_PRESETS = {
+    "qwen38-flash-next-ud-q4-k-xl": {
+        "id": "qwen38-flash-next-ud-q4-k-xl",
+        "name": "Qwen3.8-Flash-Next · UD-Q4_K_XL",
+        "role": "official_agent",
+        "provider": "huggingface",
+        "repository": "unsloth/Qwen3.8-Flash-Next-GGUF",
+        "revision": "main",
+        "subfolder": "UD-Q4_K_XL",
+        "files": [
+            "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+            "Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf",
+            "Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf",
+            "Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf",
+        ],
+        "size_display": "~111 GB · 4 GGUF shards",
+        "architecture": "Gated DeltaNet + QSA + MoE + MTP",
+        "runtime_state": "external_source_only",
+        "source_url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/tree/main/UD-Q4_K_XL",
+    },
+    "qwen38-27b-q4-k-m": {
+        "id": "qwen38-27b-q4-k-m",
+        "name": "Qwen3.8-27B · Q4_K_M",
+        "role": "lightweight_fallback",
+        "provider": "huggingface",
+        "repository": "ggml-org/Qwen3.8-27B-GGUF",
+        "revision": "main",
+        "subfolder": "",
+        "files": ["Qwen3.8-27B-Q4_K_M.gguf"],
+        "size_display": "~19 GB · single GGUF",
+        "architecture": "Qwen3.8-27B",
+        "runtime_state": "external_source_only",
+        "source_url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/tree/main",
+    },
+}
+
+
+def model_preset_catalog() -> list[dict]:
+    """Return official preset metadata without network access or side effects."""
+    return [
+        {
+            key: value
+            for key, value in preset.items()
+            if key != "files"
+        } | {"files": list(preset["files"])}
+        for preset in OFFICIAL_MODEL_PRESETS.values()
+    ]
+
+
+def model_preset_manifests(preset_id: str) -> tuple[dict, list[ProviderManifest]]:
+    """Build a validated manifest list for one official preset."""
+    try:
+        preset = OFFICIAL_MODEL_PRESETS[preset_id]
+    except KeyError as exc:
+        raise AcquisitionError(f"Unknown official model preset: {preset_id}") from exc
+    manifests = [
+        HuggingFaceProvider.manifest(
+            preset["repository"],
+            "/".join(part for part in (preset["subfolder"], filename) if part),
+            revision=preset["revision"],
+        )
+        for filename in preset["files"]
+    ]
+    return preset, manifests
 
 
 def _safe_filename(filename: str) -> str:
@@ -496,6 +566,156 @@ class SafeDownloadManager:
                 self._update(retry_count=attempt + 1)
                 offset = partial.stat().st_size if partial.exists() else 0
                 time.sleep(0.2 * (attempt + 1))
+
+    def start_bundle(
+        self,
+        preset_id: str,
+        manifests: list[ProviderManifest],
+        *,
+        destination: Optional[Path | str] = None,
+        metadata: Optional[dict] = None,
+        overwrite: bool = False,
+        allow_localhost_http: bool = False,
+    ) -> None:
+        """Download a multi-file model atomically per shard.
+
+        Completed shards are never replaced implicitly.  A small manifest is
+        written after each successful shard so an interrupted bundle can be
+        resumed without redownloading completed files.
+        """
+        if not manifests:
+            raise AcquisitionError("The model preset contains no files.")
+        with self.lock:
+            if self._status["status"] in {"downloading", "paused"}:
+                raise AcquisitionError("A download is already in progress.")
+        bundle_name = _safe_filename(preset_id)
+        bundle_dir = self.model_library / bundle_name if destination is None else Path(destination).resolve()
+        if not _within(self.model_library, bundle_dir):
+            raise AcquisitionError("Bundle destination must remain inside the model library.")
+        if bundle_dir.exists() and not bundle_dir.is_dir():
+            raise AcquisitionError(f"Bundle destination is not a directory: {bundle_dir}")
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        for manifest in manifests:
+            if manifest.expected_size is not None and (
+                manifest.expected_size < 0 or manifest.expected_size > self.max_bytes
+            ):
+                raise AcquisitionError("A bundle artifact exceeds the configured maximum download size.")
+            if manifest.provider != "local_file":
+                host = urllib.parse.urlsplit(manifest.url).hostname
+                if not host:
+                    raise AcquisitionError("Bundle artifact has no download host.")
+                validate_download_url(
+                    manifest.url,
+                    allowed_hosts={host},
+                    allow_localhost_http=allow_localhost_http,
+                )
+        marker = bundle_dir / ".qwanto-bundle.json"
+        previous = {}
+        if marker.exists():
+            try:
+                previous = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, TypeError, json.JSONDecodeError) as exc:
+                raise AcquisitionError(f"Existing bundle manifest is invalid: {exc}") from exc
+            if previous.get("preset_id") != preset_id:
+                raise AcquisitionError("The destination already belongs to a different model preset.")
+        completed = set(previous.get("completed_files", []))
+        marker_data = {
+            "schema_version": 1,
+            "preset_id": preset_id,
+            "runtime_state": "external_source_only",
+            "verification": "unverified",
+            "metadata": metadata or {},
+            "files": [manifest.to_dict() for manifest in manifests],
+            "completed_files": sorted(completed),
+        }
+        self._write_bundle_marker(marker, marker_data)
+        self.cancel_event.clear()
+        self.pause_event.clear()
+        self._update(
+            status="downloading", filename=preset_id, dest_path=str(bundle_dir),
+            partial_path="", url="", provider="huggingface", downloaded=0, total=0,
+            progress=0.0, speed=0.0, speed_bytes_per_sec=0.0, eta_seconds=None,
+            error=None, verification="unverified", sha256=None, retry_count=0,
+            bundle_id=preset_id, current_file="", files_done=len(completed),
+            files_total=len(manifests), bundle_mode=True,
+        )
+        self.thread = threading.Thread(
+            target=self._run_bundle,
+            args=(preset_id, manifests, bundle_dir, marker, marker_data, completed, overwrite, allow_localhost_http),
+            daemon=True,
+        )
+        self.thread.start()
+
+    @staticmethod
+    def _write_bundle_marker(marker: Path, data: dict) -> None:
+        temporary = marker.with_name(marker.name + ".part")
+        temporary.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(temporary, marker)
+
+    def _run_bundle(
+        self,
+        preset_id: str,
+        manifests: list[ProviderManifest],
+        bundle_dir: Path,
+        marker: Path,
+        marker_data: dict,
+        completed: set[str],
+        overwrite: bool,
+        allow_localhost_http: bool,
+    ) -> None:
+        try:
+            for index, manifest in enumerate(manifests):
+                target = bundle_dir / manifest.filename
+                partial = target.with_name(target.name + ".part")
+                if manifest.filename in completed:
+                    if not target.is_file():
+                        completed.remove(manifest.filename)
+                    else:
+                        continue
+                if target.exists() and not overwrite:
+                    raise AcquisitionError(
+                        f"Refusing to overwrite existing bundle artifact: {target.name}"
+                    )
+                self._update(
+                    filename=f"{preset_id}: {manifest.filename}", current_file=manifest.filename,
+                    files_done=len(completed), files_total=len(manifests),
+                    partial_path=str(partial), progress=0.0, downloaded=partial.stat().st_size if partial.exists() else 0,
+                    total=manifest.expected_size or 0, verification=manifest.verification,
+                    sha256=manifest.sha256, retry_count=0,
+                )
+                if manifest.provider == "local_file":
+                    self._import_local(manifest, target, partial)
+                else:
+                    self._download_remote(manifest, target, partial, allow_localhost_http)
+                digest = sha256_file(partial)
+                if manifest.sha256 and digest.lower() != manifest.sha256.lower():
+                    raise AcquisitionError(f"SHA-256 mismatch: expected {manifest.sha256}, got {digest}")
+                if manifest.expected_size is not None and partial.stat().st_size != manifest.expected_size:
+                    raise AcquisitionError(
+                        f"Downloaded size mismatch: expected {manifest.expected_size}, got {partial.stat().st_size}"
+                    )
+                if target.exists() and not overwrite:
+                    raise AcquisitionError(f"Refusing to overwrite existing bundle artifact: {target.name}")
+                os.replace(partial, target)
+                completed.add(manifest.filename)
+                marker_data["completed_files"] = sorted(completed)
+                self._write_bundle_marker(marker, marker_data)
+                self._update(files_done=len(completed), current_file=manifest.filename)
+            self._update(
+                status="completed", filename=preset_id, current_file="", files_done=len(manifests),
+                files_total=len(manifests), progress=100.0, downloaded=0, total=0,
+                partial_path="", eta_seconds=0.0, error=None, verification="unverified",
+            )
+        except Exception as exc:
+            cancelled = self.cancel_event.is_set()
+            current = self.get_status().get("partial_path")
+            if cancelled and current:
+                Path(current).unlink(missing_ok=True)
+            self._update(
+                status="error",
+                error="Download cancelled by user" if cancelled else str(exc),
+                partial_path="" if cancelled else self.get_status().get("partial_path", ""),
+            )
 
 
 def validate_qwn(path: Path | str, *, include_hash: bool = True) -> dict:

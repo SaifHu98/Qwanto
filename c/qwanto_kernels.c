@@ -1,4 +1,5 @@
 #include "qwanto_kernels.h"
+#include "ggml_iq_grids.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -287,6 +288,47 @@ static float half_to_float(uint16_t h) {
 static float bf16_to_float(uint16_t h) {
     uint32_t bits = (uint32_t)h << 16;
     float out; memcpy(&out, &bits, sizeof(out)); return out;
+}
+
+/* Exact GGML K-quant block readers kept as a separate QWN dtype family.
+ * These are scalar reference decoders first; they preserve the source block
+ * ABI and therefore avoid silently converting IQ/K weights to another format. */
+static float qwn_k_value(const uint8_t *p, uint32_t dtype, int index) {
+    if (dtype == QWN_DT_Q8_K) {
+        uint32_t bits; memcpy(&bits, p, 4);
+        float d; memcpy(&d, &bits, 4);
+        return d * (float)((const int8_t *)(p + 4))[index];
+    }
+    uint16_t hd; memcpy(&hd, p + (dtype == QWN_DT_Q2_K ? 80 : 108), 2);
+    float d = half_to_float(hd);
+    if (dtype == QWN_DT_Q2_K) {
+        uint16_t hm; memcpy(&hm, p + 82, 2);
+        float dmin = half_to_float(hm);
+        int group = index / 16;
+        int local = index % 16;
+        int segment = group / 8;
+        int shift = ((group % 8) / 2) * 2;
+        int byte = segment * 32 + (group & 1) * 16 + local;
+        /* The packed layout is four 2-bit planes over each 32-byte half. */
+        int q = (p[16 + byte] >> (shift & 6)) & 3;
+        int scale = p[group] & 0x0f;
+        int minimum = p[group] >> 4;
+        return d * (float)scale * (float)q - dmin * (float)minimum;
+    }
+    /* Q3_K: low 2-bit planes plus one high/sign bit per value. */
+    int group = index / 16;
+    int local = index % 16;
+        int plane = group / 8;
+        int shift = ((group % 8) / 2) * 2;
+        int byte = plane * 32 + (group & 1) * 16 + local;
+    int ql = (p[32 + byte] >> (shift & 6)) & 3;
+    int qh = ((p[index % 32] >> (index / 32)) & 1) ^ 1;
+    int low_byte = group < 8 ? group : group - 8;
+    int low_shift = group < 8 ? 0 : 4;
+    int low = (p[96 + low_byte] >> low_shift) & 0x0f;
+    int high = (p[104 + (group & 3)] >> ((group / 4) * 2)) & 3;
+    int scale = (low | (high << 4)) - 32;
+    return d * (float)scale * (float)(ql - (qh << 2));
 }
 
 static float qwn_packed_value(const uint8_t *raw, uint32_t dtype,
@@ -1321,12 +1363,144 @@ int qwn_matmul_q4_0_f32(const QwnModel *m,
     return 0;
 }
 
+static const uint8_t qwn_iq_ksigns[128] = { 0, 129, 130, 3, 132, 5, 6, 135, 136, 9, 10, 139, 12, 141, 142, 15, 144, 17, 18, 147, 20, 149, 150, 23, 24, 153, 154, 27, 156, 29, 30, 159, 160, 33, 34, 163, 36, 165, 166, 39, 40, 169, 170, 43, 172, 45, 46, 175, 48, 177, 178, 51, 180, 53, 54, 183, 184, 57, 58, 187, 60, 189, 190, 63, 192, 65, 66, 195, 68, 197, 198, 71, 72, 201, 202, 75, 204, 77, 78, 207, 80, 209, 210, 83, 212, 85, 86, 215, 216, 89, 90, 219, 92, 221, 222, 95, 96, 225, 226, 99, 228, 101, 102, 231, 232, 105, 106, 235, 108, 237, 238, 111, 240, 113, 114, 243, 116, 245, 246, 119, 120, 249, 250, 123, 252, 125, 126, 255 };
+static const int8_t qwn_iq4_values[16] = {-127,-104,-83,-65,-49,-35,-22,-10,1,13,25,38,53,69,89,113};
+
+static int qwn_iq_sign(uint8_t code, int lane) {
+    return ((qwn_iq_ksigns[code & 0x7f] >> lane) & 1) ? -1 : 1;
+}
+
+static int qwn_iq_row_f32(const QwnModel *m, const QwnTensorDesc *t,
+                          int row, float *out, int width) {
+    const uint8_t *raw = (const uint8_t *)qwn_data(m, t);
+    if (!raw) return -1;
+    uint64_t blocks;
+    int block_elems, block_bytes;
+    switch (t->dtype) {
+        case QWN_DT_IQ2_XXS: block_elems = 256; block_bytes = 66; break;
+        case QWN_DT_IQ2_XS: block_elems = 256; block_bytes = 74; break;
+        case QWN_DT_IQ3_XXS: block_elems = 256; block_bytes = 98; break;
+        case QWN_DT_IQ3_S: block_elems = 256; block_bytes = 110; break;
+        case QWN_DT_IQ2_S: block_elems = 256; block_bytes = 82; break;
+        case QWN_DT_IQ4_NL: block_elems = 32; block_bytes = 18; break;
+        case QWN_DT_IQ4_XS: block_elems = 256; block_bytes = 136; break;
+        default: return -1;
+    }
+    blocks = ((uint64_t)width + (uint64_t)block_elems - 1) / (uint64_t)block_elems;
+    const uint8_t *p = raw + (size_t)row * (size_t)blocks * (size_t)block_bytes;
+    for (uint64_t b = 0; b < blocks; b++) {
+        const uint8_t *blk = p + (size_t)b * (size_t)block_bytes;
+        uint16_t dh;
+        memcpy(&dh, blk, sizeof(dh));
+        float d = half_to_float(dh);
+        int base = (int)(b * (uint64_t)block_elems);
+        int valid = width - base;
+        if (valid > block_elems) valid = block_elems;
+        if (t->dtype == QWN_DT_IQ4_NL) {
+            for (int i = 0; i < valid; i++) {
+                int nibble = i < 16 ? i : i - 16;
+                uint8_t q = (blk[2 + nibble] >> (i < 16 ? 0 : 4)) & 0x0f;
+                out[base + i] = d * (float)qwn_iq4_values[q];
+            }
+        } else if (t->dtype == QWN_DT_IQ4_XS) {
+            uint16_t sh;
+            memcpy(&sh, blk + 2, sizeof(sh));
+            int8_t scales[8];
+            for (int s = 0; s < 8; s++) {
+                uint8_t low = (blk[4 + (s >> 1)] >> ((s & 1) * 4)) & 0x0f;
+                uint8_t high = (uint8_t)((sh >> (s * 2)) & 0x03);
+                scales[s] = (int8_t)((low | (high << 4)) - 32);
+            }
+            for (int i = 0; i < valid; i++) {
+                int s = i >> 5;
+                int local = i & 31;
+                int nibble = local < 16 ? local : local - 16;
+                uint8_t q = (blk[8 + (s << 4) + nibble] >> (local < 16 ? 0 : 4)) & 0x0f;
+                out[base + i] = d * (float)scales[s] * (float)qwn_iq4_values[q];
+            }
+        } else if (t->dtype == QWN_DT_IQ2_XXS) {
+            for (int i = 0; i < valid; i++) {
+                int group = i >> 5, sub = (i >> 3) & 3, lane = i & 7;
+                uint32_t q0, q1;
+                memcpy(&q0, blk + 2 + group * 8, sizeof(q0));
+                memcpy(&q1, blk + 6 + group * 8, sizeof(q1));
+                uint8_t index = (uint8_t)((q0 >> (sub * 8)) & 0xff);
+                uint8_t sign_code = (uint8_t)((q1 >> (sub * 7)) & 0x7f);
+                float scale = d * (0.5f + (float)(q1 >> 28)) * 0.25f;
+                out[base + i] = scale * (float)qwn_iq_2_xxs[index * 8 + lane] * qwn_iq_sign(sign_code, lane);
+            }
+        } else if (t->dtype == QWN_DT_IQ2_XS) {
+            for (int i = 0; i < valid; i++) {
+                int pair = i >> 4, sub = (i >> 3) & 1, lane = i & 7;
+                uint16_t q;
+                memcpy(&q, blk + 2 + pair * 4 + sub * 2, sizeof(q));
+                int scale_index = pair;
+                uint8_t sb = blk[66 + (scale_index >> 1)];
+                float scale = d * (0.5f + (float)((sb >> ((scale_index & 1) * 4)) & 0x0f)) * 0.25f;
+                uint8_t index = (uint8_t)(q & 0x1ff);
+                uint8_t sign_code = (uint8_t)((q >> 9) & 0x7f);
+                out[base + i] = scale * (float)qwn_iq_2_xs[index * 8 + lane] * qwn_iq_sign(sign_code, lane);
+            }
+        } else if (t->dtype == QWN_DT_IQ3_XXS) {
+            for (int i = 0; i < valid; i++) {
+                int group = i >> 5, sub = (i >> 3) & 3;
+                int col = i & 7, entry = sub * 2 + (col >> 2), lane = col & 3;
+                uint32_t scales;
+                memcpy(&scales, blk + 66 + group * 4, sizeof(scales));
+                uint8_t index = blk[2 + group * 8 + entry];
+                uint8_t sign_code = (uint8_t)((scales >> (sub * 7)) & 0x7f);
+                float scale = d * (0.5f + (float)(scales >> 28)) * 0.5f;
+                out[base + i] = scale * (float)qwn_iq_3_xxs[index * 4 + lane] * qwn_iq_sign(sign_code, col);
+            }
+        } else if (t->dtype == QWN_DT_IQ3_S) {
+            for (int i = 0; i < valid; i++) {
+                int group = i >> 5, row = (i >> 3) & 3, col = i & 7;
+                int entry = group * 8 + row * 2 + (col >> 2), lane = col & 3;
+                uint8_t qh = (blk[66 + (entry >> 3)] >> (entry & 7)) & 1;
+                uint16_t index = (uint16_t)blk[2 + entry] | ((uint16_t)qh << 8);
+                uint8_t sign = (blk[74 + (i >> 3)] >> (i & 7)) & 1;
+                uint8_t sb = blk[106 + (group >> 1)];
+                float scale = d * (1.0f + 2.0f * (float)((sb >> ((group & 1) * 4)) & 0x0f));
+                out[base + i] = scale * (float)qwn_iq_3_s[index * 4 + lane] * (sign ? -1.0f : 1.0f);
+            }
+        } else if (t->dtype == QWN_DT_IQ2_S) {
+            for (int i = 0; i < valid; i++) {
+                int entry = i >> 3, lane = i & 7;
+                uint8_t qh = (blk[66 + (entry >> 2)] >> ((entry & 3) * 2)) & 3;
+                uint16_t index = (uint16_t)blk[2 + entry] | ((uint16_t)qh << 8);
+                int scale_index = i >> 4;
+                uint8_t sb = blk[74 + (scale_index >> 1)];
+                float scale = d * (0.5f + (float)((sb >> ((scale_index & 1) * 4)) & 0x0f)) * 0.25f;
+                uint8_t sign_code = (blk[34 + (i >> 3)] >> (i & 7)) & 1;
+                out[base + i] = scale * (float)qwn_iq_2_s[index * 8 + lane] * (sign_code ? -1.0f : 1.0f);
+            }
+        }
+    }
+    return 0;
+}
+
 int qwn_row_f32(const QwnModel *m, const QwnTensorDesc *t,
                 int row, float *out, int width) {
     if (!m || !t || !out || t->n_dims != 2 || row < 0 ||
         row >= (int)t->shape[1] || width != (int)t->shape[0]) return -1;
     const uint8_t *raw = (const uint8_t *)qwn_data(m, t);
     if (!raw) return -1;
+    if (t->dtype >= QWN_DT_IQ2_XXS && t->dtype <= QWN_DT_IQ4_XS)
+        return qwn_iq_row_f32(m, t, row, out, width);
+    if (t->dtype == QWN_DT_Q2_K || t->dtype == QWN_DT_Q3_K ||
+        t->dtype == QWN_DT_Q8_K) {
+        int block_bytes = t->dtype == QWN_DT_Q2_K ? 84 :
+                          t->dtype == QWN_DT_Q3_K ? 110 : 292;
+        int blocks = (width + 255) / 256;
+        const uint8_t *p = raw + (size_t)row * blocks * block_bytes;
+        for (int b = 0; b < blocks; b++) {
+            int valid = width - b * 256;
+            if (valid > 256) valid = 256;
+            for (int i = 0; i < valid; i++)
+                out[b * 256 + i] = qwn_k_value(p + b * block_bytes, t->dtype, i);
+        }
+        return 0;
+    }
     if (t->dtype == QWN_DT_Q4_0) {
         int blocks = (width + 31) / 32;
         const uint8_t *p = raw + (size_t)row * blocks * 18;
@@ -1535,6 +1709,31 @@ int qwn_matmul_f32(const QwnModel *m, const QwnTensorDesc *w,
         w->shape[1] != (uint64_t)N) return -1;
     if (w->dtype == QWN_DT_Q4_0)
         return qwn_matmul_q4_0_f32(m, w, x, M, K, N, scratch, y);
+    if (w->dtype == QWN_DT_Q2_K || w->dtype == QWN_DT_Q3_K ||
+        w->dtype == QWN_DT_Q8_K) {
+        const uint8_t *raw = (const uint8_t *)qwn_data(m, w);
+        if (!raw) return -1;
+        int block_bytes = w->dtype == QWN_DT_Q2_K ? 84 :
+                          w->dtype == QWN_DT_Q3_K ? 110 : 292;
+        int blocks = (K + 255) / 256;
+        size_t row_bytes = (size_t)blocks * block_bytes;
+        if (row_bytes * (size_t)N > w->byte_size) return -1;
+#if defined(_OPENMP)
+        #pragma omp parallel for schedule(static) if(N > 16)
+#endif
+        for (int n = 0; n < N; n++) {
+            const uint8_t *row = raw + (size_t)n * row_bytes;
+            for (int token = 0; token < M; token++) {
+                const float *xr = x + (size_t)token * K;
+                float sum = 0.0f;
+                for (int k = 0; k < K; k++)
+                    sum += xr[k] * qwn_k_value(row + (size_t)(k / 256) * block_bytes,
+                                               w->dtype, k % 256);
+                y[(size_t)token * N + n] = sum;
+            }
+        }
+        return 0;
+    }
     if (w->dtype == QWN_DT_HYPER_VSQ2)
         return qwn_matmul_hypervsq2_f32(m, w, x, M, K, N, scratch, y);
     if (w->dtype == QWN_DT_Q8_0) {

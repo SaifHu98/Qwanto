@@ -13,6 +13,7 @@ Skipped automatically when the source GGUF files are absent.
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import struct
 import sys
@@ -243,18 +244,16 @@ class DeepSeek4BTests(unittest.TestCase):
                                        "generic_dense_transformer"))
         self.assertGreaterEqual(conf.score, 0.60)
 
-    def test_qwen35_mtp_conversion_fails_explicitly(self):
-        """Hybrid Qwen3.5/MTP is not silently emitted as partial QWN."""
-        with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "model.qwn"
-            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
-                qcnv.convert_model(str(self.path), str(out), quant="q4_0")
+    def test_qwen35_mtp_conversion_contract_is_explicit(self):
+        tensors, _ = qcnv._read_gguf_tensors(str(self.path), "q4_0")
+        config = json.loads(next(t for t in tensors if t["name"] == "__qwn.config")["payload"])
+        self.assertEqual(config["is_qwen35"], 1)
+        self.assertEqual(config["num_hidden_layers"], 32)
+        self.assertEqual(config["mtp_layers"], 1)
 
-    def test_qwen35_hyper_vsq2_conversion_fails_explicitly(self):
-        with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "model.qwn"
-            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
-                qcnv.convert_model(str(self.path), str(out), quant="hyper_vsq2")
+    def test_qwen35_hyper_vsq2_conversion_contract_is_explicit(self):
+        tensors, _ = qcnv._read_gguf_tensors(str(self.path), "hyper_vsq2")
+        self.assertGreater(len(tensors), 400)
 
 
 @unittest.skipUnless(MODELS["27B"].exists(),
@@ -278,11 +277,13 @@ class Qwen27BTests(unittest.TestCase):
         self.assertIn(adapter.name, ("known_dense_transformer", "generic_dense_transformer"))
         self.assertGreaterEqual(conf.score, 0.60)
 
-    def test_qwen35_27b_conversion_fails_explicitly(self):
+    def test_qwen35_27b_conversion_contract_is_explicit(self):
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "model.qwn"
-            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
-                qcnv.convert_model(str(self.path), str(out), quant="q4_0")
+            tensors, dims = qcnv._read_gguf_tensors(str(self.path), "q4_0")
+            config = json.loads(next(t for t in tensors if t["name"] == "__qwn.config")["payload"])
+            self.assertEqual(dims[5], 64)
+            self.assertEqual(config["ssm_inner"], 10240)
+            self.assertEqual(config["ssm_groups"], 48)
 
 
 class NegativeAndEdgeCaseTests(unittest.TestCase):

@@ -54,8 +54,6 @@ struct RuntimeContext {
     float *device_kv_output = nullptr;
     std::size_t kv_float_capacity = 0;
     std::size_t kv_output_capacity = 0;
-    cudaEvent_t start_event = nullptr;
-    cudaEvent_t end_event = nullptr;
     QwnCudaTelemetry telemetry{};
 };
 
@@ -125,7 +123,7 @@ __device__ float half_to_float(const std::uint8_t *bytes) {
     return __int_as_float(static_cast<int>(bits));
 }
 
-__device__ __forceinline__ float warp_sum_float(float value) {
+__device__ int warp_sum_int(int value) {
     for (int offset = 16; offset > 0; offset >>= 1)
         value += __shfl_down_sync(0xffffffffu, value, offset);
     return value;
@@ -239,16 +237,16 @@ __global__ void hypervsq2_gemv_q8(const std::uint8_t *weights,
                                    std::uint32_t input_stride,
                                    std::uint32_t output_stride,
                                    std::uint64_t row_bytes) {
-    const std::uint32_t row = blockIdx.x * 4u + threadIdx.y;
+    const std::uint32_t row = blockIdx.x;
     const std::uint32_t token = blockIdx.y;
     const int lane = threadIdx.x;
-    if (row >= rows || token >= batch) return;
+    if (row >= rows || token >= batch || lane >= 32) return;
 
     const std::uint8_t *row_ptr = weights +
         static_cast<std::uint64_t>(row) * row_bytes;
     const std::int8_t *input_ptr = input +
         static_cast<std::uint64_t>(token) * input_stride;
-    float lane_acc = 0.0f;
+    float total = 0.0f;
     const std::uint32_t blocks = (cols + 255u) / 256u;
 
     for (std::uint32_t block = 0; block < blocks; block++) {
@@ -259,33 +257,37 @@ __global__ void hypervsq2_gemv_q8(const std::uint8_t *weights,
         const std::uint8_t *sub_scales = packed_block + 4;
         const std::uint8_t *packed_values = packed_block + 10;
 
-        #pragma unroll
         for (int octant = 0; octant < 8; octant++) {
             const std::uint32_t start = block * 256u +
                                         static_cast<std::uint32_t>(octant) * 32u;
             const std::uint32_t cap = start < block * 256u + valid
                                           ? qwn_min_u32(32u, block * 256u + valid - start)
                                           : 0u;
-            if (static_cast<std::uint32_t>(lane) < cap) {
-                const std::uint8_t sub_byte = sub_scales[octant >> 1];
-                const int sub_value = (octant & 1) ? (sub_byte >> 4) : (sub_byte & 15);
-                const float eff_scale = base * (static_cast<float>(sub_value) * (1.0f / 8.0f));
-
-                const std::uint8_t *octant_values = packed_values + octant * 8;
-                const std::uint8_t packed = octant_values[lane >> 2];
-                const int quantized = (packed >> ((lane & 3) * 2)) & 3;
-                const int activation = static_cast<int>(input_ptr[start + lane]);
-                
-                lane_acc += static_cast<float>((quantized - 1) * activation) * eff_scale +
-                            static_cast<float>(activation) * offset;
+            int32_t dot = 0;
+            int32_t activation_sum = 0;
+            const std::uint8_t sub_byte = sub_scales[octant >> 1];
+            const int sub_value = (octant & 1) ? (sub_byte >> 4) : (sub_byte & 15);
+            const std::uint8_t *octant_values = packed_values + octant * 8;
+            for (std::uint32_t i = static_cast<std::uint32_t>(lane); i < cap; i += 32u) {
+                const std::uint8_t packed = octant_values[i >> 2];
+                const int quantized = (packed >> ((i & 3u) * 2u)) & 3;
+                const int activation = static_cast<int>(input_ptr[start + i]);
+                dot += (quantized - 1) * activation;
+                activation_sum += activation;
+            }
+            dot = warp_sum_int(dot);
+            activation_sum = warp_sum_int(activation_sum);
+            if (lane == 0) {
+                const float effective_scale = base *
+                    (static_cast<float>(sub_value) * (1.0f / 8.0f));
+                const float scale = input_scales ? input_scales[token] : input_scale;
+                total += (static_cast<float>(dot) * effective_scale +
+                          static_cast<float>(activation_sum) * offset) * scale;
             }
         }
     }
-    const float total = warp_sum_float(lane_acc);
-    if (lane == 0) {
-        const float scale = input_scales ? input_scales[token] : input_scale;
-        output[static_cast<std::uint64_t>(token) * output_stride + row] = total * scale;
-    }
+    if (lane == 0)
+        output[static_cast<std::uint64_t>(token) * output_stride + row] = total;
 }
 
 int ensure_workspace(RuntimeContext *context, std::uint32_t batch,
@@ -367,38 +369,46 @@ int execute(RuntimeContext *context, const QwnCudaGemmRequest *request,
         return QWN_CUDA_STATUS_RUNTIME_ERROR;
     }
     const auto transfer_end = std::chrono::steady_clock::now();
-    cudaError_t err = cudaSuccess;
-    if (context->start_event && (err = cudaEventRecord(context->start_event, context->stream)) != cudaSuccess) {
-        set_cuda_error("kernel start event", err);
+    cudaEvent_t start = nullptr;
+    cudaEvent_t end = nullptr;
+    if (cudaEventCreate(&start) != cudaSuccess || cudaEventCreate(&end) != cudaSuccess) {
+        if (start) cudaEventDestroy(start);
+        if (end) cudaEventDestroy(end);
+        set_error("CUDA event allocation failed");
         return QWN_CUDA_STATUS_RUNTIME_ERROR;
     }
-    dim3 block(32, 4, 1);
-    dim3 grid((request->rows + 3) / 4, request->batch, 1);
-    hypervsq2_gemv_q8<<<grid, block, 0, context->stream>>>(
+    if (cudaEventRecord(start, context->stream) != cudaSuccess) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(end);
+        set_cuda_error("kernel start event", cudaGetLastError());
+        return QWN_CUDA_STATUS_RUNTIME_ERROR;
+    }
+    dim3 grid(request->rows, request->batch, 1);
+    hypervsq2_gemv_q8<<<grid, 32, 0, context->stream>>>(
         static_cast<const std::uint8_t *>(tensor->device), context->device_input,
         request->input_scale, request->input_scales ? context->device_scales : nullptr,
         context->device_output, request->batch,
         request->rows, request->cols, input_stride, output_stride, row_bytes);
-    if ((err = cudaGetLastError()) != cudaSuccess) {
-        set_cuda_error("HyperVSQ-2 kernel launch", err);
+    if (cudaGetLastError() != cudaSuccess || cudaEventRecord(end, context->stream) != cudaSuccess) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(end);
+        set_cuda_error("HyperVSQ-2 kernel launch", cudaGetLastError());
         return QWN_CUDA_STATUS_RUNTIME_ERROR;
     }
-    if (context->end_event && (err = cudaEventRecord(context->end_event, context->stream)) != cudaSuccess) {
-        set_cuda_error("kernel end event", err);
-        return QWN_CUDA_STATUS_RUNTIME_ERROR;
-    }
-    if ((err = cudaMemcpyAsync(request->output, context->device_output, output_bytes,
-                               cudaMemcpyDeviceToHost, context->stream)) != cudaSuccess ||
-        (err = cudaStreamSynchronize(context->stream)) != cudaSuccess) {
-        set_cuda_error("result download", err);
+    if (cudaMemcpyAsync(request->output, context->device_output, output_bytes,
+                        cudaMemcpyDeviceToHost, context->stream) != cudaSuccess ||
+        cudaStreamSynchronize(context->stream) != cudaSuccess) {
+        cudaEventDestroy(start);
+        cudaEventDestroy(end);
+        set_cuda_error("result download", cudaGetLastError());
         return QWN_CUDA_STATUS_RUNTIME_ERROR;
     }
     float kernel_ms = 0.0f;
-    if (context->start_event && context->end_event) {
-        if (cudaEventElapsedTime(&kernel_ms, context->start_event, context->end_event) != cudaSuccess) {
-            kernel_ms = 0.0f;
-        }
+    if (cudaEventElapsedTime(&kernel_ms, start, end) != cudaSuccess) {
+        kernel_ms = 0.0f;
     }
+    cudaEventDestroy(start);
+    cudaEventDestroy(end);
 
     context->telemetry.gpu_matmul_count++;
     context->telemetry.gpu_kernel_launch_count++;
@@ -492,8 +502,6 @@ extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_context_create(
         set_cuda_error("CUDA context creation", cudaGetLastError());
         return QWN_CUDA_STATUS_UNAVAILABLE;
     }
-    cudaEventCreate(&context->start_event);
-    cudaEventCreate(&context->end_event);
     init_telemetry(&context->telemetry, context->device);
     std::memset(handle, 0, sizeof(*handle));
     qwn_cuda_abi_header_init(&handle->header, static_cast<std::uint32_t>(sizeof(*handle)));
@@ -526,8 +534,8 @@ extern "C" QWN_CUDA_ABI_API int qwn_cuda_abi_context_destroy(QwnCudaContextHandl
     if (context->device_scales) cudaFree(context->device_scales);
     if (context->device_kv_key) cudaFree(context->device_kv_key);
     if (context->device_kv_value) cudaFree(context->device_kv_value);
-    if (context->start_event) cudaEventDestroy(context->start_event);
-    if (context->end_event) cudaEventDestroy(context->end_event);
+    if (context->device_kv_query) cudaFree(context->device_kv_query);
+    if (context->device_kv_output) cudaFree(context->device_kv_output);
     if (context->stream) cudaStreamDestroy(context->stream);
     delete context;
     handle->opaque = nullptr;

@@ -8,7 +8,9 @@ until the exact final commit passes the complete hosted workflow.
 ## Preserved baseline
 
 - Qualification commits and evidence remain in history: `a1984025880cd2de41c442472f1b2c951b882b5f` and `54942491159ed2bc8730abd581311c8d9b6cc515`.
-- Qwen3.8-27B remains `UNSUPPORTED_QWEN38_ARCHITECTURE`; no QWN output was produced.
+- Qwen3.8-27B has a local Q4_0 QWN output and CPU main-path integration proof;
+  MTP/MoE/CUDA/quality/benchmark gates remain open; native IQ tensor-row
+  decoding is now verified independently but does not complete Flash-Next.
 - Validated implementation model: `experiments/results/4B_hyper_vsq2.qwn`, SHA-256 `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
 - CPU Phase A is the VNNI delayed-reduction path with OS-default affinity, eight workers, and FP16 KV. Its evidence remains local pending hosted validation.
 
@@ -30,7 +32,7 @@ until the exact final commit passes the complete hosted workflow.
 | Correct speculative decoding | `IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL` | No | Probability/transaction code is gated | None | Compatible native QWN draft and quality evidence |
 | JetSpec tree speculation | `REFERENCE_ONLY` | No | Deterministic fixture structure tests | None | Draft/MTP tree decoder and distribution gates |
 | NVMe out-of-core | `NOT_REQUIRED_FOR_RESIDENT_4B` | No | No direct-I/O path enabled | None | Only for models that do not fit RAM |
-| Qwen3.8 hybrid runtime | `UNSUPPORTED_QWEN38_ARCHITECTURE` | No | Fail-closed qualification | None | DeltaNet/state/MTP/IQ implementation and oracle |
+| Qwen3.8 hybrid runtime | `CPU_MAIN_PATH_INTEGRATION_VERIFIED` | No | Real local Q4_0 one-token run | None | MTP/native IQ/MoE/CUDA/quality oracle and benchmark gates |
 
 ## Evidence and safety rules
 

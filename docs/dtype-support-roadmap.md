@@ -67,23 +67,21 @@ re-quantization.
   "Explain zero-copy NVMe memory tiering in Qwanto." with `--max-tokens 64`.
 - Hosted CI green on Ubuntu + Windows before merge to `main`.
 
-### Out of scope for Phase 1
+### Phase 1 result
 
-- `Q2_K`, `Q3_K` — K-quant readers are not wired at all. Adding them is
-  a separate phase because their scales use `mins` + `scales` + `qx` plus
-  a 4-bit packed representation that doesn't match what `_dequantize_*_k_block`
-  currently decodes.
-- `Q8_K` — reader and writer both missing.
+The converter now has exact source decoders for `Q2_K`, `Q3_K`, and `Q8_K`,
+and `--quant none` preserves those three canonical block payloads as native
+QWN dtypes. Scalar runtime kernels and differential checks are present. The
+K paths are CPU-only and have no promoted performance row.
 
 ---
 
 ## Phase 2 — IQ-type decoders
 
-**Why second.** IQ-types (`IQ1_S`, `IQ1_M`, `IQ2_XXS`, `IQ2_XS`,
-`IQ2_S`, `IQ3_XXS`, `IQ3_S`, `IQ4_NL`, `IQ4_XS`) are how community models
-ship sub-3-bit precision. `c/tools/qwn_convert.py:1095` explicitly
-refuses these today. They are useful for fitting 27B-scale models into
-real RAM budgets.
+**Current status.** IQ2_XXS/XS/S, IQ3_XXS/S, IQ4_NL, and IQ4_XS now have
+exact source decoders and are streamed through F32 into an existing QWN
+runtime dtype. IQ1 remains refused until its canonical decoder is ported and
+differentially tested. These formats are not native QWN dtypes.
 
 ### Targets
 
@@ -91,8 +89,8 @@ Reusable block layout for all `IQ*_XS` and `IQ*_S` types, with
 significantly higher decoder complexity than K-quants (super-blocks +
 sub-blocks + importance-weighted quantisation). Each dtype gets:
 
-- `QWN_DT_IQ1_S`, `QWN_DT_IQ2_XXS`, `QWN_DT_IQ2_XS`, `QWN_DT_IQ2_S`,
-  `QWN_DT_IQ3_XXS`, `QWN_DT_IQ3_S`, `QWN_DT_IQ4_XS`, `QWN_DT_IQ4_NL`
+- source readers for IQ2/IQ3/IQ4; native QWN IQ dtype IDs remain a separate
+  runtime design decision.
 
 ### Prerequisites
 
@@ -138,6 +136,14 @@ prediction heads (the `DeepSeek-V4-Pro-Qwen3.5-4B-MTP` model in
 `D:\EcoUni\qwanto\models\`), and MoE architectures in general
 (Mixtral, DeepSeek-MoE). The current converter has **no reference
 oracle** for either.
+
+### Current boundary
+
+Qwen3.8-27B conversion and a native CPU main-path integration now exist for
+the local Q4_0 artifact. The Gated DeltaNet recurrent state, causal
+convolution, full-attention layers, and FFN execute in `qwnrun`. MTP remains
+metadata-preserved only, and MoE remains fail-closed. No Qwen3.8 benchmark or
+quality claim is promoted.
 
 ### Targets
 
@@ -192,20 +198,19 @@ oracle** for either.
 ## Phase 4 — Hybrid SSM / DeltaNet (Qwen-3.8 27B and friends)
 
 **Why last.** The hardest. Qwen-3.8-27B ships 65 layers: 48 Gated
-DeltaNet/SSM layers, 17 full-attention layers, four MTP heads, and
-mixed IQ dtypes within the same file. The architecture was *designed
-out of* the current decoder; supporting it requires DeltaNet state
-machinery, attention-vs-SSM routing inside `qwn_decoder_forward`,
-plus Phase 2 IQ-type work. The `qwen38_qualification.py` result is
-the canonical evidence that this is not yet supported, and it
-remains authoritative for the duration of this roadmap.
+DeltaNet/SSM layers, 17 full-attention layers, one MTP prediction layer, and
+mixed IQ/K dtypes within the same file. The current tree now has the CPU
+DeltaNet state machinery, native IQ row decoding, and a Q4_0 main-path
+integration, but full support still requires MTP execution, quality oracle,
+and CUDA hybrid coverage.
 
 ### Targets
 
 - DeltaNet / Gated DeltaNet state iteration inside `qwn_decoder`.
 - SSM-only routing entry points.
-- Co-existence with Phase 2 IQ-types (the Qwen-3.8 release uses
-  `IQ2_M` for the SSM path).
+- Co-existence with Phase 2 IQ-types (the Qwen-3.8 source uses mixed IQ/K
+  tensors; native IQ row decoding is verified, while full hybrid model
+  integration remains a separate gate).
 
 ### Prerequisites
 
@@ -220,21 +225,17 @@ remains authoritative for the duration of this roadmap.
   The DeltaNet state has a different residency profile from the KV
   cache (it grows linearly with sequence length, not with cache
   depth), and our NVMe-mmap prefetch story assumes KV-cache layout.
-- A misimplemented SSM state transition can diverge from the
-  reference in ways that don't show up in the differential matrix
-  for several hundred tokens.
+- The current CPU SSM transition is an integration path, not yet a
+  transformer-level correctness oracle; it must be differentially validated
+  before full Qwen3.8 support is claimed.
 
 ### Acceptance gates
 
-- Same as Phase 3, with the additional gate that **the
-  qualification tool returns `SUPPORTED` for at least one
-  Qwen-3.8-class source GGUF** before any code is merged. That
-  re-qualification step is recorded as evidence and replaces the
-  current `UNSUPPORTED_QWEN38_ARCHITECTURE` line in
-  `docs/qwen38-27b-qualification.md`.
-- This is the gate that, when cleared, moves `qwen38_qualification.py`
-  from "refuse" to "accept with full evidence", and is the **only**
-  legitimate way to clear that line.
+- Same as Phase 3, with the additional gate that **the qualification tool and
+  correctness oracle return a full-support decision for at least one
+  Qwen-3.8-class source GGUF** before full architecture support is claimed.
+  The current qualification file records only
+  `CPU_MAIN_PATH_INTEGRATION_VERIFIED`.
 
 ---
 

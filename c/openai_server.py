@@ -37,6 +37,8 @@ from model_acquisition import (
     SafeDownloadManager,
     convert_to_qwn,
     native_smoke_test,
+    model_preset_catalog,
+    model_preset_manifests,
     provider_catalog,
     sha256_file,
     validate_qwn,
@@ -156,6 +158,43 @@ def _model_file_metadata(path):
         "size_formatted": f"{size_bytes / (1024 ** 3):.2f} GB",
         "disk_location": str(path),
     }
+
+
+def _describe_model_bundle(path):
+    marker = path / ".qwanto-bundle.json"
+    if not marker.is_file():
+        return None
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        files = data.get("files") if isinstance(data.get("files"), list) else []
+        completed = data.get("completed_files") if isinstance(data.get("completed_files"), list) else []
+        total_bytes = sum(
+            (path / str(item.get("filename", ""))).stat().st_size
+            for item in files
+            if isinstance(item, dict) and (path / str(item.get("filename", ""))).is_file()
+        )
+        return {
+            "bundle_id": data.get("preset_id", path.name),
+            "bundle_files": len(files),
+            "bundle_completed_files": len(completed),
+            "bundle_entrypoint": str(path / str(files[0].get("filename", ""))) if files and isinstance(files[0], dict) else "",
+            "runtime_state": data.get("runtime_state", "external_source_only"),
+            "compatibility_state": "external_source_only",
+            "qwn_validation": {"status": "not_applicable", "reason": "Official GGUF source bundle; native QWN activation is not available for this artifact."},
+            "supported_by_qwnrun": False,
+            "format": "GGUF source bundle",
+            "size_bytes": total_bytes,
+            "size_formatted": f"{total_bytes / (1024 ** 3):.2f} GB",
+            "disk_location": str(path),
+            "source_metadata": data.get("metadata", {}),
+        }
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {
+            "compatibility_state": "invalid",
+            "qwn_validation": {"status": "failed", "reason": "Invalid Qwanto model bundle manifest."},
+            "supported_by_qwnrun": False,
+            "format": "Invalid model bundle",
+        }
 
 
 def _describe_qwn(path):
@@ -2242,7 +2281,16 @@ class APIHandler(BaseHTTPRequestHandler):
                                     model.update(_model_file_metadata(entry))
                                     models.append(model)
                             elif entry.is_dir():
-                                if (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") or f.name.endswith(".safetensors") for f in entry.iterdir()):
+                                bundle = _describe_model_bundle(entry)
+                                if bundle is not None:
+                                    model = {
+                                        "name": entry.name,
+                                        "path": str(entry),
+                                        "type": "gguf_bundle",
+                                    }
+                                    model.update(bundle)
+                                    models.append(model)
+                                elif (entry / "tokenizer.json").exists() or any(f.name.endswith(".st") or f.name.endswith(".safetensors") for f in entry.iterdir()):
                                     model = {
                                         "name": entry.name,
                                         "path": str(entry),
@@ -2261,6 +2309,9 @@ class APIHandler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/qwanto/providers":
                 self.send_json(200, {"providers": provider_catalog()}, request_id)
+                return
+            if path == "/v1/qwanto/model-presets":
+                self.send_json(200, {"presets": model_preset_catalog()}, request_id)
                 return
             if path == "/v1/qwanto/download/status":
                 self.send_json(200, download_manager.get_status(), request_id)
@@ -2835,6 +2886,44 @@ class APIHandler(BaseHTTPRequestHandler):
                     self.send_json(200, {"status": "started", "manifest": manifest.to_dict(), "message": f"Downloading {manifest.filename} into the local model library."}, request_id)
                 except Exception as e:
                     raise APIError(400, str(e), "url")
+                return
+
+            if path == "/v1/qwanto/download/preset":
+                body = self.read_json()
+                preset_id = str(body.get("preset_id") or "")
+                try:
+                    preset, manifests = model_preset_manifests(preset_id)
+                    requested = body.get("dest_path")
+                    destination = MODEL_ROOT / preset_id if not requested else Path(str(requested))
+                    if not destination.is_absolute():
+                        destination = MODEL_ROOT / destination
+                    destination = destination.resolve()
+                    if not _is_safe_path(destination, allowed_dirs=[MODEL_ROOT]):
+                        raise AcquisitionError("Downloaded artifacts must remain inside the per-user Qwanto model library.")
+                    download_manager.start_bundle(
+                        preset_id,
+                        manifests,
+                        destination=destination,
+                        metadata={
+                            "name": preset["name"],
+                            "role": preset["role"],
+                            "source_url": preset["source_url"],
+                            "architecture": preset["architecture"],
+                            "size_display": preset["size_display"],
+                        },
+                        overwrite=bool(body.get("overwrite", False)),
+                    )
+                    self.send_json(
+                        200,
+                        {
+                            "status": "started",
+                            "preset": preset,
+                            "message": f"Downloading official model preset {preset['name']} into the local model library.",
+                        },
+                        request_id,
+                    )
+                except Exception as exc:
+                    raise APIError(400, str(exc), "preset_id")
                 return
                 
             if path == "/v1/qwanto/download/cancel":

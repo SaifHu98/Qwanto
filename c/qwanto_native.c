@@ -105,6 +105,16 @@ const char *qwn_dtype_name(uint32_t dt) {
         case QWN_DT_VSQ_ULTRA: return "VSQ_ULTRA";
         case QWN_DT_HYPER_VSQ: return "HYPER_VSQ";
         case QWN_DT_HYPER_VSQ2: return "HYPER_VSQ2";
+        case QWN_DT_Q2_K: return "Q2_K";
+        case QWN_DT_Q3_K: return "Q3_K";
+        case QWN_DT_Q8_K: return "Q8_K";
+        case QWN_DT_IQ2_XXS: return "IQ2_XXS";
+        case QWN_DT_IQ2_XS: return "IQ2_XS";
+        case QWN_DT_IQ3_XXS: return "IQ3_XXS";
+        case QWN_DT_IQ3_S: return "IQ3_S";
+        case QWN_DT_IQ2_S: return "IQ2_S";
+        case QWN_DT_IQ4_NL: return "IQ4_NL";
+        case QWN_DT_IQ4_XS: return "IQ4_XS";
         default: return "?";
     }
 }
@@ -127,6 +137,16 @@ uint64_t qwn_block_bytes(uint32_t dt, uint64_t numel) {
         case QWN_DT_VSQ_ULTRA: return ((numel + 127) / 128) * 70;
         case QWN_DT_HYPER_VSQ: return ((numel + 255) / 256) * 138;
         case QWN_DT_HYPER_VSQ2: return ((numel + 255) / 256) * 74;
+        case QWN_DT_Q2_K: return ((numel + 255) / 256) * 84;
+        case QWN_DT_Q3_K: return ((numel + 255) / 256) * 110;
+        case QWN_DT_Q8_K: return ((numel + 255) / 256) * 292;
+        case QWN_DT_IQ2_XXS: return ((numel + 255) / 256) * 66;
+        case QWN_DT_IQ2_XS: return ((numel + 255) / 256) * 74;
+        case QWN_DT_IQ3_XXS: return ((numel + 255) / 256) * 98;
+        case QWN_DT_IQ3_S: return ((numel + 255) / 256) * 110;
+        case QWN_DT_IQ2_S: return ((numel + 255) / 256) * 82;
+        case QWN_DT_IQ4_NL: return ((numel + 31) / 32) * 18;
+        case QWN_DT_IQ4_XS: return ((numel + 255) / 256) * 136;
         default: return 0;
     }
 }
@@ -152,6 +172,16 @@ static uint64_t qwn_expected_payload(const QwnTensorDesc *t) {
         case QWN_DT_VSQ_ULTRA: return ((n + 127) / 128) * 70;
         case QWN_DT_HYPER_VSQ: return ((n + 255) / 256) * 138;
         case QWN_DT_HYPER_VSQ2: return ((n + 255) / 256) * 74;
+        case QWN_DT_Q2_K: return ((n + 255) / 256) * 84;
+        case QWN_DT_Q3_K: return ((n + 255) / 256) * 110;
+        case QWN_DT_Q8_K: return ((n + 255) / 256) * 292;
+        case QWN_DT_IQ2_XXS: return ((n + 255) / 256) * 66;
+        case QWN_DT_IQ2_XS: return ((n + 255) / 256) * 74;
+        case QWN_DT_IQ3_XXS: return ((n + 255) / 256) * 98;
+        case QWN_DT_IQ3_S: return ((n + 255) / 256) * 110;
+        case QWN_DT_IQ2_S: return ((n + 255) / 256) * 82;
+        case QWN_DT_IQ4_NL: return ((n + 31) / 32) * 18;
+        case QWN_DT_IQ4_XS: return ((n + 255) / 256) * 136;
         default: return 0;
     }
 }

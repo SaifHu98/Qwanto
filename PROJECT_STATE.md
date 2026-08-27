@@ -28,14 +28,15 @@ and NVMe mmap.
 ## Current status
 
 - Working directory: `D:\EcoUni\qwanto` on Windows PowerShell.
-- Native/Python validation: `253 passed, 4 skipped` in `c/tests/`; includes
+- Native/Python validation: `264 passed, 4 skipped, 17 subtests passed` in
+  `c/tests/`; includes
   real `/v1/qwanto/models/verify` endpoint testing verifying 4KiB container
   invariants (header, payload alignment, 64-byte padding, tail block) and live
   `qwnrun` smoke test execution.
 - Web validation: production build passed (`tsc -b && vite build`) and Vitest
-  passed (`61 tests`). Qwanto Code desktop UI now uses a calmer, professional
-  visual system with a fixed bottom input bar that mirrors modern chat
-  surfaces (OpenCode, Claude.ai, ChatGPT desktop). The bar exposes a draft
+  passed (`61 tests`). Qwanto Code desktop UI now uses the Qwanto Studio visual
+  system with a fixed bottom input bar that mirrors modern chat surfaces
+  (OpenCode, Claude.ai, ChatGPT desktop). The bar exposes a draft
   textarea, attach pill, send/stop button, token usage, and `Enter /
   Shift+Enter` shortcut affordance. The center panel and inspector reserve
   bottom padding so the composer never covers content. Browser chat stays
@@ -44,6 +45,47 @@ and NVMe mmap.
   `/v1/qwanto/models/verify` and `native_smoke_test`. The desktop surface
   maintains exactly five primary destinations—Project, Chats, Files,
   Changes, Settings.
+- Current converter coverage includes verified source decoders for GGUF
+  Q2_K/Q3_K/Q4_K/Q5_K/Q6_K/Q8_K and IQ2_XXS/XS/S, IQ3_XXS/S, IQ4_XS/NL,
+  plus Q8_0 output from F32/F16/BF16 matrices and GGUF Q8_0/K-quant sources.
+  `--quant none` preserves Q2_K/Q3_K/Q8_K and the supported IQ payloads as
+  native QWN payloads. Native scalar QWN kernels now have differential
+  coverage for Q2_K/Q3_K/Q8_K and IQ2_XXS/XS/S, IQ3_XXS/S, IQ4_XS/NL.
+  IQ1_S remains refused. The web converter and model settings expose Q8_0;
+  native IQ selection remains an inspected/CLI capability, not a Flash-Next
+  activation claim.
+- Qwen3.8-27B now has a real converted local artifact at
+  `models/Qwen3.8-27B-Q4_0.qwn`. Its CPU main path is integration-verified
+  against the local source: full-attention layers, Gated DeltaNet recurrent
+  state, causal convolution, gated RMSNorm, and the FFN execute through
+  `qwnrun` for one generated token. This is a correctness/integration gate,
+  not a benchmark row. MTP execution, MoE dispatch, QSA/ngram/gated-residual
+  Flash-Next coverage, and hybrid CUDA coverage remain pending.
+- Developer validation tools now exist at `c/tools/qwn_quality_oracle.py` and
+  `c/tools/qwn_benchmark.py`. They require a real native artifact and pinned
+  fixture/command; they emit `MEASURED_PASS`, `MEASURED`, or an explicit
+  incomplete result and never create projected performance claims. `qwnrun`
+  serving also has a deterministic `RESET` protocol command for oracle cases.
+- Qwanto Code records redacted UI errors in a bounded local
+  `.qwanto/diagnostics/errors.jsonl` stream. GitHub issue creation remains an
+  explicit, user-approved browser action with a local diagnostic ZIP; no token
+  or silent repository write is used.
+- Official Qwen3.8 acquisition presets are exposed by the local gateway and
+  Qwanto Code model settings: Flash-Next UD-Q4_K_XL from the official Unsloth
+  four-shard repository (~111 GB), and Qwen3.8-27B Q4_K_M from the official
+  GGML repository (~19 GB). Downloads are resumable per shard and write
+  `.qwanto-bundle.json`; because the source listings provide no checksum
+  metadata, bundles remain `unverified` and `external_source_only`. They are
+  discoverable but intentionally cannot be activated by qwnrun.
+- Local CUDA 13.3/MSVC 19.44 rebuilt both `qwn_cuda.dll` and `coli_cuda.dll`.
+  The current HyperVSQ-2 ABI synthetic test passed on device 0 with one GPU
+  matmul and zero reported fallbacks. This is correctness evidence only; it
+  is not a general all-format or performance claim.
+- TurboQuant remains intentionally unclaimed as paper-equivalent. The current
+  `turboquant-q4` mode is the separately named `QWN-Q4-KV` compatibility
+  representation; enabling the cited algorithm requires a distinct format,
+  rotation/codebook contract, QJL residual path, and model-level quality
+  evidence.
 - The existing `benchmark_evidence.json` claim remains unchanged. CPU Phase 3
   local evidence from commit `cb3ca35` uses the 4B HyperVSQ-2 model SHA-256
   `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
@@ -122,15 +164,18 @@ and NVMe mmap.
   and formats must fail explicitly.
 - GGUF, Safetensors, and PyTorch files are source artifacts only. They cannot be
   activated by qwnrun; only validated, architecture-compatible QWN conversions
-  can become native runtime models. Qwen3.5 hybrid/MTP and 27B conversion paths
-  fail explicitly until their tensor and reference-oracle validation exists.
-- Qwen3.8-27B qualification is currently `UNSUPPORTED_QWEN38_ARCHITECTURE`:
-  the local GGUF has 65 layers, 48 Gated DeltaNet/SSM layers, 17 full-attention
-  layers, four MTP tensors, and mixed IQ dtypes not supported by the converter.
-  The qualification tool records every source tensor and refuses conversion
-  before output; generated evidence is under `docs/qwen38-27b-evidence/` and
-  binds to clean source commit `a198402`; no QWN support or benchmark claim
-  exists for this source.
+  can become native runtime models. The Qwen3.8 Q4 CPU main path is now
+  integration-verified, while MTP, MoE, and hybrid CUDA remain explicitly
+  gated. Native IQ2/IQ3/IQ4 row decoding and source-preserving conversion are
+  verified independently; this does not imply complete Flash-Next support.
+- Qwen3.8-27B qualification is `CPU_MAIN_PATH_INTEGRATION_VERIFIED` for the
+  local Q4_0 conversion only: the source has 65 total layers, 48 Gated
+  DeltaNet/SSM layers, 17 full-attention layers, one MTP prediction layer, and
+  mixed IQ/K source tensors. The converted artifact is not full architecture
+  support because MTP execution, MoE, quality oracle, and benchmark evidence
+  are still absent. Native IQ2/IQ3/IQ4 tensor-row execution is verified, but
+  it is not yet integrated into the full hybrid model path. Historical fail-closed evidence
+  remains under `docs/qwen38-27b-evidence/`.
 - The gateway has explicit Hugging Face, allowlisted Direct HTTPS, and local
   file acquisition providers. Downloads use `.part` files and atomic publish;
   checksums, size, disk, redirects, and format compatibility are explicit.
@@ -153,9 +198,9 @@ and NVMe mmap.
   local RTX 5070 Ti with max absolute error `1.1920929e-7`, five kernel
   invocations, and resident cleanup to zero. These are local results pending
   hosted validation and are not README performance claims.
-- Local validation of the follow-up passed Python `243/243` executed tests with
-  4 skips, focused ABI/evidence tests `21 passed`, Web build and `56` Vitest
-  tests, and C/OpenMP syntax/link checks. `cargo` and `make` remain
+- Local validation of the follow-up passed Python `258` tests with 4 skips and
+  10 conversion subtests; the optimized Windows Clang qwnrun rebuild and the
+  real Qwen3.8 Q4 CPU integration run also passed. `cargo` and `make` remain
   `NOT RUN LOCALLY — HOSTED VALIDATION REQUIRED`; CUDA NVCC synthetic and
   real-model decoder checks are now locally available and passing.
 - CPU Phase 3 roofline counters for process reads, memory-controller bandwidth,

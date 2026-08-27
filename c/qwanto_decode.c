@@ -27,6 +27,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+static void vec_add(float *dst, const float *src, int n);
+
 static double qwn_decode_wall_seconds(void) {
 #ifdef _WIN32
     static LARGE_INTEGER frequency;
@@ -533,6 +535,15 @@ static int load_config(QwnDecoder *d) {
                 c->rms_eps=cfg_float(root,"rms_norm_eps",c->rms_eps);
                 c->rope_theta=cfg_float(root,"rope_theta",c->rope_theta);
                 c->tie_embeddings=cfg_int(root,"tie_word_embeddings",0);
+                c->is_qwen35=cfg_int(root,"is_qwen35",0);
+                c->total_layers=cfg_int(root,"total_layers",c->layers);
+                c->mtp_layers=cfg_int(root,"mtp_layers",0);
+                c->mtp_layer_start=cfg_int(root,"mtp_layer_start",c->layers);
+                c->ssm_inner=cfg_int(root,"ssm_inner",0);
+                c->ssm_state=cfg_int(root,"ssm_state",0);
+                c->ssm_groups=cfg_int(root,"ssm_groups",0);
+                c->ssm_dt_rank=cfg_int(root,"ssm_dt_rank",0);
+                c->ssm_conv_kernel=cfg_int(root,"ssm_conv_kernel",0);
             }
             free(json);
         }
@@ -863,10 +874,7 @@ static int matmul(QwnDecoder *d,const QwnTensorDesc *w,const float *x,
             d->runtime_metrics.unsupported_projection_count++;
         }
         if (d->runtime_config.backend == QWN_RUNTIME_BACKEND_CUDA) {
-            char err_buf[256] = "none";
-            if (d->qwn_cuda.last_error) d->qwn_cuda.last_error(err_buf, sizeof(err_buf));
-            fprintf(stderr, "[ERROR] CUDA projection failed (res=%d, last_error=%s).\n",
-                    cuda_result, err_buf);
+            fprintf(stderr, "[ERROR] CUDA projection failed or returned no GPU matmul.\n");
             return -1;
         }
         fprintf(stderr, "[WARN] qwn CUDA projection failed; auto backend returns to CPU.\n");
@@ -928,6 +936,127 @@ static void add_bias(const QwnDecoder *d,const QwnTensorDesc *b,float *x,int n){
     if(vector_f32(&d->model,b,tmp,n)==0)for(int i=0;i<n;i++)x[i]+=tmp[i];
 }
 
+static float qwn_sigmoid(float x) {
+    if (x >= 0.0f) {
+        float e = expf(-x);
+        return 1.0f / (1.0f + e);
+    }
+    float e = expf(x);
+    return e / (1.0f + e);
+}
+
+static float qwn_softplus(float x) {
+    if (x > 20.0f) return x;
+    if (x < -20.0f) return expf(x);
+    return log1pf(expf(x));
+}
+
+/* Single-token Qwen3.8 Gated DeltaNet path.  The state layout matches the
+ * llama.cpp GDN reference: each value head owns a [state,state] matrix stored
+ * transposed so the recurrent update and query are contiguous by row. */
+static int forward_deltanet(QwnDecoder *d, const QwnLayerTensors *lt) {
+    const int D = d->cfg.hidden;
+    const int inner = d->cfg.ssm_inner;
+    const int state_dim = d->cfg.ssm_state;
+    const int groups = d->cfg.ssm_groups;
+    const int conv_kernel = d->cfg.ssm_conv_kernel;
+    if (!lt || !lt->ssm_qkv || !lt->ssm_gate || !d->ssm_states ||
+        !d->ssm_conv_states || state_dim <= 0 || groups <= 0)
+        return -1;
+    if (matmul(d, lt->ssm_qkv, d->xb, D, inner, d->hidden) != 0)
+        return -1;
+    /* Qwen3.8 has q/k=16*128 and v/z=48*128.  Their concrete widths are
+     * read from the model, not guessed by the recurrence below. */
+    const int qk = (inner - groups * state_dim) / 2;
+    const int vdim = groups * state_dim;
+    if (qk <= 0 || qk * 2 + vdim != inner ||
+        lt->ssm_qkv->shape[1] != (uint64_t)inner ||
+        lt->ssm_gate->shape[1] != (uint64_t)vdim)
+        return -1;
+    if (matmul(d, lt->ssm_gate, d->xb, D, vdim, d->gate) != 0 ||
+        matmul(d, lt->ssm_alpha, d->xb, D, groups, d->k) != 0 ||
+        matmul(d, lt->ssm_beta, d->xb, D, groups, d->v) != 0)
+        return -1;
+    if (vector_f32(&d->model, lt->ssm_a, d->q, groups) != 0 ||
+        vector_f32(&d->model, lt->ssm_dt, d->q + groups, groups) != 0 ||
+        vector_f32(&d->model, lt->ssm_norm, d->scratch.row_f32, state_dim) != 0)
+        return -1;
+
+    const size_t conv_stride = d->ssm_conv_layer_stride;
+    float *conv_state = d->ssm_conv_states +
+                        (size_t)(lt - d->layer_cache) * conv_stride;
+    for (int channel = 0; channel < inner; channel++) {
+        float weights[4] = {0, 0, 0, 0};
+        if (conv_kernel > 4 || qwn_row_f32(&d->model, lt->ssm_conv1d,
+                                           channel, weights, conv_kernel) != 0)
+            return -1;
+        float *history = conv_state + (size_t)channel * (conv_kernel - 1);
+        float sum = d->hidden[channel] * weights[conv_kernel - 1];
+        for (int i = 0; i < conv_kernel - 1; i++) sum += history[i] * weights[i];
+        for (int i = 0; i + 1 < conv_kernel - 1; i++) history[i] = history[i + 1];
+        history[conv_kernel - 2] = d->hidden[channel];
+        d->hidden[channel] = sum / (1.0f + expf(-sum));
+    }
+
+    float *q = d->hidden;
+    float *k = d->hidden + qk;
+    float *v = d->hidden + 2 * qk;
+    const int q_heads = qk / state_dim;
+    if (q_heads <= 0 || groups % q_heads != 0) return -1;
+    for (int h = 0; h < q_heads; h++) {
+        float *qr = q + h * state_dim;
+        float *kr = k + h * state_dim;
+        double qn = 0.0, kn = 0.0;
+        for (int i = 0; i < state_dim; i++) { qn += (double)qr[i] * qr[i]; kn += (double)kr[i] * kr[i]; }
+        float qi = 1.0f / sqrtf((float)qn + 1e-12f);
+        float ki = 1.0f / sqrtf((float)kn + 1e-12f);
+        for (int i = 0; i < state_dim; i++) { qr[i] *= qi; kr[i] *= ki; }
+    }
+
+    float *out = d->ctx;
+    float *state_base = d->ssm_states +
+                        (size_t)(lt - d->layer_cache) * d->ssm_state_layer_stride;
+    const float *a = d->q;
+    const float *dt = d->q + groups;
+    for (int h = 0; h < groups; h++) {
+        const float *qr = q + (h % q_heads) * state_dim;
+        const float *kr = k + (h % q_heads) * state_dim;
+        const float *vr = v + h * state_dim;
+        float *orow = out + h * state_dim;
+        float *s = state_base + (size_t)h * state_dim * state_dim;
+        float decay_arg = d->k[h] + dt[h];
+        float decay = expf(fmaxf(-60.0f, fminf(20.0f,
+                         a[h] * qwn_softplus(decay_arg))));
+        float beta = qwn_sigmoid(d->v[h]);
+        for (int j = 0; j < state_dim; j++) {
+            float *row = s + (size_t)j * state_dim;
+            float dot = 0.0f;
+            for (int i = 0; i < state_dim; i++) { row[i] *= decay; dot += row[i] * kr[i]; }
+            float delta = (vr[j] - dot) * beta;
+            for (int i = 0; i < state_dim; i++) row[i] += delta * kr[i];
+            float qdot = 0.0f;
+            for (int i = 0; i < state_dim; i++) qdot += row[i] * qr[i];
+            orow[j] = qdot * (1.0f / sqrtf((float)state_dim));
+        }
+    }
+    head_rmsnorm(out, groups, state_dim, d->scratch.row_f32, d->cfg.rms_eps);
+    for (int i = 0; i < vdim; i++) {
+        float z = d->gate[i];
+        out[i] *= z / (1.0f + expf(-z));
+    }
+    if (matmul(d, lt->ssm_out, out, vdim, D, d->xb) != 0) return -1;
+    add_bias(d, lt->o_bias, d->xb, D);
+    vec_add(d->x, d->xb, D);
+    return 0;
+}
+
+static void apply_attention_gate(const QwnDecoder *d, const QwnLayerTensors *lt,
+                                 float *ctx, int q_width, int head_dim) {
+    if (!lt || lt->q_gate_out != q_width) return;
+    for (int i = 0; i < q_width; i++) ctx[i] *= qwn_sigmoid(d->gate[i]);
+    (void)head_dim;
+}
+
 static int load_norms(QwnDecoder *d){
     /* Per-layer norms are now loaded lazily through QwnLayerTensors
      * (input_norm, post_norm, final_norm_weight).  This routine is
@@ -987,8 +1116,24 @@ static int build_layer_cache(QwnDecoder *d) {
         /* Per-layer output dims come straight from the tensor shapes
          * so models with variable head_dim per layer (Qwen3.5 hybrid,
          * MLA, etc.) load and run correctly. */
+        lt->ssm_qkv = layer_tensor(d, l, "self_attn.gdn_qkv.weight");
+        lt->ssm_gate = layer_tensor(d, l, "self_attn.gdn_gate.weight");
+        lt->ssm_alpha = layer_tensor(d, l, "self_attn.gdn_alpha.weight");
+        lt->ssm_beta = layer_tensor(d, l, "self_attn.gdn_beta.weight");
+        lt->ssm_a = layer_tensor(d, l, "self_attn.gdn_a");
+        lt->ssm_dt = layer_tensor(d, l, "self_attn.gdn_dt.bias");
+        lt->ssm_conv1d = layer_tensor(d, l, "self_attn.gdn_conv1d.weight");
+        lt->ssm_norm = layer_tensor(d, l, "self_attn.gdn_norm.weight");
+        lt->ssm_out = layer_tensor(d, l, "self_attn.gdn_out.weight");
         if (lt->q_proj && lt->q_proj->n_dims == 2) {
-            lt->q_out = (int)lt->q_proj->shape[1];
+            lt->q_proj_out = (int)lt->q_proj->shape[1];
+            lt->q_out = lt->q_proj_out;
+            if (d->cfg.is_qwen35 && d->cfg.heads > 0 &&
+                d->cfg.q_head_dim > 0 &&
+                lt->q_proj_out == 2 * d->cfg.heads * d->cfg.q_head_dim) {
+                lt->q_out = lt->q_proj_out / 2;
+                lt->q_gate_out = lt->q_out;
+            }
         } else if (d->cfg.heads && d->cfg.q_head_dim) {
             lt->q_out = d->cfg.heads * d->cfg.q_head_dim;
         }
@@ -1020,9 +1165,15 @@ static int build_layer_cache(QwnDecoder *d) {
                 layer_tensor(d, l, "mixer.x_proj.weight") ||
                 layer_tensor(d, l, "ssm.in_proj.weight"))
                 lt->is_ssm = 1;
-            snprintf(namebuf, sizeof(namebuf), "blk.%d.ssm_conv1d.weight", l);
-            if (qwn_find(&d->model, namebuf)) lt->is_ssm = 1;
         }
+        /* Only the complete GDN tensor contract is a native DeltaNet layer.
+         * Older projected fixtures may retain auxiliary SSM tensors without
+         * the recurrent projections; those layers stay on the historical
+         * FFN-only compatibility path. */
+        if (lt->ssm_qkv && lt->ssm_gate && lt->ssm_alpha && lt->ssm_beta &&
+            lt->ssm_a && lt->ssm_dt && lt->ssm_conv1d && lt->ssm_norm &&
+            lt->ssm_out)
+            lt->is_ssm = 1;
         /* MoE detection: routed experts live under mlp.experts.N or
          * block_sparse_moe.experts.N. */
         int has_routed = 0;
@@ -1035,23 +1186,31 @@ static int build_layer_cache(QwnDecoder *d) {
             if (qwn_find(&d->model, namebuf)) { has_routed = 1; break; }
 }
         lt->is_moe = has_routed;
-        /* SSM / hybrid layers (Qwen3.5-style) are intentionally allowed:
-         * qwn_decoder_forward() skips the attention path entirely for
-         * them and only runs the residual stream through the FFN.  A
-         * real SSM/mamba kernel would replace this skip; for now the
-         * hybrid decoder degrades gracefully. */
         if (lt->is_moe) return -2;
-        /* If the layer has no attention projections at all, skip the
-         * per-attention validation -- it is treated as an SSM layer
-         * by the forward pass. */
-        if (!lt->q_proj || !lt->k_proj || !lt->v_proj || !lt->o_proj) {
-            lt->is_ssm = 1;
-        } else if (!lt->gate_proj || !lt->up_proj || !lt->down_proj ||
+        /* Some legacy projected QWN fixtures intentionally contain an
+         * FFN-only layer.  Skip attention validation for those layers, but
+         * do not classify them as DeltaNet: only an actual GDN tensor set
+         * may enter the recurrent path. */
+        if (lt->is_ssm) {
+            if (!lt->ssm_qkv || !lt->ssm_gate || !lt->ssm_alpha ||
+                !lt->ssm_beta || !lt->ssm_a || !lt->ssm_dt ||
+                !lt->ssm_conv1d || !lt->ssm_norm || !lt->ssm_out ||
+                !lt->gate_proj || !lt->up_proj || !lt->down_proj ||
+                lt->ssm_qkv->n_dims != 2 || lt->ssm_gate->n_dims != 2 ||
+                lt->ssm_out->n_dims != 2 || lt->ssm_conv1d->n_dims != 2 ||
+                lt->ssm_qkv->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->ssm_gate->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->ssm_out->shape[1] != (uint64_t)d->cfg.hidden ||
+                lt->ssm_conv1d->shape[0] != (uint64_t)d->cfg.ssm_conv_kernel)
+                return -2;
+        } else if (lt->q_proj && lt->k_proj && lt->v_proj && lt->o_proj &&
+                   (!lt->gate_proj || !lt->up_proj || !lt->down_proj ||
             lt->q_proj->n_dims != 2 || lt->k_proj->n_dims != 2 ||
             lt->v_proj->n_dims != 2 || lt->o_proj->n_dims != 2 ||
             lt->gate_proj->n_dims != 2 || lt->up_proj->n_dims != 2 ||
-            lt->down_proj->n_dims != 2) return -1;
-if (!lt->is_ssm && (!d->cfg.heads || !d->cfg.kv_heads ||
+            lt->down_proj->n_dims != 2)) return -1;
+if (!lt->is_ssm && lt->q_proj && lt->k_proj && lt->v_proj && lt->o_proj &&
+    (!d->cfg.heads || !d->cfg.kv_heads ||
             lt->q_out % d->cfg.heads != 0 ||
             lt->k_out % d->cfg.kv_heads != 0 ||
             lt->v_out % d->cfg.kv_heads != 0 ||
@@ -1182,7 +1341,8 @@ for (int l = 0; l < d->cfg.layers; l++) {
         const QwnLayerTensors *lt = &d->layer_cache[l];
         /* SSM / hybrid layers legitimately have zero attention dims.
          * Skip them when enforcing uniform shape across layers. */
-        if (lt->is_ssm) continue;
+        if (lt->is_ssm || !lt->q_proj || !lt->k_proj || !lt->v_proj ||
+            !lt->o_proj) continue;
         if (lt->q_out != max_q_out || lt->k_out != max_kv_out ||
             lt->v_out != max_kv_out) {
             if (error) *error = ERR_SHAPE;
@@ -1207,6 +1367,31 @@ for (int l = 0; l < d->cfg.layers; l++) {
     d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
     d->ctx=p;p+=Q;d->att=p;p+=(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx;d->gate=p;p+=I;
     d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
+    if (d->cfg.is_qwen35) {
+        if (d->cfg.ssm_inner <= 0 || d->cfg.ssm_state <= 0 ||
+            d->cfg.ssm_groups <= 0 || d->cfg.ssm_conv_kernel < 2 ||
+            d->cfg.ssm_inner < d->cfg.ssm_groups * d->cfg.ssm_state) {
+            if (error) *error = ERR_SHAPE;
+            goto fail;
+        }
+        d->ssm_state_layer_stride = (size_t)d->cfg.ssm_groups *
+                                    (size_t)d->cfg.ssm_state *
+                                    (size_t)d->cfg.ssm_state;
+        d->ssm_conv_layer_stride = (size_t)d->cfg.ssm_inner *
+                                   (size_t)(d->cfg.ssm_conv_kernel - 1);
+        size_t state_bytes = (size_t)d->cfg.layers *
+                             d->ssm_state_layer_stride * sizeof(float);
+        size_t conv_bytes = (size_t)d->cfg.layers *
+                            d->ssm_conv_layer_stride * sizeof(float);
+        d->ssm_states = (float *)alloc64(state_bytes);
+        d->ssm_conv_states = (float *)alloc64(conv_bytes);
+        if (!d->ssm_states || !d->ssm_conv_states) {
+            if (error) *error = ERR_MEMORY;
+            goto fail;
+        }
+        memset(d->ssm_states, 0, state_bytes);
+        memset(d->ssm_conv_states, 0, conv_bytes);
+    }
     quantized_kv_mode = strcmp(d->runtime_config.kv_cache_mode, "q8") == 0 ||
                         strcmp(d->runtime_config.kv_cache_mode, "turboquant-q4") == 0 ||
                         strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0;
@@ -1502,6 +1687,14 @@ void qwn_decoder_reset(QwnDecoder *d){
     d->runtime_metrics.swiglu_calls = 0;
     d->runtime_metrics.swiglu_elements = 0;
     d->runtime_metrics.swiglu_ms = 0.0;
+    if (d->ssm_states) {
+        memset(d->ssm_states, 0, (size_t)d->cfg.layers *
+               d->ssm_state_layer_stride * sizeof(float));
+    }
+    if (d->ssm_conv_states) {
+        memset(d->ssm_conv_states, 0, (size_t)d->cfg.layers *
+               d->ssm_conv_layer_stride * sizeof(float));
+    }
     if (d->use_paged_kv) {
         qwn_block_table_free(&d->paged_kv, &d->paged_table);
         qwn_block_table_init(&d->paged_table, 0,
@@ -1545,6 +1738,8 @@ void qwn_decoder_close(QwnDecoder *d){
         free(d->q8_layers);
         d->q8_layers = NULL;
     }
+    free64(d->ssm_states);
+    free64(d->ssm_conv_states);
     free64(d->kv_allocation);qwn_close(&d->model);memset(d,0,sizeof(*d));
 }
 
@@ -1618,7 +1813,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         int I  = lt->ffn_out ? lt->ffn_out : c->intermediate;
         int O_IN = (lt->o_proj && lt->o_proj->n_dims == 2) ? (int)lt->o_proj->shape[0] : (H ? H * HD : Q);
         int hd_this = (Q && H) ? Q / H : HD;
-        /* Prefetch next layer's heavy weights via single batched syscall */
+        /* Prefetch next layer's heavy weights via one batched syscall */
         if(l + 1 < c->layers) {
             const QwnLayerTensors *next = &d->layer_cache[l+1];
             const QwnTensorDesc *batch_tensors[7] = {
@@ -1627,12 +1822,6 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
             };
             qwn_prefetch_batch(&d->model, batch_tensors, 7);
         }
-        /* Skip attention entirely for SSM-only hybrid layers */
-        if (lt->is_ssm) {
-            if (lt->down_proj) {
-            }
-            continue;
-        }
         /* Pre-attention norm: prefer per-layer input_layernorm.weight */
         const QwnTensorDesc *pre_norm = lt->input_norm;
         if (pre_norm && vector_f32(&d->model, pre_norm, d->scratch.row_f32, D) == 0) {
@@ -1640,13 +1829,26 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         } else {
             rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l)*D,D,c->rms_eps);
         }
-        if (lt->q_proj && lt->k_proj && lt->v_proj && Q && KV) {
-            if(matmul(d,lt->q_proj,d->xb,D,Q,d->q)||matmul(d,lt->k_proj,d->xb,D,KV,d->k)||
+        if (lt->is_ssm) {
+            if (forward_deltanet(d, lt) != 0) {
+                fprintf(stderr, "layer %d DeltaNet execution failed\n", l);
+                return -1;
+            }
+        } else if (lt->q_proj && lt->k_proj && lt->v_proj && Q && KV) {
+            int q_projection_width = lt->q_proj_out ? lt->q_proj_out : Q;
+            if(matmul(d,lt->q_proj,d->xb,D,q_projection_width,d->hidden)||
+               matmul(d,lt->k_proj,d->xb,D,KV,d->k)||
                matmul(d,lt->v_proj,d->xb,D,KV,d->v)) {
                 fprintf(stderr, "layer %d attn matmul failed\n", l);
                 return -1;
             }
-            add_bias(d,lt->q_bias,d->q,Q);
+            add_bias(d,lt->q_bias,d->hidden,q_projection_width);
+            if (lt->q_gate_out == Q) {
+                memcpy(d->q, d->hidden, (size_t)Q * sizeof(float));
+                memcpy(d->gate, d->hidden + Q, (size_t)Q * sizeof(float));
+            } else {
+                memcpy(d->q, d->hidden, (size_t)Q * sizeof(float));
+            }
             add_bias(d,lt->k_bias,d->k,KV);
             add_bias(d,lt->v_bias,d->v,KV);
             if(lt->q_norm&&hd_this&&vector_f32(&d->model,lt->q_norm,d->scratch.row_f32,hd_this)==0)
@@ -1718,6 +1920,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                         (uint64_t)d->q8_layers[l].total_bytes /
                         (uint64_t)(d->q8_layers[l].max_tokens > 0 ?
                                    d->q8_layers[l].max_tokens : 1);
+                    apply_attention_gate(d, lt, d->ctx, Q, hd_this);
                     if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
                         add_bias(d, lt->o_bias, d->xb, D);
                         vec_add(d->x, d->xb, D);
@@ -1755,6 +1958,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                 d->runtime_metrics.kv_cache_kernel_count += (uint64_t)H + 1u;
                 d->runtime_metrics.kv_cache_kernel_ms +=
                     (qwn_decode_wall_seconds() - kv_start) * 1000.0;
+                apply_attention_gate(d, lt, d->ctx, Q, hd_this);
                 if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
                     add_bias(d, lt->o_bias, d->xb, D);
                     vec_add(d->x, d->xb, D);
@@ -1800,6 +2004,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                 d->runtime_metrics.kv_cache_kernel_count += (uint64_t)H + 1u;
                 d->runtime_metrics.kv_cache_kernel_ms +=
                     (qwn_decode_wall_seconds() - kv_start) * 1000.0;
+                apply_attention_gate(d, lt, d->ctx, Q, hd_this);
                 if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
                     add_bias(d, lt->o_bias, d->xb, D);
                     vec_add(d->x, d->xb, D);
@@ -1920,6 +2125,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
 #endif
                 }
             }
+            apply_attention_gate(d, lt, d->ctx, Q, hd_this);
             if(lt->o_proj && matmul(d,lt->o_proj,d->ctx,O_IN,D,d->xb)==0) {
                 add_bias(d,lt->o_bias,d->xb,D);
                 vec_add(d->x, d->xb, D);

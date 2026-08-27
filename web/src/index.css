@@ -1022,6 +1022,15 @@ code, kbd, samp, pre {
 .settings-card-header { justify-content: space-between; align-items: flex-start; gap: 12px; }
 .settings-card-note { margin: 12px 0 0; color: #aeb9ca; font-size: 0.82rem; line-height: 1.55; }
 .settings-success-text { margin: 0; color: var(--green); font-size: 0.78rem; }
+.model-preset-card { overflow: hidden; border-color: rgba(105, 230, 203, 0.18); background: linear-gradient(135deg, rgba(17, 35, 47, 0.78), rgba(19, 25, 43, 0.92)); }
+.settings-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.settings-preset { display: grid; align-content: start; gap: 9px; min-width: 0; padding: 15px; border: 1px solid rgba(144, 172, 210, 0.15); border-radius: var(--radius-md); background: rgba(8, 14, 25, 0.42); }
+.settings-preset:hover { border-color: rgba(105, 230, 203, 0.42); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16); }
+.settings-preset-kicker { color: var(--cyan); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.12em; }
+.settings-preset h3 { margin: 0; color: var(--foreground); font-size: 0.9rem; }
+.settings-preset p { min-height: 2.5em; margin: 0; color: #9facbf; font-size: 0.76rem; line-height: 1.5; }
+.settings-preset .settings-card-note { margin: 0; color: #a9b8cf; text-decoration: none; }
+.settings-preset .settings-card-note:hover { color: var(--cyan); }
 
 .feedback-form { display: grid; gap: 12px; }
 .feedback-privacy-preview { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-1); }
@@ -1470,4 +1479,116 @@ code, kbd, samp, pre {
   .settings-library-tools, .settings-search, .settings-sort { width: 100%; }
   .settings-sort select { flex: 1; }
   .session-usage-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-preset-grid { grid-template-columns: 1fr; }
+}
+
+/* Qwanto Studio: a focused local engineering workspace.  The desktop agent
+ * gets its own visual language; the browser chat surface stays untouched. */
+.qwn-studio-shell {
+  position: relative;
+  isolation: isolate;
+  grid-template-columns: 276px minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 72% 8%, rgba(105, 230, 203, 0.09), transparent 25%),
+    radial-gradient(circle at 28% 72%, rgba(124, 158, 255, 0.08), transparent 30%),
+    var(--bg-0);
+}
+.qwn-studio-shell::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+  opacity: 0.18;
+  background-image: linear-gradient(rgba(144, 172, 210, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(144, 172, 210, 0.04) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
+}
+.qwn-nav-shell {
+  border-right-color: rgba(144, 172, 210, 0.14);
+  background: linear-gradient(180deg, rgba(13, 20, 34, 0.95), rgba(10, 14, 23, 0.78));
+  box-shadow: 14px 0 38px rgba(0, 0, 0, 0.14);
+}
+.qwn-nav-shell .desktop-sidebar-head { padding: 7px 6px 15px; }
+.qwn-nav-shell .brand-icon { width: 32px; height: 32px; border-radius: 10px; filter: drop-shadow(0 6px 14px rgba(124, 158, 255, 0.24)); }
+.qwn-nav-shell .desktop-wordmark { font-size: 1rem; letter-spacing: -0.03em; }
+.qwn-nav-shell .desktop-project-switcher { margin: 13px 0 12px; padding: 13px 8px 15px; border: 1px solid rgba(144, 172, 210, 0.14); border-radius: 16px; background: rgba(25, 34, 55, 0.46); }
+.qwn-nav-shell .project-switcher-button { margin-top: 9px; border-color: rgba(144, 172, 210, 0.13); background: rgba(10, 14, 23, 0.42); }
+.qwn-nav-shell .desktop-primary-nav { gap: 5px; padding: 4px 0 19px; border-bottom-color: rgba(144, 172, 210, 0.12); }
+.qwn-nav-shell .desktop-nav-item { min-height: 42px; padding: 9px 11px; border-radius: 12px; color: #8e9db8; }
+.qwn-nav-shell .desktop-nav-item:hover { color: #eaf2ff; background: rgba(124, 158, 255, 0.08); }
+.qwn-nav-shell .desktop-nav-item.active { color: #f5f9ff; background: linear-gradient(90deg, rgba(124, 158, 255, 0.19), rgba(124, 158, 255, 0.04)); box-shadow: inset 2px 0 var(--primary), inset 0 0 0 1px rgba(124, 158, 255, 0.13); }
+.qwn-nav-shell .desktop-nav-item.active svg { color: var(--primary); }
+.qwn-nav-shell .desktop-section-heading { padding-inline: 10px; color: #596985; }
+.qwn-nav-shell .desktop-conversation, .qwn-nav-shell .desktop-tree-item { border-radius: 10px; }
+
+.qwn-command-bar {
+  min-height: 76px;
+  padding: 14px 28px;
+  gap: 14px;
+  border-bottom-color: rgba(144, 172, 210, 0.14);
+  background: rgba(10, 14, 23, 0.66);
+}
+.qwn-command-bar .desktop-topbar-brand { min-width: 182px; }
+.qwn-command-bar .desktop-topbar-brand strong { font-size: 0.94rem; }
+.qwn-command-bar .desktop-topbar-brand small { color: #7f91b0; }
+.qwn-command-bar .desktop-topbar-model { min-width: 250px; padding-left: 14px; border-left: 1px solid rgba(144, 172, 210, 0.14); }
+.qwn-command-bar .desktop-topbar select, .qwn-command-bar .desktop-profile-picker select { border-radius: 10px; background: rgba(25, 34, 55, 0.74); }
+.qwn-command-bar .desktop-mode-toggle { margin-left: auto; border-radius: 11px; background: rgba(25, 34, 55, 0.68); }
+.qwn-command-bar .desktop-gateway-state { padding: 6px 10px; border: 1px solid rgba(95, 217, 168, 0.16); border-radius: 10px; background: rgba(95, 217, 168, 0.05); }
+.qwn-stage { grid-template-columns: minmax(0, 1fr) 344px; background: rgba(9, 13, 22, 0.22); }
+.qwn-main-surface { padding: 34px 32px 0; }
+.qwn-main-surface .desktop-chat-panel { width: min(960px, 100%); }
+.qwn-inspector { border-left-color: rgba(144, 172, 210, 0.14); background: rgba(11, 17, 29, 0.72); }
+.qwn-inspector .desktop-inspector-tabs { padding: 14px; background: rgba(19, 27, 45, 0.48); }
+.qwn-inspector .desktop-code-preview { margin: 14px; border-color: rgba(144, 172, 210, 0.14); border-radius: 14px; background: rgba(7, 11, 19, 0.72); }
+
+.qwn-chat-panel .desktop-chat-heading { padding-bottom: 5px; }
+.qwn-chat-panel .desktop-chat-heading h1 { font-size: clamp(1.9rem, 3vw, 2.7rem); letter-spacing: -0.05em; }
+.qwn-chat-panel .desktop-chat-heading p { max-width: 560px; color: #9aaac3; }
+.qwn-welcome-panel { position: relative; overflow: hidden; display: grid; gap: 10px; margin: 34px 0 24px; padding: 32px; border: 1px solid rgba(144, 172, 210, 0.16); border-radius: 24px; background: linear-gradient(135deg, rgba(23, 33, 54, 0.82), rgba(13, 21, 35, 0.62)); box-shadow: 0 22px 55px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+.qwn-welcome-panel::after { position: absolute; right: -90px; top: -110px; width: 260px; height: 260px; border-radius: 50%; content: ""; background: radial-gradient(circle, rgba(105, 230, 203, 0.18), transparent 68%); pointer-events: none; }
+.qwn-welcome-mark { position: relative; display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 8px; border: 1px solid rgba(105, 230, 203, 0.28); border-radius: 20px; background: rgba(105, 230, 203, 0.08); box-shadow: 0 0 0 8px rgba(105, 230, 203, 0.03); }
+.qwn-welcome-mark img { width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 7px 15px rgba(105, 230, 203, 0.25)); }
+.qwn-welcome-mark span { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; border: 2px solid #152237; border-radius: 50%; background: var(--green); }
+.qwn-welcome-panel h2 { margin: 0; max-width: 620px; color: #f3f8ff; font-size: clamp(1.45rem, 2.5vw, 2.15rem); letter-spacing: -0.045em; }
+.qwn-welcome-panel > p { max-width: 610px; margin: 0; color: #9aaac3; line-height: 1.65; }
+.qwn-prompt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.qwn-prompt-grid button { display: grid; gap: 6px; min-height: 92px; padding: 14px; border: 1px solid rgba(144, 172, 210, 0.15); border-radius: 14px; color: #d9e5f7; background: rgba(9, 15, 27, 0.42); text-align: left; cursor: pointer; transition: transform 0.18s var(--ease-out), border-color 0.18s var(--ease-out), background 0.18s var(--ease-out); }
+.qwn-prompt-grid button:hover { transform: translateY(-2px); border-color: rgba(105, 230, 203, 0.42); background: rgba(105, 230, 203, 0.07); }
+.qwn-prompt-grid strong { font-size: 0.79rem; }
+.qwn-prompt-grid span { color: #8293ae; font-size: 0.72rem; line-height: 1.45; }
+.qwn-chat-panel .desktop-session-state { margin-top: 22px; border-left-color: var(--green); background: rgba(95, 217, 168, 0.045); }
+.qwn-chat-panel .desktop-session-state span { color: var(--green); }
+.qwn-chat-panel .desktop-message { padding: 17px 18px; border-radius: 16px; border-color: rgba(144, 172, 210, 0.13); background: rgba(18, 27, 44, 0.62); box-shadow: 0 7px 22px rgba(0, 0, 0, 0.12); }
+.qwn-chat-panel .desktop-message.user { border-color: rgba(124, 158, 255, 0.25); background: rgba(124, 158, 255, 0.08); }
+.qwn-chat-panel .desktop-message-avatar { border-radius: 12px; }
+.qwn-chat-panel .session-usage-panel { border-color: rgba(144, 172, 210, 0.14); border-radius: 16px; background: rgba(17, 26, 43, 0.62); }
+.qwn-composer { padding: 18px 28px 20px; border-top-color: rgba(144, 172, 210, 0.12); background: linear-gradient(180deg, rgba(9, 13, 22, 0), rgba(9, 13, 22, 0.92) 34%, rgba(9, 13, 22, 0.98)); }
+.qwn-composer .desktop-composer-inner { width: min(960px, 100%); }
+.qwn-composer .desktop-composer-input { padding: 12px 12px 12px 15px; border-color: rgba(144, 172, 210, 0.22); border-radius: 18px; background: rgba(18, 27, 44, 0.94); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+.qwn-composer .desktop-composer-input:focus-within { border-color: rgba(105, 230, 203, 0.56); box-shadow: 0 0 0 4px rgba(105, 230, 203, 0.09), 0 14px 34px rgba(0, 0, 0, 0.3); }
+.qwn-composer .desktop-composer-input .send-button { width: 40px; height: 40px; border-radius: 13px; background: linear-gradient(145deg, #8aa8ff, #5f7ee4); }
+.qwn-composer .desktop-composer-input .send-button.stop { background: linear-gradient(145deg, #fa829e, #c84d7a); }
+.qwn-composer .desktop-composer-meta { color: #71829e; }
+
+@media (max-width: 1050px) {
+  .qwn-studio-shell { grid-template-columns: 220px minmax(0, 1fr); }
+  .qwn-stage { grid-template-columns: minmax(0, 1fr) 292px; }
+  .qwn-command-bar { padding-inline: 18px; }
+  .qwn-command-bar .desktop-topbar-model { min-width: 190px; }
+}
+@media (max-width: 760px) {
+  .qwn-studio-shell { display: block; }
+  .qwn-nav-shell, .qwn-nav-shell.is-collapsed { width: auto; }
+  .qwn-command-bar { padding: 12px 14px; }
+  .qwn-command-bar .desktop-topbar-model { padding-left: 0; border-left: 0; }
+  .qwn-command-bar .desktop-mode-toggle { margin-left: 0; }
+  .qwn-main-surface { padding: 22px 16px 0; }
+  .qwn-welcome-panel { margin-top: 24px; padding: 23px; border-radius: 20px; }
+  .qwn-prompt-grid { grid-template-columns: 1fr; }
+  .qwn-composer { padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qwn-prompt-grid button { transition: none; }
 }

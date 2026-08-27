@@ -67,6 +67,23 @@ artifact and leaves no usable model behind. Status exposes real bytes,
 throughput, ETA when computable, pause/resume state, retry count, and the
 failure reason.
 
+### Official Qwen3.8 presets
+
+The gateway exposes `/v1/qwanto/model-presets` and
+`/v1/qwanto/download/preset` for two explicit Hugging Face choices:
+
+- `qwen38-flash-next-ud-q4-k-xl`: the official-agent Flash-Next UD-Q4_K_XL
+  bundle from `unsloth/Qwen3.8-Flash-Next-GGUF`, four GGUF shards, about 111 GB.
+- `qwen38-27b-q4-k-m`: the lightweight fallback Q4_K_M artifact from
+  `ggml-org/Qwen3.8-27B-GGUF`, one GGUF file, about 19 GB.
+
+The bundle downloader writes each shard atomically and records completion in
+`.qwanto-bundle.json`, allowing completed shards to be retained across an
+interrupted download. The official listings do not provide checksums in the
+catalog metadata, so the resulting source bundle is labeled `unverified` and
+`external_source_only`. It is not presented as a native QWN model and cannot
+be activated by `qwnrun` until the matching architecture runtime is complete.
+
 ## Desktop packaging design
 
 Beta installers package the native `qwnrun` target only. They do not contain

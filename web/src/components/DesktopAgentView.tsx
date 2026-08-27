@@ -226,8 +226,8 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
   }
 
   return (
-    <div className="desktop-agent-shell" data-testid="desktop-agent-shell">
-      <aside className={cn("desktop-sidebar", sidebarCollapsed && "is-collapsed")}>
+    <div className="desktop-agent-shell qwn-studio-shell" data-testid="desktop-agent-shell">
+      <aside className={cn("desktop-sidebar qwn-nav-shell", sidebarCollapsed && "is-collapsed")}>
         <div className="desktop-sidebar-head">
           {!sidebarCollapsed && <div className="desktop-wordmark"><img className="brand-icon" src="/qwanto-icon.png" alt="Qwanto Code" /><span>Qwanto Code</span></div>}
           <button className="icon-button" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setSidebarCollapsed((value) => !value)}>
@@ -269,7 +269,7 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
       </aside>
 
       <main className="desktop-main-column">
-        <header className="desktop-topbar">
+        <header className="desktop-topbar qwn-command-bar">
           <div className="desktop-topbar-brand"><img className="brand-icon" src="/qwanto-icon.png" alt="Qwanto Native" /><span><strong>Qwanto Code</strong><small>Local coding agent</small></span></div>
           <div className="desktop-topbar-model"><label className="desktop-label" htmlFor="desktop-model-select">MODEL</label><select id="desktop-model-select" aria-label="Active validated QWN model" value={props.model} onChange={(event) => props.onSelectModel(event.target.value)} disabled={!props.connected}>
             <option value="">No model selected</option>
@@ -289,8 +289,8 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
         {props.error && <div className="desktop-error" role="alert">{props.error}</div>}
         {toolError && <div className="desktop-error" role="alert">{toolError}<button onClick={() => setToolError("")} aria-label="Dismiss"><X className="size-3.5" /></button></div>}
 
-        <div className="desktop-workspace">
-          <section className="desktop-center-panel">
+        <div className="desktop-workspace qwn-stage">
+          <section className="desktop-center-panel qwn-main-surface">
             {section === "project" && <ProjectPanel workspace={workspace} onOpen={() => void setWorkspaceRoot()} sessions={savedSessions} onResume={props.onResumeSession} />}
             {section === "settings" && <div className="desktop-settings-host">{props.settingsContent}</div>}
             {section === "files" && <FilesPanel entries={fileTree} onSelect={selectFile} onRefresh={() => void refreshFiles()} />}
@@ -298,7 +298,7 @@ export function DesktopAgentView(props: DesktopAgentViewProps) {
             {section === "chats" && <ChatPanel {...props} attachments={attachments} onAddAttachment={() => void addAttachment()} onRemoveAttachment={removeAttachment} />}
           </section>
 
-          {!inspectorCollapsed && <aside className="desktop-inspector">
+          {!inspectorCollapsed && <aside className="desktop-inspector qwn-inspector">
             <div className="desktop-inspector-tabs">
               {(["diff", "approvals", "output", "file"] as InspectorTab[]).map((tab) => <button key={tab} className={inspectorTab === tab ? "active" : ""} onClick={() => setInspectorTab(tab)}>{tab === "diff" ? "Diff" : tab === "approvals" ? "Approvals" : tab === "output" ? "Output" : "File"}</button>)}<button className="icon-button inspector-collapse-button" aria-label="Hide inspector" onClick={() => setInspectorCollapsed(true)}><PanelRightClose className="size-3.5" /></button>
             </div>
@@ -351,7 +351,7 @@ type ChatPanelProps = Omit<DesktopAgentViewProps, "onSend"> & {
 function ChatPanel(props: ChatPanelProps) {
   const usage = props.usage || { promptTokens: null, completionTokens: null, totalTokens: null, elapsedMs: null, ttftMs: null, tokensPerSecond: null, contextUse: null, toolCalls: null, queueState: "idle" }
   const draftSkill = resolveSkillInvocation(props.draft)
-  return <div className="desktop-chat-panel">
+  return <div className="desktop-chat-panel qwn-chat-panel">
     <div className="desktop-chat-heading">
       <div>
         <div className="desktop-eyebrow">LOCAL AGENT</div>
@@ -360,7 +360,18 @@ function ChatPanel(props: ChatPanelProps) {
       </div>
       <Button size="sm" variant="ghost" onClick={props.onClear} disabled={!props.messages.length}>Clear</Button>
     </div>
-    {(!props.connected || !props.model) && <div className="desktop-no-model" role="status">
+      {!props.messages.length && <section className="qwn-welcome-panel" aria-label="Qwanto Code welcome">
+        <div className="qwn-welcome-mark" aria-hidden="true"><img src="/qwanto-icon.png" alt="" /><span /></div>
+        <div className="desktop-eyebrow">LOCAL-FIRST INTELLIGENCE</div>
+        <h2>Build at the speed of thought.</h2>
+        <p>Qwanto Code turns your local model and workspace into one focused engineering studio. Your files stay on your machine.</p>
+        <div className="qwn-prompt-grid">
+          <button type="button" onClick={() => props.onDraftChange("Map this project and identify the highest-impact next step.")}><strong>Map the project</strong><span>Understand structure, risks, and momentum.</span></button>
+          <button type="button" onClick={() => props.onDraftChange("Review the current working tree and suggest a safe implementation plan.")}><strong>Review changes</strong><span>Turn the working tree into a clear plan.</span></button>
+          <button type="button" onClick={() => props.onDraftChange("Find the slowest local runtime path and propose a measured optimization.")}><strong>Find the bottleneck</strong><span>Optimize from evidence, not assumptions.</span></button>
+        </div>
+      </section>}
+      {(!props.connected || !props.model) && <div className="desktop-no-model" role="status">
       <strong>{!props.connected ? "Gateway is getting ready" : "Choose a validated QWN model"}</strong>
       <span>{!props.connected ? "Your workspace is ready. The local gateway will appear here when its loopback handshake completes." : "Open Settings › Models, select a QWN model that passes validation and hardware fit, then press Start."}</span>
     </div>}
@@ -419,7 +430,7 @@ function Composer(props: ComposerProps) {
     }
   }
   return (
-    <div className="desktop-composer" data-testid="desktop-composer">
+    <div className="desktop-composer qwn-composer" data-testid="desktop-composer">
       <div className="desktop-composer-inner">
         {props.attachments.length > 0 && (
           <div className="chat-attachment-list" aria-label="Pending attachments">

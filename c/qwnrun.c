@@ -331,6 +331,9 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
             printf("PONG\n");fflush(stdout);
         }else if(strncmp(line,"CONFIG",6)==0){
             printf("CONFIG dim=%d vocab=%d layers=%d\n",d.cfg.hidden,d.cfg.vocab,d.cfg.layers);fflush(stdout);
+        }else if(strncmp(line,"RESET",5)==0){
+            qwn_decoder_reset(&d);
+            printf("RESET\n");fflush(stdout);
         }else if(sscanf(line,"FORWARD %d",&token_fwd)==1){
             const float *l_out=NULL;
             qwn_decoder_forward(&d,token_fwd,&l_out);

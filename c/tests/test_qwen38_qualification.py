@@ -45,24 +45,24 @@ def _write_minimal_gguf(path: Path, *, architecture: str = "", dtype: int = 18) 
 
 
 class Qwen38QualificationTests(unittest.TestCase):
-    def test_unknown_iq_dtype_is_not_reinterpreted(self):
+    def test_supported_iq_dtype_is_not_reinterpreted_as_another_source_block(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "iq.gguf"
             _write_minimal_gguf(source, dtype=18)
             report = qualification.inspect_gguf(source)
-            self.assertEqual(report["dtype_summary"]["unsupported_by_current_converter"], [18])
+            self.assertEqual(report["dtype_summary"]["unsupported_by_current_converter"], [])
             tensor = report["tensors"][0]
             self.assertEqual(tensor["source_dtype"], "IQ3_XXS")
-            self.assertIn("not implemented", tensor["qualification_reason"])
+            self.assertNotIn("not implemented", tensor["qualification_reason"])
 
-    def test_qwen35_architecture_is_blocked_before_output(self):
+    def test_qwen35_architecture_is_parsed_for_native_conversion(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "hybrid.gguf"
             output = Path(directory) / "model.qwn"
             _write_minimal_gguf(source, architecture="qwen35", dtype=0)
-            with self.assertRaisesRegex(ValueError, "native QWN conversion is unavailable"):
-                qwn_convert.convert_model(str(source), str(output), "q4_0")
-            self.assertFalse(output.exists())
+            tensors, dims = qwn_convert._read_gguf_tensors(str(source), "q4_0")
+            self.assertEqual(dims[5], 0)
+            self.assertTrue(any(t["name"] == "__qwn.config" for t in tensors))
 
     @unittest.skipUnless(MODEL.exists(), "Qwen3.8 GGUF source is not present")
     def test_real_source_has_complete_coverage_and_hybrid_components(self):
@@ -73,13 +73,13 @@ class Qwen38QualificationTests(unittest.TestCase):
         self.assertEqual(report["architecture"]["full_attention_layer_count"], 17)
         self.assertEqual(len(report["architecture"]["mtp_tensor_names"]), 4)
         self.assertEqual(report["dtype_summary"]["general_file_type_label"], "IQ2_M mixed quantization")
-        self.assertIn(18, report["dtype_summary"]["unsupported_by_current_converter"])
-        self.assertIn(22, report["dtype_summary"]["unsupported_by_current_converter"])
+        self.assertNotIn(18, report["dtype_summary"]["unsupported_by_current_converter"])
+        self.assertNotIn(22, report["dtype_summary"]["unsupported_by_current_converter"])
         self.assertEqual(report["architecture"]["lm_head"],
                          "separate output.weight and token_embd.weight tensors")
 
     @unittest.skipUnless(MODEL.exists(), "Qwen3.8 GGUF source is not present")
-    def test_qualification_never_creates_qwn_output(self):
+    def test_qualification_reports_conversion_and_runtime_gates(self):
         with tempfile.TemporaryDirectory() as directory:
             reports = qualification.qualify(
                 MODEL, Path(directory) / "reports",
@@ -90,7 +90,7 @@ class Qwen38QualificationTests(unittest.TestCase):
             self.assertEqual(
                 reports["qualification-summary.json"].read_text(encoding="utf-8")
                 .split('"decision": "', 1)[1].split('"', 1)[0],
-                "UNSUPPORTED_QWEN38_ARCHITECTURE",
+                "READY_FOR_CONVERSION_RUNTIME_GATE",
             )
             self.assertEqual(list(Path(directory).rglob("*.qwn")), [])
 

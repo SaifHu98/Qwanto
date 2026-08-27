@@ -1,4 +1,5 @@
 use std::fs;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,6 +14,38 @@ pub struct FeedbackBundle {
     pub category: String,
     pub includes_logs: bool,
     pub includes_screenshot: bool,
+}
+
+pub fn record_error(root: &Path, source: &str, message: &str, context: &str) -> Result<(), String> {
+    let source = source.trim();
+    let message = message.trim();
+    if source.is_empty() || source.len() > 128 || message.is_empty() || message.len() > 20_000 {
+        return Err("Diagnostic error record is invalid.".into());
+    }
+    let root = root.canonicalize().map_err(|error| format!("Diagnostic root is unavailable: {error}"))?;
+    let directory = root.join(".qwanto").join("diagnostics");
+    fs::create_dir_all(&directory).map_err(|error| format!("Could not create diagnostics storage: {error}"))?;
+    let directory = directory.canonicalize().map_err(|error| format!("Diagnostics storage is unavailable: {error}"))?;
+    if !directory.starts_with(root.as_path()) { return Err("Diagnostics storage escaped its root boundary.".into()); }
+    let root_text = root.to_string_lossy();
+    let redact = |value: &str| PermissionPolicy::redact_secrets(value).replace(root_text.as_ref(), "[REDACTED_ROOT]");
+    let record = serde_json::json!({
+        "created_at": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+        "source": source,
+        "message": redact(message),
+        "context": redact(context),
+    });
+    let path = directory.join("errors.jsonl");
+    if path.metadata().map(|meta| meta.len() > 1_048_576).unwrap_or(false) {
+        let rotated = directory.join("errors.jsonl.1");
+        let _ = fs::remove_file(&rotated);
+        fs::rename(&path, &rotated).map_err(|error| format!("Could not rotate diagnostics log: {error}"))?;
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(&path)
+        .map_err(|error| format!("Could not open diagnostics log: {error}"))?;
+    writeln!(file, "{}", serde_json::to_string(&record).map_err(|error| error.to_string())?)
+        .map_err(|error| format!("Could not write diagnostics log: {error}"))?;
+    file.sync_data().map_err(|error| format!("Could not flush diagnostics log: {error}"))
 }
 
 fn crc32(bytes: &[u8]) -> u32 {

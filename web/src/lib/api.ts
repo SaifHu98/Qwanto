@@ -310,6 +310,26 @@ export interface DownloadStatus {
   eta_seconds?: number | null
   partial_path?: string
   retry_count?: number
+  bundle_id?: string
+  bundle_mode?: boolean
+  current_file?: string
+  files_done?: number
+  files_total?: number
+}
+
+export interface ModelPreset {
+  id: string
+  name: string
+  role: "official_agent" | "lightweight_fallback" | string
+  provider: string
+  repository: string
+  revision: string
+  subfolder: string
+  files: string[]
+  size_display: string
+  architecture: string
+  runtime_state: "external_source_only" | string
+  source_url: string
 }
 
 export interface AcquisitionProvider {
@@ -427,6 +447,23 @@ export async function downloadModel(baseUrl: string, url: string, filename?: str
   })
   if (!response.ok) throw new Error(await responseError(response))
   return (await response.json()) as { status: string; message: string }
+}
+
+export async function getModelPresets(baseUrl: string, apiKey = ""): Promise<ModelPreset[]> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/model-presets"), { headers: headers(apiKey) })
+  if (!response.ok) throw new Error(await responseError(response))
+  const body = (await response.json()) as { presets?: ModelPreset[] }
+  return body.presets || []
+}
+
+export async function downloadModelPreset(baseUrl: string, presetId: string, apiKey = "", destination?: string) {
+  const response = await fetch(endpoint(baseUrl, "qwanto/download/preset"), {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify({ preset_id: presetId, dest_path: destination || undefined }),
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as { status: string; preset: ModelPreset; message: string }
 }
 
 export async function setResourceLimits(baseUrl: string, resources: ResourceLimits, apiKey = "") {

@@ -60,6 +60,16 @@ extern "C" {
 #define QWN_DT_VSQ_ULTRA   7
 #define QWN_DT_HYPER_VSQ   8
 #define QWN_DT_HYPER_VSQ2  9
+#define QWN_DT_Q2_K        10
+#define QWN_DT_Q3_K        11
+#define QWN_DT_Q8_K        12
+#define QWN_DT_IQ2_XXS     13
+#define QWN_DT_IQ2_XS      14
+#define QWN_DT_IQ3_XXS     15
+#define QWN_DT_IQ3_S       16
+#define QWN_DT_IQ2_S       17
+#define QWN_DT_IQ4_NL      18
+#define QWN_DT_IQ4_XS      19
 
 #if defined(_MSC_VER)
 #define QWN_PACKED

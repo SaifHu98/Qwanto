@@ -65,6 +65,9 @@ export default function App() {
 
   const addLog = (type: "error" | "warn" | "info", message: string) => {
     setLogs((current) => [...current.slice(-200), { time: new Date().toLocaleTimeString(), type, message }])
+    if (desktopShell && type === "error") {
+      void desktopInvoke("record_error", { source: "web", message, context: "Qwanto Code UI" }).catch(() => undefined)
+    }
   }
 
   useEffect(() => {

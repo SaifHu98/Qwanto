@@ -33,6 +33,16 @@ loader before inference.
 | `7` | `VSQ_ULTRA`    | 70 bytes / 128 elements   | 128             | ✅                 | ✅ `dot_vsq_ultra_block`            | — |
 | `8` | `HYPER_VSQ`    | 138 bytes / 256 elements  | 256             | ✅                 | ✅ `dot_hyper_vsq_block`            | — |
 | `9` | `HYPER_VSQ2`   | 74 bytes / 256 elements   | 256             | ✅                 | ✅ `dot_hyper_vsq2_block` (scalar/AVX2/VNNI) | ✅ `qwn_cuda.dll` ABI 1, `gemv_hypervsq2` (RTX sm_120) |
+| `10` | `Q2_K`        | 84 bytes / 256 elements   | 256             | ✅                 | ✅ scalar exact block decoder | — |
+| `11` | `Q3_K`        | 110 bytes / 256 elements  | 256             | ✅                 | ✅ scalar exact block decoder | — |
+| `12` | `Q8_K`        | 292 bytes / 256 elements  | 256             | ✅                 | ✅ scalar exact block decoder | — |
+| `13` | `IQ2_XXS`     | 66 bytes / 256 elements   | 256             | ✅                 | ✅ canonical GGML grid/sign decoder | — |
+| `14` | `IQ2_XS`      | 74 bytes / 256 elements   | 256             | ✅                 | ✅ canonical GGML grid/sign decoder | — |
+| `15` | `IQ3_XXS`     | 98 bytes / 256 elements   | 256             | ✅                 | ✅ canonical GGML grid/sign decoder | — |
+| `16` | `IQ3_S`       | 110 bytes / 256 elements  | 256             | ✅                 | ✅ canonical GGML grid/sign decoder | — |
+| `17` | `IQ2_S`       | 82 bytes / 256 elements   | 256             | ✅                 | ✅ canonical GGML grid/sign decoder | — |
+| `18` | `IQ4_NL`      | 18 bytes / 32 elements    | 32              | ✅                 | ✅ canonical GGML codebook decoder | — |
+| `19` | `IQ4_XS`      | 136 bytes / 256 elements  | 256             | ✅                 | ✅ canonical GGML scale/codebook decoder | — |
 
 Interpretation:
 
@@ -45,9 +55,9 @@ Interpretation:
   even if a tensor of that dtype is technically declared.
 
 The 4 KiB-header container invariants from `AGENTS.md` apply to **all** dtypes
-above: descriptors and payloads are validated before any tensor is touched. A
-container that lists Q4_K for any tensor fails the loader at the descriptor
-step with `"unsupported_dtype"` (see §4).
+above: descriptors and payloads are validated before any tensor is touched.
+Q4_K/Q5_K/Q6_K remain source-only formats and cannot be stored as native QWN
+dtypes.
 
 ---
 
@@ -59,6 +69,7 @@ exposes. The `--quant` choices are exhaustive:
 | CLI flag          | QWN container dtype | Status        | Use case                          |
 |-------------------|---------------------|---------------|-----------------------------------|
 | `q4_0`            | `QWN_DT_Q4_0`       | ✅ Supported  | Default. Works for every dense transformer that fits 2-D row geometry. |
+| `q8_0`            | `QWN_DT_Q8_0`       | ✅ Supported  | Symmetric 32-element blocks for quality-first local inference. |
 | `q4_k`            | (read-only)         | ❌ Not exposed | GGUF source decoder exists in `_dequantize_q4_k_block` (line 797). It is used to **re-quantize** GGUF Q4_K weights into another `--quant`; it is not selectable as an output because no native `.qwn` Q4_K reader is wired in the runtime. |
 | `q5_k`            | (read-only)         | ❌ Not exposed | Same status as Q4_K. `_dequantize_q5_k_block` exists at line 820. |
 | `q6_k`            | (read-only)         | ❌ Not exposed | Same status. `_dequantize_q6_k_block` exists at line 841. |
@@ -69,7 +80,7 @@ exposes. The `--quant` choices are exhaustive:
 | `twla`            | (planned)           | ❌ Not implemented | Listed in `qwn_quant_plan.py` only. No native dtype ID, no kernel. README performance claims remain invalid. |
 | `littlebit2`      | (planned)           | ❌ Not implemented | Same as `twla`. |
 | `pquant`          | (planned)           | ❌ Not implemented | Same. |
-| `none`            | `QWN_DT_F32`        | ✅ Supported  | Stores raw FP32 weights. Largest container; not a quant at all. Used by `experiments/results/15B_none.qwn` and `4B_none.qwn` for the dual-mode validation only. |
+| `none`            | source-preserving | ✅ Supported  | Preserves native Q2_K/Q3_K/Q8_K/IQ2/IQ3/IQ4 payloads; other source tensors remain subject to the existing conversion policy. |
 
 Calling `qwn-convert convert --quant <anything not in this table>` exits 2
 with `argparse: invalid choice`. There is no silent fallback.
@@ -92,21 +103,29 @@ matrix below is what the converter prints before writing any `.qwn`:
 | `7`            | `Q5_1`            | ❌     | Reject: `unsupported tensor dtype Q5_1`.          |
 | `8`            | `Q8_0`            | ✅      | Dequantize to F32 then re-quantize.               |
 | `9`            | `Q8_1`            | ❌     | Reject: `unsupported tensor dtype Q8_1`.          |
-| `10`           | `Q2_K`            | ❌     | Reject: no verified K-quant decoder outputs a `.qwn` writer at this dtype. Source tensor is preserved unchanged in the source GGUF; conversion fails before any `.qwn` is written. |
-| `11`           | `Q3_K`            | ❌     | Reject, same reason. (Read-side exists for Q3_K dequantization? No — only Q4_K / Q5_K / Q6_K readers are wired. Q2_K and Q3_K are explicitly not.) |
+| `10`           | `Q2_K`            | ✅ | `--quant none` preserves the canonical block payload as native QWN `Q2_K`; other targets dequantize to F32 first. |
+| `11`           | `Q3_K`            | ✅ | `--quant none` preserves the canonical block payload as native QWN `Q3_K`; other targets dequantize to F32 first. |
 | `12`           | `Q4_K`            | ✅ (read-only) | Block-dequantized to F32, then passed to the chosen `--quant`. There is **no `.qwn` writer for Q4_K.** |
 | `13`           | `Q5_K`            | ✅ (read-only) | Same status as Q4_K. `_dequantize_q5_k_block` at line 820. |
 | `14`           | `Q6_K`            | ✅ (read-only) | Same status. `_dequantize_q6_k_block` at line 841. |
-| `15`           | `Q8_K`            | ❌     | Reject: the only K-quant writer we have not built. Reader is absent. |
-| `16`-`24`      | All `IQ*` (`IQ1_S`, `IQ1_M`, `IQ2_XXS`, `IQ2_XS`, `IQ2_S`, `IQ3_XXS`, `IQ3_S`, `IQ4_NL`, `IQ4_XS`) | ❌ | Reject: `Current converter has no exact IQ*/IQ2/IQ3/IQ4 block decoder for these source tensor dtypes; no reinterpretation is permitted.` (`qwn_convert.py:1095`). The whole file is refused, no `.qwn` is written, and the source GGUF is left in place unchanged. |
+| `15`           | `Q8_K`            | ✅ | `--quant none` preserves the canonical block payload as native QWN `Q8_K`; other targets dequantize `d * qs` to F32. The stored `bsums` are auxiliary dot-product sums and are not needed for reconstruction. |
+| `20`           | `IQ4_NL`          | ✅ | `--quant none` preserves the canonical payload as native QWN IQ4_NL; target quantizations still dequantize first. |
+| `21`           | `IQ3_S`           | ✅ | `--quant none` preserves the canonical payload as native QWN IQ3_S; target quantizations still dequantize first. |
+| `22`           | `IQ2_S`           | ✅ | `--quant none` preserves the canonical payload as native QWN IQ2_S; target quantizations still dequantize first. |
+| `23`           | `IQ4_XS`          | ✅ | `--quant none` preserves the canonical payload as native QWN IQ4_XS; target quantizations still dequantize first. |
+| `16`           | `IQ2_XXS`         | ✅ | `--quant none` preserves the canonical payload as native QWN IQ2_XXS; target quantizations still dequantize first. |
+| `17`           | `IQ2_XS`          | ✅ | `--quant none` preserves the canonical payload as native QWN IQ2_XS; target quantizations still dequantize first. |
+| `18`           | `IQ3_XXS`         | ✅ | `--quant none` preserves the canonical payload as native QWN IQ3_XXS; target quantizations still dequantize first. |
+| `19`           | `IQ1_S`           | ❌             | Refused: canonical IQ1 decoder is not yet wired. |
 
-A **mixed-IQ** GGUF (different tensors at different IQ dtypes within the same
-file) is also refused because the converter refuses to translate, e.g., an
-`IQ2_M` head into a `.qwn` tensor. Qwen3.8-27B's `IQ2_M` model lands here.
+A mixed-IQ GGUF is accepted when every contained IQ block has a verified source
+decoder. With `--quant none`, supported IQ blocks are streamed byte-for-byte
+into native QWN IQ descriptors and decoded by `qwn_row_f32`; with another
+target, they are streamed through F32 and re-quantized. IQ1_S remains refused.
 
 ---
 
-## 4. Architecture-level rejection (qwen38 / hybrid / MTP)
+## 4. Architecture-level status (Qwen3.8 / hybrid / MTP)
 
 Independent of dtype, the converter refuses unsupported architectures
 **before** any dtype machinery runs. `c/tools/qwen38_qualification.py`
@@ -115,8 +134,8 @@ formalises this; the rest of the converter calls it as a pre-flight.
 | Architecture marker                       | Status   | Reason recorded                                   |
 |-------------------------------------------|---------|---------------------------------------------------|
 | Dense Llama-style (≤ ~32 layers, all attention) | ✅     | Pass. See `1.5B Q4_K_M` measurement in §6.        |
-| Hybrid Qwen-3.5 with MTP tensors          | ❌       | "Qwen3.5 hybrid + MTP matrix reference not committed." |
-| Hybrid DeltaNet / SSM + attention mix (Qwen3.8-27B) | ❌ | "mixed IQ dtypes not supported by the converter" + no SSM/DeltaNet reference oracle. |
+| Hybrid Qwen-3.5 with MTP tensors          | 🟡       | QWN conversion and CPU DeltaNet/main-path integration exist; MTP execution and quality oracle are pending. |
+| Hybrid DeltaNet / SSM + attention mix (Qwen3.8-27B) | 🟡 | Local Q4_0 conversion and one-token CPU main-path integration are verified; native IQ, MTP, CUDA, quality, and benchmark gates remain. |
 | MoE (Mixtral / DeepSeek-MoE-style)        | ❌       | No reference router implementation; experts not validated. |
 | Mamba / SSM-only                          | ❌       | No native matmul dispatch. |
 | Tied embeddings check                     | ✅/❌    | Detected automatically by `qwn_roles.py`; tied embeddings are classified `tied_embed`. Verified per-tensor in `c/qwn_quant_plan.py`. |
@@ -176,18 +195,24 @@ correct, fail-closed behaviour. It is **not** an indefinite UNKNOWN — it is a
 The following are **not** supported and any README / marketing copy that asserts
 otherwise is wrong. Each is mapped to the file that asserts the refusal.
 
-- "Qwen3.8-27B QWN model", "27B in `Q4_K`", "27B in `IQ2_M`" — refused by
-  `c/tools/qwen38_qualification.py`. Evidence under `docs/qwen38-27b-evidence/`.
-- "K-quant Q2_K / Q3_K as a `.qwn` output" — no writer exists. Source tensor
-  is silently rejected.
-- "K-quant Q8_K as a `.qwn` output" — no reader, no writer.
-- "All IQ-types in `.qwn`" — explicit refusal in `qwn_convert.py:1095`.
+- "Qwen3.8-27B full architecture support" — not yet claimed: the local Q4_0
+  conversion and CPU main path are integration-verified, but MTP, native IQ,
+  CUDA, quality, and benchmark gates remain. Historical evidence is under
+  `docs/qwen38-27b-evidence/`.
+- "Q4_K/Q5_K/Q6_K as native `.qwn` dtypes" — these source types are decoded
+  and re-quantized into an existing QWN dtype; they are not native QWN runtime
+  dtypes. Q2_K/Q3_K/Q8_K are now native QWN dtypes with scalar kernels.
+- "IQ1 as a source conversion" — IQ1_S remains refused pending its
+  canonical decoder.
+- "All IQ-types as native `.qwn` dtypes" — IQ2/IQ3/IQ4 are source readers,
+  not native QWN runtime dtypes; IQ1 remains refused.
 - "TWLA / LittleBit-2 / PQuant real model run" — no verified end-to-end
   model. These names appear in `qwn_quant_plan.py` and the `build_and_run_c_tests`
   unity build for future wiring, but not in the dispatch table.
 - "`--backend cuda` for non-`hyper_vsq2` model" — fail-closed.
-- "Hybrid SSM / DeltaNet / MoE / MTP native inference" — no reference oracle
-  committed; refusal is authoritative.
+- "Native MoE/MTP inference" — no QWN MoE dispatcher or MTP prediction path is
+  wired and validated yet. DeltaNet CPU main-path execution is separate and
+  has been integration-tested on the local Qwen3.8 conversion.
 - "Speculative decoding with a missing native QWN draft" — refused at
   `c/qwn_speculative.c` (433/433 boundary tests). No acceptance rate,
   no speedup is claimed.

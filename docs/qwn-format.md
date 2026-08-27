@@ -40,6 +40,16 @@ fails with `unsupported_dtype` and no inference runs.
 | `7` | `VSQ_ULTRA`    | 70 / 128                             | 🟡 Experimental | Local reference only.                  |
 | `8` | `HYPER_VSQ`    | 138 / 256                            | 🟡 Experimental | Earlier-gen HyperVSQ. Distinct from HyperVSQ-2. |
 | `9` | `HYPER_VSQ2`   | 74 / 256                             | ✅ Yes        | The only dtype with a release-quality CPU AVX-VNNI matmul AND a CUDA ABI 1 implementation. |
+| `10` | `Q2_K`        | 84 / 256                             | ✅ Yes        | Native scalar row decoder. |
+| `11` | `Q3_K`        | 110 / 256                            | ✅ Yes        | Native scalar row decoder. |
+| `12` | `Q8_K`        | 292 / 256                            | ✅ Yes        | Native scalar row decoder. |
+| `13` | `IQ2_XXS`     | 66 / 256                             | ✅ Yes        | Native GGML grid/sign row decoder. |
+| `14` | `IQ2_XS`      | 74 / 256                             | ✅ Yes        | Native GGML grid/sign row decoder. |
+| `15` | `IQ3_XXS`     | 98 / 256                             | ✅ Yes        | Native GGML grid/sign row decoder. |
+| `16` | `IQ3_S`       | 110 / 256                            | ✅ Yes        | Native GGML grid/sign row decoder. |
+| `17` | `IQ2_S`       | 82 / 256                             | ✅ Yes        | Native GGML grid/sign row decoder. |
+| `18` | `IQ4_NL`      | 18 / 32                              | ✅ Yes        | Native GGML non-linear codebook row decoder. |
+| `19` | `IQ4_XS`      | 136 / 256                            | ✅ Yes        | Native GGML scale/codebook row decoder. |
 
 `TWLA`, `LittleBit-2`, `TurboQuant`, `JetSpec`, `SlimInfer`, and `BitDecoding`
 are *runtime modules* under `c/qwanto_*.c`, not container dtype IDs. They
