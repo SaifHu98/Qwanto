@@ -119,8 +119,9 @@ LDFLAGS += -ldl
 endif
 
 # Preserve the optimization profile selected by this Makefile in qwnrun's
-# audit record. The escaped quotes make the value a C string on all shells.
-CFLAGS += -DQWN_BUILD_OPT_FLAGS='"$(QWN_BUILD_OPT_FLAGS)"'
+# audit record. qwnrun stringizes the token list, so this remains portable
+# across POSIX shells, PowerShell, GCC, and Clang.
+CFLAGS += -DQWN_BUILD_OPT_FLAGS=$(QWN_BUILD_OPT_FLAGS)
 
 # --- install ---
 PREFIX     ?= /usr/local

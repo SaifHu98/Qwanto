@@ -33,10 +33,11 @@ and NVMe mmap.
   real `/v1/qwanto/models/verify` endpoint testing verifying 4KiB container
   invariants (header, payload alignment, 64-byte padding, tail block) and live
   `qwnrun` smoke test execution.
-- Release candidate: local annotated tag `v0.1.0-beta.7` points to commit
-  `b4bc46b` after the full local validation gates. Publishing `main` and the
-  tag is currently blocked by GitHub HTTP 403 for the configured credentials;
-  no remote tag or GitHub release was created.
+- Release candidate: annotated tag `v0.1.0-beta.7` and `main` are published at
+  commit `5445240`. The first packaging run `33113738318` reached all three
+  platforms; Windows failed in the Clang macro quoting step, while Ubuntu and
+  macOS were still running at the last check. A workflow quoting fix is ready
+  locally and must be pushed before the release can be considered built.
 - Web validation: production build passed (`tsc -b && vite build`) and Vitest
   passed (`61 tests`). Qwanto Code desktop UI now uses the Qwanto Studio visual
   system with a fixed bottom input bar that mirrors modern chat surfaces
