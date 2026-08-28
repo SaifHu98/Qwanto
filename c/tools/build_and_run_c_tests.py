@@ -36,6 +36,7 @@ TEST_SPECS = [
     ("tests/test_qwanto_native", ["tests/test_qwanto_native.c", "qwanto_native.c", "qwanto_kernels.c", "qwanto_core.c"]),
     ("tests/test_hypervsq2_kernels", ["tests/test_hypervsq2_kernels.c", "qwanto_native.c", "qwanto_kernels.c"]),
     ("tests/test_kv_cache", ["tests/test_kv_cache.c", "qwanto_turboquant.c", "qwanto_native.c", "qwanto_kernels.c"]),
+    ("tests/test_turboquant_paper", ["tests/test_turboquant_paper.c", "qwanto_turboquant.c", "qwanto_native.c", "qwanto_kernels.c"]),
     ("tests/test_runtime_config", ["tests/test_runtime_config.c", "qwn_runtime_config.c"]),
     ("tests/test_speculative", ["tests/test_speculative.c"] + QWNRUN_LIB_SRCS),
 ]
@@ -111,4 +112,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

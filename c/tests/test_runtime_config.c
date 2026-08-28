@@ -44,6 +44,11 @@ int main(void) {
         expect(config.kv_cache_mode_typed == QWN_RUNTIME_KV_TURBOQUANT_Q4,
                "QWN-Q4-KV is explicitly typed")) return 1;
 
+    char *paper_args[] = {"qwnrun", "--kv-cache", "turboquant-paper"};
+    if (parse(3, paper_args, &config, 1) ||
+        expect(config.kv_cache_mode_typed == QWN_RUNTIME_KV_TURBOQUANT_PAPER,
+               "paper TurboQuant is explicitly typed")) return 1;
+
     char *bad_args[] = {"qwnrun", "--kv-cache", "q3"};
     if (parse(3, bad_args, &config, 0)) return 1;
 

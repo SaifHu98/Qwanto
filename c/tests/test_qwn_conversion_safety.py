@@ -42,6 +42,14 @@ def _write_minimal_gguf(path: Path, name: str, dims, dtype: int, payload=b""):
 
 
 class QwnConversionSafetyTests(unittest.TestCase):
+    def test_qwen_nextn_tensor_names_preserve_the_full_suffix(self):
+        self.assertEqual(
+            qwn_convert.map_gguf_tensor_name("blk.64.nextn.eh_proj.weight"),
+            "model.layers.64.mtp.eh_proj.weight")
+        self.assertEqual(
+            qwn_convert.map_gguf_tensor_name("blk.64.nextn.shared_head_norm.weight"),
+            "model.layers.64.mtp.shared_head_norm.weight")
+
     def test_native_k_rows_match_reference_dequantization(self):
         clang = shutil.which("clang")
         if not clang:

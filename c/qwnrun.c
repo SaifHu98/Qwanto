@@ -6,6 +6,7 @@
 
 #include "qwanto_decode.h"
 #include "qwanto_gpu.h"
+#include "qwn_speculative.h"
 
 #if defined(_OPENMP)
 #include <omp.h>
@@ -302,6 +303,16 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
     double model_load_started = serve_started;
     QwnDecoder d;const char *error=NULL;
     if(qwn_decoder_open_with_config(&d,model,&config,&error)!=0){fprintf(stderr,"qwnrun: %s\n",error?error:"open");return 1;}
+    if (config.speculative_decoding && !qwn_decoder_has_native_mtp(&d)) {
+        fprintf(stderr, "qwnrun: --speculative requires a native MTP head in the selected QWN model\n");
+        qwn_decoder_close(&d);
+        return 2;
+    }
+    if (config.speculative_decoding && strcmp(config.thinking_mode, "none") != 0) {
+        fprintf(stderr, "qwnrun: --speculative cannot be combined with thinking mode\n");
+        qwn_decoder_close(&d);
+        return 2;
+    }
     double model_loaded = wall_seconds();
     print_runtime_info(&d);
     if(getenv("SERVE")){
@@ -334,6 +345,15 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
         }else if(strncmp(line,"RESET",5)==0){
             qwn_decoder_reset(&d);
             printf("RESET\n");fflush(stdout);
+        }else if(sscanf(line,"MTP_FORWARD %d",&token_fwd)==1){
+            const float *l_out=NULL;
+            if (qwn_decoder_mtp_forward(&d,token_fwd,&l_out) != 0) {
+                printf("ERROR native_mtp_unavailable_or_failed\n");fflush(stdout);
+                continue;
+            }
+            printf("LOGITS %d\n",d.cfg.vocab);
+            for(int i=0;i<d.cfg.vocab;i++)printf("%.9g\n",l_out[i]);
+            fflush(stdout);
         }else if(sscanf(line,"FORWARD %d",&token_fwd)==1){
             const float *l_out=NULL;
             qwn_decoder_forward(&d,token_fwd,&l_out);
@@ -372,7 +392,20 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
             ServeOut out={id};
             if (max_tokens <= 0 || max_tokens > config.max_tokens) max_tokens = config.max_tokens;
             int generated;
-            if (strcmp(config.thinking_mode, "none") == 0) {
+            QwnSpecCounters speculative_counters;
+            memset(&speculative_counters, 0, sizeof(speculative_counters));
+            if (config.speculative_decoding) {
+                QwnSpecContext speculative;
+                if (qwn_speculative_mtp_init(&speculative, &d,
+                                             config.speculative_draft_length) != QWN_SPEC_OK) {
+                    generated = -1;
+                } else {
+                    generated = qwn_speculative_generate(&speculative, ids, count, max_tokens,
+                                                         temp, top_p, emit_mux, &out);
+                    speculative_counters = *qwn_speculative_counters(&speculative);
+                    qwn_speculative_free(&speculative);
+                }
+            } else if (strcmp(config.thinking_mode, "none") == 0) {
                 generated=qwn_decoder_generate(&d,ids,count,max_tokens,temp,top_p,emit_mux,&out);
             } else {
                 QwnThinkingLevel level = qwn_thinking_parse_level(config.thinking_mode);
@@ -423,6 +456,9 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    "kv_cache_upload_bytes=%llu kv_cache_kernel_ms=%.3f "
                    "kv_cache_transfer_ms=%.3f kv_cache_append_count=%llu "
                    "kv_cache_attention_reads=%llu quantization=%s kernel_requested=%s "
+                   "speculative_status=%s speculative_drafted=%llu speculative_accepted=%llu "
+                   "speculative_rejected=%llu speculative_target_passes=%llu "
+                   "speculative_acceptance_rate=%.6f speculative_effective_tokens_per_target_pass=%.6f "
                    "temperature=%.8g top_p=%.8g first_real_forward_ms=%.3f "
                    "total_end_to_end_ms=%.3f\n",
                    id, generated, decode_tps, count, generated>=max_tokens,
@@ -498,7 +534,15 @@ static int serve_mode(const char *model, const QwnRuntimeConfig *runtime_config)
                    d.runtime_metrics.kv_cache_transfer_ms,
                    (unsigned long long)d.runtime_metrics.kv_cache_append_count,
                    (unsigned long long)d.runtime_metrics.kv_cache_attention_reads,
-                   config.quantization, config.kernel, temp, top_p,
+                   config.quantization, config.kernel,
+                   config.speculative_decoding ? speculative_counters.status : "DISABLED",
+                   (unsigned long long)speculative_counters.proposed_tokens,
+                   (unsigned long long)speculative_counters.accepted_tokens,
+                   (unsigned long long)speculative_counters.rejected_tokens,
+                   (unsigned long long)speculative_counters.target_passes,
+                   speculative_counters.acceptance_rate,
+                   speculative_counters.effective_tokens_per_target_pass,
+                   temp, top_p,
                    d.startup_metrics.first_real_forward_ms,
                    (wall_seconds() - request_started) * 1000.0);
             fflush(stdout);
@@ -575,7 +619,7 @@ int main(int argc,char **argv){
         return serve_mode(model, &config);
     }
     if(argc<3){
-        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--backend cpu|cuda|auto] [--gpu-device N] [--threads N] [--ctx-size N] [--max-tokens N] [--kv-cache fp16|q8|turboquant-q4|auto] [--quantization auto|q4_0|hyper_vsq2|fp16|fp32] [--kernel auto|scalar|avx2|vnni] [--seed N]\n");
+        fprintf(stderr,"usage: qwnrun model.qwn 'prompt' [max_tokens] [ctx] [--backend cpu|cuda|auto] [--gpu-device N] [--threads N] [--ctx-size N] [--max-tokens N] [--kv-cache fp16|q8|turboquant-q4|turboquant-paper|auto] [--quantization auto|q4_0|hyper_vsq2|fp16|fp32] [--kernel auto|scalar|avx2|vnni] [--seed N]\n");
         return 2;
     }
 
@@ -620,6 +664,14 @@ int main(int argc,char **argv){
     if(qwn_decoder_open_with_config(&decoder,model_path,&runtime_config,&error)!=0){
         fprintf(stderr,"qwnrun open error: %s\n",error?error:"open failed");return 1;
     }
+    if (runtime_config.speculative_decoding && !qwn_decoder_has_native_mtp(&decoder)) {
+        fprintf(stderr, "qwnrun: --speculative requires a native MTP head in the selected QWN model\n");
+        qwn_decoder_close(&decoder); return 2;
+    }
+    if (runtime_config.speculative_decoding && strcmp(runtime_config.thinking_mode, "none") != 0) {
+        fprintf(stderr, "qwnrun: --speculative cannot be combined with thinking mode\n");
+        qwn_decoder_close(&decoder); return 2;
+    }
     print_runtime_info(&decoder);
     int max_prompt=decoder.cfg.max_ctx>8?decoder.cfg.max_ctx-8:decoder.cfg.max_ctx;
     int *ids=(int*)malloc((size_t)max_prompt*sizeof(int));if(!ids){fprintf(stderr,"qwnrun: malloc failed\n");return 1;}
@@ -655,7 +707,20 @@ int main(int argc,char **argv){
         free(ids); qwn_decoder_close(&decoder); return 1;
     }
     int rc;
-    if (strcmp(runtime_config.thinking_mode, "none") == 0) {
+    QwnSpecCounters speculative_counters;
+    memset(&speculative_counters, 0, sizeof(speculative_counters));
+    if (runtime_config.speculative_decoding) {
+        QwnSpecContext speculative;
+        if (qwn_speculative_mtp_init(&speculative, &decoder,
+                                     runtime_config.speculative_draft_length) != QWN_SPEC_OK) {
+            rc = -1;
+        } else {
+            rc = qwn_speculative_generate(&speculative, ids, valid_count, max_tokens,
+                                          temperature, top_p, emit_timed, &timing);
+            speculative_counters = *qwn_speculative_counters(&speculative);
+            qwn_speculative_free(&speculative);
+        }
+    } else if (strcmp(runtime_config.thinking_mode, "none") == 0) {
         rc=qwn_decoder_generate(&decoder,ids,valid_count,max_tokens,temperature,top_p,emit_timed,&timing);
     } else {
         rc=qwn_decoder_generate_thinking(&decoder,ids,valid_count,max_tokens,temperature,top_p,
@@ -673,8 +738,15 @@ int main(int argc,char **argv){
                       (timing.first_token - timing.started) * 1000.0 : 0.0);
         double tps = elapsed > 0.0 ? (double)rc / elapsed : 0.0;
         fprintf(stderr,"qwnrun result: status=ok tokens=%d wall_seconds=%.6f "
-                "ttft_ms=%.3f tok_per_sec=%.6f thinking_level=%s\n", rc, elapsed, ttft,
-                tps, runtime_config.thinking_mode);
+                "ttft_ms=%.3f tok_per_sec=%.6f thinking_level=%s "
+                "speculative_status=%s speculative_drafted=%llu speculative_accepted=%llu "
+                "speculative_rejected=%llu speculative_target_passes=%llu\n", rc, elapsed, ttft,
+                tps, runtime_config.thinking_mode,
+                runtime_config.speculative_decoding ? speculative_counters.status : "DISABLED",
+                (unsigned long long)speculative_counters.proposed_tokens,
+                (unsigned long long)speculative_counters.accepted_tokens,
+                (unsigned long long)speculative_counters.rejected_tokens,
+                (unsigned long long)speculative_counters.target_passes);
 
         const QwnRuntimeMetrics *metrics = qwn_decoder_metrics(&decoder);
         const QwnStartupMetrics *startup = qwn_decoder_startup_metrics(&decoder);

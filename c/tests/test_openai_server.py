@@ -12,7 +12,7 @@ from pathlib import Path
 
 from openai_server import (APIError, APIHandler, APIServer, ClientCancelled, END, GenerationScheduler,
                            READY, Engine, generation_options, parse_tool_calls,
-                           read_engine_turn, render_chat, serve, NativeBackend)
+                           read_engine_turn, render_chat, serve, NativeBackend, create_github_issue)
 
 
 class FakeEngine:
@@ -402,6 +402,29 @@ class DispatcherTest(unittest.TestCase):
         engine.close()
         self.assertEqual(output, ["x"])
         self.assertEqual(process.writes[-1].split(), [b"CANCEL", request_id])
+
+
+class GitHubIssueTest(unittest.TestCase):
+    def test_creates_issue_with_explicit_payload_without_exposing_token(self):
+        response = io.BytesIO(json.dumps({
+            "number": 42,
+            "html_url": "https://github.com/SaifHu98/Qwanto/issues/42",
+        }).encode())
+        with patch.dict("openai_server.os.environ", {"QWANTO_GITHUB_TOKEN": "test-token"}, clear=False):
+            with patch("openai_server.urllib.request.urlopen", return_value=response) as urlopen:
+                result = create_github_issue("Runtime failure", "Steps to reproduce.", "Bug")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(result, {"status": "created", "url": "https://github.com/SaifHu98/Qwanto/issues/42", "number": 42})
+        self.assertEqual(request.full_url, "https://api.github.com/repos/SaifHu98/Qwanto/issues")
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-token")
+        self.assertNotIn("test-token", request.data.decode())
+
+    def test_requires_a_configured_token(self):
+        with patch.dict("openai_server.os.environ", {}, clear=True):
+            with self.assertRaises(APIError) as caught:
+                create_github_issue("Runtime failure", "Steps to reproduce.", "Bug")
+        self.assertEqual(caught.exception.code, "github_token_unavailable")
 
 
 class HTTPTest(unittest.TestCase):

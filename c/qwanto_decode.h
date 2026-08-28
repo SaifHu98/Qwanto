@@ -20,8 +20,16 @@ typedef struct {
     int tie_embeddings;
     int is_qwen35;
     int total_layers, mtp_layers, mtp_layer_start;
+    int n_routed_experts, num_experts_per_tok, norm_topk_prob;
     int ssm_inner, ssm_state, ssm_groups, ssm_dt_rank, ssm_conv_kernel;
 } QwnConfig;
+
+#define QWN_MOE_MAX_EXPERTS 256
+#define QWN_MOE_MAX_TOPK 8
+
+typedef struct {
+    const QwnTensorDesc *gate_proj, *up_proj, *down_proj;
+} QwnMoeExpert;
 
 /* Per-layer tensor descriptor cache — resolved once at load, zero lookup cost at runtime.
  * Per-layer output dimensions (q_out, kv_out) are derived from the actual
@@ -36,6 +44,10 @@ typedef struct {
     const QwnTensorDesc *q_norm, *k_norm;
     const QwnTensorDesc *input_norm, *post_norm;
     const QwnTensorDesc *gate_proj, *up_proj, *down_proj;
+    /* Qwen NextN/MTP stem and shared output head.  These descriptors are
+     * resolved at load time; their names are never constructed while decoding. */
+    const QwnTensorDesc *mtp_eh_proj, *mtp_enorm, *mtp_hnorm;
+    const QwnTensorDesc *mtp_shared_head_norm, *mtp_embed, *mtp_head;
     const QwnTensorDesc *ssm_qkv, *ssm_gate;
     const QwnTensorDesc *ssm_alpha, *ssm_beta, *ssm_a, *ssm_dt;
     const QwnTensorDesc *ssm_conv1d, *ssm_norm, *ssm_out;
@@ -51,6 +63,9 @@ typedef struct {
     int ffn_out;          /* = shape[1] of gate_proj / up_proj, 0 if missing */
     int ffn_down_out;     /* = shape[1] of down_proj, 0 if missing */
     int is_moe;           /* 1 if this layer has routed experts */
+    const QwnTensorDesc *moe_router;
+    QwnMoeExpert moe_experts[QWN_MOE_MAX_EXPERTS];
+    int moe_expert_count, moe_topk, moe_intermediate, moe_norm_topk;
     int is_ssm;           /* 1 if this layer is SSM (skip attention entirely) */
 } QwnLayerTensors;
 
@@ -190,11 +205,20 @@ typedef struct QwnDecoder {
     uint16_t *value_cache;
     void *kv_allocation;
     float *x, *xb, *q, *k, *v, *att, *ctx, *gate, *up, *hidden, *logits;
+    float *moe_router, *moe_out;
     float *norm_weights;
     float *ssm_states;
     float *ssm_conv_states;
     size_t ssm_state_layer_stride;
     size_t ssm_conv_layer_stride;
+    float *mtp_last_hidden;
+    float *mtp_state_hidden;
+    float *mtp_concat;
+    uint16_t *mtp_key_cache;
+    uint16_t *mtp_value_cache;
+    void *mtp_kv_allocation;
+    int mtp_position;
+    int mtp_chain_active;
     int position;
     QwnLayerTensors *layer_cache; /* resolved at load time */
     const QwnTensorDesc *embed_weight;
@@ -212,6 +236,8 @@ typedef struct QwnDecoder {
     int use_paged_kv;
     TurboQuantCache *turboquant_layers;
     int use_turboquant;
+    QwnTurboQuantPaperCache *turboquant_paper_layers;
+    int use_turboquant_paper;
     QwnQ8Cache *q8_layers;
     int use_q8_kv;
     int use_cuda_q8_kv;
@@ -250,6 +276,14 @@ void qwn_decoder_reset(QwnDecoder *d);
 
 /* Consume one token and return logits predicting the next token. */
 int qwn_decoder_forward(QwnDecoder *d, int token, const float **logits);
+
+/* Execute one native Qwen NextN/MTP draft step.  The preceding base-model
+ * forward supplies the trunk hidden state; this function has an independent
+ * MTP KV cache and never mutates the base-model KV cache or position. */
+int qwn_decoder_mtp_forward(QwnDecoder *d, int token, const float **logits);
+/* Continue a speculative MTP chain from the preceding MTP hidden state. */
+int qwn_decoder_mtp_forward_chain(QwnDecoder *d, int token, const float **logits);
+int qwn_decoder_has_native_mtp(const QwnDecoder *d);
 
 /* Forward with configurable thinking depth and early exit */
 int qwn_decoder_forward_thinking(QwnDecoder *d, int token, const float **logits,

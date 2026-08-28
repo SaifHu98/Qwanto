@@ -43,6 +43,7 @@ const char *qwn_runtime_kv_cache_mode_name(QwnRuntimeKvCacheMode mode) {
     switch (mode) {
         case QWN_RUNTIME_KV_Q8: return "q8";
         case QWN_RUNTIME_KV_TURBOQUANT_Q4: return "turboquant-q4";
+        case QWN_RUNTIME_KV_TURBOQUANT_PAPER: return "turboquant-paper";
         case QWN_RUNTIME_KV_AUTO: return "auto";
         default: return "fp16";
     }
@@ -56,6 +57,8 @@ int qwn_runtime_kv_cache_mode_parse(const char *value,
     else if (strcmp(value, "turboquant-q4") == 0 ||
              strcmp(value, "qwn-q4-kv") == 0)
         *mode = QWN_RUNTIME_KV_TURBOQUANT_Q4;
+    else if (strcmp(value, "turboquant-paper") == 0)
+        *mode = QWN_RUNTIME_KV_TURBOQUANT_PAPER;
     else if (strcmp(value, "auto") == 0) *mode = QWN_RUNTIME_KV_AUTO;
     else return -1;
     return 0;
@@ -148,9 +151,10 @@ int qwn_runtime_config_validate(const QwnRuntimeConfig *config,
         strcmp(config->kv_cache_mode, "q8") != 0 &&
         strcmp(config->kv_cache_mode, "turboquant-q4") != 0 &&
         strcmp(config->kv_cache_mode, "qwn-q4-kv") != 0 &&
+        strcmp(config->kv_cache_mode, "turboquant-paper") != 0 &&
         strcmp(config->kv_cache_mode, "auto") != 0) {
         set_error(error, error_size,
-                  "kv cache must be fp16, q8, turboquant-q4, or auto");
+                  "kv cache must be fp16, q8, turboquant-q4, turboquant-paper, or auto");
         return -1;
     }
     {
@@ -192,9 +196,13 @@ int qwn_runtime_config_validate(const QwnRuntimeConfig *config,
         set_error(error, error_size, "invalid speculative decoding limits");
         return -1;
     }
-    if (config->speculative_decoding || config->fused_kernel) {
+    if (config->speculative_decoding && config->draft_model[0]) {
         set_error(error, error_size,
-                  "speculative decoding requires a compatible native QWN draft model and validated transaction path; fused kernels are unsupported");
+                  "native speculative mode uses the model's MTP head and does not accept --draft-model");
+        return -1;
+    }
+    if (config->fused_kernel) {
+        set_error(error, error_size, "fused kernels are unsupported");
         return -1;
     }
     if (config->backend == QWN_RUNTIME_BACKEND_CUDA && config->gpu_device < 0) {
@@ -238,7 +246,7 @@ int qwn_runtime_config_parse(QwnRuntimeConfig *config, int argc, char **argv,
             snprintf(config->kv_cache_mode, sizeof(config->kv_cache_mode), "%s", argv[i]);
             if (qwn_runtime_kv_cache_mode_parse(config->kv_cache_mode,
                                                 &config->kv_cache_mode_typed) != 0) {
-                set_error(error, error_size, "kv cache must be fp16, q8, turboquant-q4, or auto");
+                set_error(error, error_size, "kv cache must be fp16, q8, turboquant-q4, turboquant-paper, or auto");
                 return -1;
             }
         } else if (strcmp(arg, "--quantization") == 0 || strcmp(arg, "--quant") == 0) {
@@ -278,7 +286,10 @@ int qwn_runtime_config_parse(QwnRuntimeConfig *config, int argc, char **argv,
             config->adaptive_draft_length = 0;
         } else if (strcmp(arg, "--speculative") == 0 || strcmp(arg, "--saguro") == 0 ||
                    strcmp(arg, "--fused") == 0 || strcmp(arg, "--auto-tune") == 0) {
-            if (strcmp(arg, "--speculative") == 0) config->speculative_decoding = 1;
+            if (strcmp(arg, "--speculative") == 0) {
+                config->speculative_decoding = 1;
+                snprintf(config->thinking_mode, sizeof(config->thinking_mode), "none");
+            }
             else {
                 snprintf(error, error_size, "%s is unsupported by the native decoder", arg);
                 return -1;

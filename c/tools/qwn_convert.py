@@ -868,7 +868,7 @@ def map_gguf_tensor_name(name: str) -> str:
             if sub in name_map:
                 return f"model.layers.{layer}.{name_map[sub]}"
             if sub.startswith("nextn."):
-                return f"model.layers.{layer}.mtp.{sub[7:]}"
+                return f"model.layers.{layer}.mtp.{sub[len('nextn.'):]}"
     return name
 
 
@@ -1576,6 +1576,8 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
     head_dim = q_head_dim
     total_layers = metadata.get(f"{arch_prefix}.block_count", 0)
     has_mtp = any(".mtp." in t[0] for t in raw_tensors)
+    routed_experts = int(metadata.get(f"{arch_prefix}.expert_count", metadata.get("n_routed_experts", 0)) or 0)
+    experts_per_tok = int(metadata.get(f"{arch_prefix}.expert_used_count", metadata.get("num_experts_per_tok", 0)) or 0)
     layers = total_layers - 1 if architecture in {"qwen35", "qwen3.5", "qwen3_5"} and has_mtp else total_layers
     vocab = metadata.get(f"{arch_prefix}.vocab_size", 0)
     if not vocab:
@@ -1611,6 +1613,9 @@ def _read_gguf_tensors(path: str, quant: str = "q4_0"):
         "total_layers": total_layers,
         "mtp_layers": int(has_mtp),
         "mtp_layer_start": layers if has_mtp else 0,
+        "n_routed_experts": routed_experts,
+        "num_experts_per_tok": experts_per_tok,
+        "norm_topk_prob": int(metadata.get("norm_topk_prob", 1)),
         "ssm_inner": ssm_inner, "ssm_state": ssm_state,
         "ssm_groups": ssm_groups, "ssm_dt_rank": ssm_dt_rank,
         "ssm_conv_kernel": ssm_conv_kernel,

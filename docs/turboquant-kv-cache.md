@@ -12,6 +12,7 @@ runtime evidence by itself.
 | `fp16` | FP16 paged/native cache | `VALIDATED` on the existing 4B path | Yes |
 | `q8` | Symmetric int8, one FP32 scale per 64 values | `ATTENTION_CORRECT` on CPU; CUDA Q8 reference is `KERNEL_CORRECT` on the RTX host | No |
 | `turboquant-q4` | QWN-Q4-KV compatibility representation | `REFERENCE_IMPLEMENTED` on CPU; it is not claimed to reproduce the cited TurboQuant algorithm | No |
+| `turboquant-paper` | Random orthogonal rotation, scalar Lloyd-Max codebook, and one-bit Gaussian QJL residual | `REFERENCE_IMPLEMENTED` on CPU; mathematical-path tests pass, but it is deliberately not a performance mode | No |
 | `auto` | FP16 until a measured policy selects another validated mode | `VALIDATED` as the safe default policy | No |
 
 The requested spelling `turboquant-q4` is retained for configuration
@@ -19,6 +20,21 @@ compatibility. When that representation executes, telemetry reports
 `kv_cache_mode_actual=qwn-q4-kv` and `kv_cache_algorithm=QWN-Q4-KV-scalar`.
 This prevents an arbitrary Q4 cache from being presented as the research
 algorithm TurboQuant.
+
+## Paper-reference mode
+
+`turboquant-paper` is a distinct CPU reference implementation of the method in
+[TurboQuant](https://arxiv.org/abs/2504.19874). At cache construction it
+creates a deterministic random orthogonal rotation and scalar Lloyd-Max
+codebook. Each key/value vector stores a rotated scalar-codebook estimate plus
+the norm and a one-bit Gaussian QJL residual. Dequantization uses the unbiased
+QJL estimator `sqrt(pi/2)/d * S^T sign(Sr)` for the normalized residual.
+
+This is intentionally separate from `turboquant-q4`: telemetry identifies it
+as `TurboQuant-paper-QJL-reference` and `paper-qjl-reference`. Its current
+direct reference reader performs dense `O(d^2)` rotation/QJL reconstruction,
+has no CUDA kernel, and is therefore not offered as a fast KV policy. It is a
+correctness baseline for optimized CPU/GPU work, not benchmark evidence.
 
 ## Versioned byte contract
 
@@ -49,6 +65,8 @@ the structured reason.
 ## Validation boundary
 
 `c/tests/test_kv_cache.c` covers the typed contract and CPU Q8 attention.
+`c/tests/test_turboquant_paper.c` verifies finite cache attention/value reads
+and a multi-seed QJL inner-product estimate against the uncompressed vector.
 `c/tests/test_cuda_q8_kv.cu` compares the CUDA reference reader against the
 same quantized CPU oracle. The real 4B CUDA decoder still has a separate
 HyperVSQ-2 projection coverage gate; a passing isolated KV test does not turn

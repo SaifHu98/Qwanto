@@ -51,6 +51,7 @@ GATEWAY_API_VERSION = "1"
 GATEWAY_VERSION = "0.1.0-beta.4"
 _QWN_DISCOVERY_CACHE = {}
 _EVIDENCE_HASH_CACHE = {}
+GITHUB_ISSUES_URL = "https://api.github.com/repos/SaifHu98/Qwanto/issues"
 
 
 def _default_model_root():
@@ -110,6 +111,52 @@ def _measured_evidence():
         if evidence.get("evidence_classification") == "MEASURED":
             return evidence, path
     return None, None
+
+
+def create_github_issue(title, body, category):
+    """Create one explicitly-consented issue without retaining credentials or diagnostics."""
+    token = os.environ.get("QWANTO_GITHUB_TOKEN", "").strip()
+    if not token:
+        raise APIError(503, "GitHub issue creation is unavailable. Set QWANTO_GITHUB_TOKEN in the desktop environment.",
+                       code="github_token_unavailable")
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > 160:
+        raise APIError(400, "Issue title must contain 1 to 160 characters.", "title")
+    if not isinstance(body, str) or not body.strip() or len(body.strip()) > 12000:
+        raise APIError(400, "Issue description must contain 1 to 12000 characters.", "body")
+    if category not in {"Bug", "Feature request", "Performance", "Privacy"}:
+        raise APIError(400, "Unsupported issue category.", "category")
+    payload = json.dumps({
+        "title": f"[{category}] {title.strip()}",
+        "body": body.strip(),
+        "labels": ["qwanto-code-feedback"],
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        GITHUB_ISSUES_URL,
+        data=payload,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": f"Qwanto-Code/{GATEWAY_VERSION}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            created = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise APIError(403, "GitHub rejected the configured token or repository permission.",
+                           code="github_forbidden")
+        raise APIError(502, f"GitHub issue creation failed with HTTP {exc.code}.", code="github_upstream_error")
+    except (OSError, ValueError, json.JSONDecodeError):
+        raise APIError(502, "GitHub issue creation could not reach the GitHub API.", code="github_unavailable")
+    url = created.get("html_url") if isinstance(created, dict) else None
+    number = created.get("number") if isinstance(created, dict) else None
+    if not isinstance(url, str) or not url.startswith("https://github.com/SaifHu98/Qwanto/issues/"):
+        raise APIError(502, "GitHub returned an invalid issue location.", code="github_invalid_response")
+    return {"status": "created", "url": url, "number": number}
 
 
 def _qwn_hardware_fit(size_bytes, info=None):
@@ -1288,8 +1335,8 @@ class Engine:
         backend = str(runtime_config.get("backend", "auto"))
         if backend not in ("cpu", "cuda", "auto"):
             raise ValueError("runtime backend must be cpu, cuda, or auto")
-        if runtime_config.get("speculative_decoding"):
-            raise ValueError("speculative decoding is not implemented by qwnrun")
+        if runtime_config.get("speculative_decoding") and runtime_config.get("draft_model"):
+            raise ValueError("native MTP speculative decoding does not accept an external draft model")
         if runtime_config.get("fused_kernel"):
             raise ValueError("fused kernel execution is not implemented by qwnrun")
         runtime_config["backend"] = backend
@@ -1312,6 +1359,8 @@ class Engine:
             value = runtime_config.get(key)
             if value is not None:
                 command += [flag, str(value)]
+        if runtime_config.get("speculative_decoding"):
+            command.append("--speculative")
         self.process = subprocess.Popen(
             command, env=child_env, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
@@ -2629,6 +2678,16 @@ class APIHandler(BaseHTTPRequestHandler):
                 self.send_json(200, {"query": query or "", "results": results}, request_id)
                 return
 
+            if path == "/v1/qwanto/github/issues":
+                body = self.read_json()
+                if not isinstance(body, dict):
+                    raise APIError(400, "Body must be a JSON object.")
+                if body.get("consent") is not True:
+                    raise APIError(400, "Explicit consent is required before creating a GitHub issue.", "consent")
+                result = create_github_issue(body.get("title"), body.get("body"), body.get("category"))
+                self.send_json(201, result, request_id)
+                return
+
             if path == "/v1/agentic/task":
                 body = self.read_json()
                 if not isinstance(body, dict):
@@ -2775,19 +2834,19 @@ class APIHandler(BaseHTTPRequestHandler):
                     if isinstance(runtime_config.get(key), bool) or int(runtime_config.get(key, 0)) <= 0:
                         raise APIError(400, f"runtime_config.{key} must be positive.", f"runtime_config.{key}")
                 if runtime_config.get("kv_cache_mode", "fp16") not in (
-                    "fp16", "q8", "turboquant-q4", "qwn-q4-kv", "auto"
+                    "fp16", "q8", "turboquant-q4", "qwn-q4-kv", "turboquant-paper", "auto"
                 ):
                     raise APIError(
                         400,
-                        "kv_cache_mode must be fp16, q8, turboquant-q4, or auto.",
+                        "kv_cache_mode must be fp16, q8, turboquant-q4, turboquant-paper, or auto.",
                         "runtime_config.kv_cache_mode",
                     )
                 if runtime_config.get("quantization", "auto") not in ("auto", "q4_0", "hyper_vsq2", "fp16", "fp32"):
                     raise APIError(400, "Unsupported native quantization selection.", "runtime_config.quantization")
                 if runtime_config.get("kernel", "auto") not in ("auto", "scalar", "avx2", "vnni"):
                     raise APIError(400, "Unsupported native CPU kernel selection.", "runtime_config.kernel")
-                if runtime_config.get("speculative_decoding"):
-                    raise APIError(400, "Speculative decoding requires a compatible native QWN draft model and validated transaction path.", "runtime_config.speculative_decoding")
+                if runtime_config.get("speculative_decoding") and runtime_config.get("draft_model"):
+                    raise APIError(400, "Native MTP speculative decoding does not accept runtime_config.draft_model.", "runtime_config.draft_model")
                 if runtime_config.get("fused_kernel"):
                     raise APIError(400, "Fused kernel execution is not implemented by qwnrun.", "runtime_config.fused_kernel")
                 try:
@@ -3601,12 +3660,13 @@ def serve(model, host="127.0.0.1", port=8000, model_id=None, api_key=None,
     server.kv_cache_quant = str(settings.get("kv_cache_quant", "q4_0"))
     server.speculative_decoding = bool(settings.get("speculative_decoding", False))
     server.draft_model_path = str(settings.get("draft_model_path", "") or "")
-    if server.speculative_decoding or server.draft_model_path:
-        raise RuntimeError("Speculative decoding is not implemented by qwnrun.")
+    if server.draft_model_path:
+        raise RuntimeError("qwnrun native MTP speculative decoding does not accept a separate draft model.")
     server.runtime_config = {
         "backend": str(settings.get("runtime_backend", "auto")),
         "context_size": int(server.ctx_size),
         "max_tokens": int(max_tokens),
+        "speculative_decoding": server.speculative_decoding,
     }
     
     server.engine_executable = engine

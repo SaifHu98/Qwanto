@@ -85,6 +85,7 @@ typedef struct {
 typedef struct {
     QwnDecoder *target;
     QwnDecoder *draft;
+    int native_mtp;
     int gamma;
     int total_drafted;
     int total_accepted;
@@ -99,6 +100,8 @@ typedef struct {
     float *target_probs;
     size_t draft_all_capacity;
     size_t probs_capacity;
+    float *mtp_state_snapshots;
+    size_t mtp_snapshot_capacity;
     QwnSpecCounters counters;
 } QwnSpecContext;
 
@@ -107,6 +110,10 @@ int qwn_speculative_check_compatibility(const QwnDecoder *target,
                                         char *reason, size_t reason_size);
 int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
                          QwnDecoder *draft, int gamma);
+/* Native Qwen NextN/MTP draft path. It has no external draft model and uses
+ * transactional MTP-state checkpoints for each proposed token. */
+int qwn_speculative_mtp_init(QwnSpecContext *ctx, QwnDecoder *target,
+                             int gamma);
 void qwn_speculative_free(QwnSpecContext *ctx);
 int qwn_speculative_generate(QwnSpecContext *ctx,
                              const int *prompt, int prompt_count,

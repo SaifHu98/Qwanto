@@ -394,9 +394,10 @@ static int qwn_cuda_load(QwnDecoder *d, int gpu_id, int required) {
         }
     }
     if ((strcmp(d->runtime_config.kv_cache_mode, "turboquant-q4") == 0 ||
-         strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0)) {
-        fprintf(stderr, required ? "[ERROR] CUDA QWN-Q4-KV kernels are unavailable.\n" :
-                                  "[WARN] CUDA QWN-Q4-KV kernels are unavailable; auto backend remains mixed CPU/GPU.\n");
+         strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0 ||
+         strcmp(d->runtime_config.kv_cache_mode, "turboquant-paper") == 0)) {
+        fprintf(stderr, required ? "[ERROR] CUDA TurboQuant KV kernels are unavailable.\n" :
+                                  "[WARN] CUDA TurboQuant KV kernels are unavailable; auto backend remains mixed CPU/GPU.\n");
         snprintf(d->runtime_metrics.cuda_backend_reason,
                  sizeof(d->runtime_metrics.cuda_backend_reason),
                  "cuda_qwn_q4_kv_capability_unavailable");
@@ -539,6 +540,9 @@ static int load_config(QwnDecoder *d) {
                 c->total_layers=cfg_int(root,"total_layers",c->layers);
                 c->mtp_layers=cfg_int(root,"mtp_layers",0);
                 c->mtp_layer_start=cfg_int(root,"mtp_layer_start",c->layers);
+                c->n_routed_experts=cfg_int(root,"n_routed_experts",0);
+                c->num_experts_per_tok=cfg_int(root,"num_experts_per_tok",0);
+                c->norm_topk_prob=cfg_int(root,"norm_topk_prob",1);
                 c->ssm_inner=cfg_int(root,"ssm_inner",0);
                 c->ssm_state=cfg_int(root,"ssm_state",0);
                 c->ssm_groups=cfg_int(root,"ssm_groups",0);
@@ -945,6 +949,54 @@ static float qwn_sigmoid(float x) {
     return e / (1.0f + e);
 }
 
+static int forward_moe(QwnDecoder *d, const QwnLayerTensors *lt, int hidden) {
+    int selected[QWN_MOE_MAX_TOPK];
+    float weights[QWN_MOE_MAX_TOPK];
+    int count = lt->moe_expert_count;
+    int topk = lt->moe_topk;
+    if (!lt->moe_router || count < 1 || count > QWN_MOE_MAX_EXPERTS ||
+        topk < 1 || topk > QWN_MOE_MAX_TOPK) return -1;
+    if (matmul(d, lt->moe_router, d->xb, hidden, count, d->moe_router) != 0) return -1;
+
+    for (int k = 0; k < topk; k++) { selected[k] = -1; weights[k] = -INFINITY; }
+    for (int expert = 0; expert < count; expert++) {
+        float score = d->moe_router[expert];
+        for (int k = 0; k < topk; k++) {
+            if (score > weights[k]) {
+                for (int move = topk - 1; move > k; move--) {
+                    selected[move] = selected[move - 1]; weights[move] = weights[move - 1];
+                }
+                selected[k] = expert; weights[k] = score;
+                break;
+            }
+        }
+    }
+    float peak = weights[0], denom = 0.0f;
+    if (lt->moe_norm_topk) {
+        for (int k = 0; k < topk; k++) { weights[k] = expf(weights[k] - peak); denom += weights[k]; }
+    } else {
+        float all_peak = d->moe_router[0];
+        for (int expert = 1; expert < count; expert++) if (d->moe_router[expert] > all_peak) all_peak = d->moe_router[expert];
+        for (int expert = 0; expert < count; expert++) denom += expf(d->moe_router[expert] - all_peak);
+        for (int k = 0; k < topk; k++) weights[k] = expf(weights[k] - all_peak);
+    }
+    if (denom <= 0.0f || !isfinite(denom)) return -1;
+    for (int k = 0; k < topk; k++) weights[k] /= denom;
+    memset(d->moe_out, 0, (size_t)hidden * sizeof(float));
+    for (int k = 0; k < topk; k++) {
+        const QwnMoeExpert *expert = &lt->moe_experts[selected[k]];
+        int intermediate = (int)expert->gate_proj->shape[1];
+        if (matmul(d, expert->gate_proj, d->xb, hidden, intermediate, d->gate) ||
+            matmul(d, expert->up_proj, d->xb, hidden, intermediate, d->up)) return -1;
+        for (int i = 0; i < intermediate; i++)
+            d->hidden[i] = (d->gate[i] / (1.0f + expf(-d->gate[i]))) * d->up[i];
+        if (matmul(d, expert->down_proj, d->hidden, intermediate, hidden, d->xb)) return -1;
+        for (int i = 0; i < hidden; i++) d->moe_out[i] += weights[k] * d->xb[i];
+    }
+    vec_add(d->x, d->moe_out, hidden);
+    return 0;
+}
+
 static float qwn_softplus(float x) {
     if (x > 20.0f) return x;
     if (x < -20.0f) return expf(x);
@@ -1088,9 +1140,11 @@ static int load_norms(QwnDecoder *d){
  * relevant projection.
  */
 static int build_layer_cache(QwnDecoder *d) {
-    d->layer_cache = (QwnLayerTensors *)malloc((size_t)d->cfg.layers * sizeof(QwnLayerTensors));
+    const int cache_layers = d->cfg.total_layers > d->cfg.layers ?
+                             d->cfg.total_layers : d->cfg.layers;
+    d->layer_cache = (QwnLayerTensors *)malloc((size_t)cache_layers * sizeof(QwnLayerTensors));
     if (!d->layer_cache) return -1;
-    for (int l = 0; l < d->cfg.layers; l++) {
+    for (int l = 0; l < cache_layers; l++) {
         QwnLayerTensors *lt = &d->layer_cache[l];
         memset(lt, 0, sizeof(*lt));
         lt->q_proj   = layer_tensor(d, l, "self_attn.q_proj.weight");
@@ -1113,6 +1167,19 @@ static int build_layer_cache(QwnDecoder *d) {
         if (!lt->up_proj) lt->up_proj = layer_tensor(d, l, "feed_forward.w3.weight");
         lt->down_proj = layer_tensor(d, l, "mlp.down_proj.weight");
         if (!lt->down_proj) lt->down_proj = layer_tensor(d, l, "feed_forward.w2.weight");
+        lt->mtp_eh_proj = layer_tensor(d, l, "mtp.eh_proj.weight");
+        if (!lt->mtp_eh_proj) lt->mtp_eh_proj = layer_tensor(d, l, "nextn.eh_proj.weight");
+        lt->mtp_enorm = layer_tensor(d, l, "mtp.enorm.weight");
+        if (!lt->mtp_enorm) lt->mtp_enorm = layer_tensor(d, l, "nextn.enorm.weight");
+        lt->mtp_hnorm = layer_tensor(d, l, "mtp.hnorm.weight");
+        if (!lt->mtp_hnorm) lt->mtp_hnorm = layer_tensor(d, l, "nextn.hnorm.weight");
+        lt->mtp_shared_head_norm = layer_tensor(d, l, "mtp.shared_head_norm.weight");
+        if (!lt->mtp_shared_head_norm)
+            lt->mtp_shared_head_norm = layer_tensor(d, l, "nextn.shared_head_norm.weight");
+        lt->mtp_embed = layer_tensor(d, l, "mtp.embed_tokens.weight");
+        if (!lt->mtp_embed) lt->mtp_embed = layer_tensor(d, l, "nextn.embed_tokens.weight");
+        lt->mtp_head = layer_tensor(d, l, "mtp.shared_head_head.weight");
+        if (!lt->mtp_head) lt->mtp_head = layer_tensor(d, l, "nextn.shared_head_head.weight");
         /* Per-layer output dims come straight from the tensor shapes
          * so models with variable head_dim per layer (Qwen3.5 hybrid,
          * MLA, etc.) load and run correctly. */
@@ -1174,19 +1241,69 @@ static int build_layer_cache(QwnDecoder *d) {
             lt->ssm_a && lt->ssm_dt && lt->ssm_conv1d && lt->ssm_norm &&
             lt->ssm_out)
             lt->is_ssm = 1;
-        /* MoE detection: routed experts live under mlp.experts.N or
-         * block_sparse_moe.experts.N. */
-        int has_routed = 0;
+        /* Resolve routed-expert descriptors once. The forward path only
+         * walks these pointers; it never formats names or searches tensors. */
+        lt->moe_router = layer_tensor(d, l, "mlp.gate.weight");
+        if (!lt->moe_router) lt->moe_router = layer_tensor(d, l, "block_sparse_moe.gate.weight");
         for (int e = 0; e < 256; e++) {
             snprintf(namebuf, sizeof(namebuf),
                      "model.layers.%d.mlp.experts.%d.gate_proj.weight", l, e);
-            if (qwn_find(&d->model, namebuf)) { has_routed = 1; break; }
+            lt->moe_experts[e].gate_proj = qwn_find(&d->model, namebuf);
             snprintf(namebuf, sizeof(namebuf),
-                     "model.layers.%d.block_sparse_moe.experts.%d.w1.weight", l, e);
-            if (qwn_find(&d->model, namebuf)) { has_routed = 1; break; }
-}
-        lt->is_moe = has_routed;
-        if (lt->is_moe) return -2;
+                     "model.layers.%d.mlp.experts.%d.up_proj.weight", l, e);
+            lt->moe_experts[e].up_proj = qwn_find(&d->model, namebuf);
+            snprintf(namebuf, sizeof(namebuf),
+                     "model.layers.%d.mlp.experts.%d.down_proj.weight", l, e);
+            lt->moe_experts[e].down_proj = qwn_find(&d->model, namebuf);
+            if (!lt->moe_experts[e].gate_proj) {
+                snprintf(namebuf, sizeof(namebuf),
+                         "model.layers.%d.block_sparse_moe.experts.%d.w1.weight", l, e);
+                lt->moe_experts[e].gate_proj = qwn_find(&d->model, namebuf);
+                snprintf(namebuf, sizeof(namebuf),
+                         "model.layers.%d.block_sparse_moe.experts.%d.w3.weight", l, e);
+                lt->moe_experts[e].up_proj = qwn_find(&d->model, namebuf);
+                snprintf(namebuf, sizeof(namebuf),
+                         "model.layers.%d.block_sparse_moe.experts.%d.w2.weight", l, e);
+                lt->moe_experts[e].down_proj = qwn_find(&d->model, namebuf);
+            }
+            if (!lt->moe_experts[e].gate_proj) break;
+            if (!lt->moe_experts[e].up_proj || !lt->moe_experts[e].down_proj ||
+                lt->moe_experts[e].gate_proj->n_dims != 2 ||
+                lt->moe_experts[e].up_proj->n_dims != 2 ||
+                lt->moe_experts[e].down_proj->n_dims != 2 ||
+                lt->moe_experts[e].gate_proj->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->moe_experts[e].up_proj->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->moe_experts[e].gate_proj->shape[1] != lt->moe_experts[e].up_proj->shape[1] ||
+                lt->moe_experts[e].down_proj->shape[0] != lt->moe_experts[e].gate_proj->shape[1] ||
+                lt->moe_experts[e].down_proj->shape[1] != (uint64_t)d->cfg.hidden)
+                return -2;
+            lt->moe_expert_count++;
+            if ((int)lt->moe_experts[e].gate_proj->shape[1] > lt->moe_intermediate)
+                lt->moe_intermediate = (int)lt->moe_experts[e].gate_proj->shape[1];
+        }
+        lt->is_moe = lt->moe_expert_count > 0;
+        if (lt->is_moe) {
+            if (!lt->moe_router || lt->moe_router->n_dims != 2 ||
+                lt->moe_router->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->moe_router->shape[1] != (uint64_t)lt->moe_expert_count)
+                return -2;
+            lt->moe_topk = d->cfg.num_experts_per_tok > 0 ? d->cfg.num_experts_per_tok : 2;
+            if (lt->moe_topk > lt->moe_expert_count) lt->moe_topk = lt->moe_expert_count;
+            lt->moe_norm_topk = d->cfg.norm_topk_prob;
+            if (lt->moe_topk < 1 || lt->moe_topk > QWN_MOE_MAX_TOPK) return -2;
+        }
+        if (l >= d->cfg.mtp_layer_start && l < d->cfg.mtp_layer_start + d->cfg.mtp_layers) {
+            if (!lt->mtp_eh_proj || !lt->mtp_enorm || !lt->mtp_hnorm ||
+                !lt->mtp_shared_head_norm || lt->mtp_eh_proj->n_dims != 2 ||
+                lt->mtp_eh_proj->shape[0] != (uint64_t)(2 * d->cfg.hidden) ||
+                lt->mtp_eh_proj->shape[1] != (uint64_t)d->cfg.hidden ||
+                lt->mtp_enorm->n_dims != 1 || lt->mtp_hnorm->n_dims != 1 ||
+                lt->mtp_shared_head_norm->n_dims != 1 ||
+                lt->mtp_enorm->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->mtp_hnorm->shape[0] != (uint64_t)d->cfg.hidden ||
+                lt->mtp_shared_head_norm->shape[0] != (uint64_t)d->cfg.hidden)
+                return -2;
+        }
         /* Some legacy projected QWN fixtures intentionally contain an
          * FFN-only layer.  Skip attention validation for those layers, but
          * do not classify them as DeltaNet: only an actual GDN tensor set
@@ -1203,13 +1320,13 @@ static int build_layer_cache(QwnDecoder *d) {
                 lt->ssm_out->shape[1] != (uint64_t)d->cfg.hidden ||
                 lt->ssm_conv1d->shape[0] != (uint64_t)d->cfg.ssm_conv_kernel)
                 return -2;
-        } else if (lt->q_proj && lt->k_proj && lt->v_proj && lt->o_proj &&
+        } else if (!lt->is_moe && lt->q_proj && lt->k_proj && lt->v_proj && lt->o_proj &&
                    (!lt->gate_proj || !lt->up_proj || !lt->down_proj ||
             lt->q_proj->n_dims != 2 || lt->k_proj->n_dims != 2 ||
             lt->v_proj->n_dims != 2 || lt->o_proj->n_dims != 2 ||
             lt->gate_proj->n_dims != 2 || lt->up_proj->n_dims != 2 ||
             lt->down_proj->n_dims != 2)) return -1;
-if (!lt->is_ssm && lt->q_proj && lt->k_proj && lt->v_proj && lt->o_proj &&
+if (!lt->is_ssm && !lt->is_moe && lt->q_proj && lt->k_proj && lt->v_proj && lt->o_proj &&
     (!d->cfg.heads || !d->cfg.kv_heads ||
             lt->q_out % d->cfg.heads != 0 ||
             lt->k_out % d->cfg.kv_heads != 0 ||
@@ -1331,11 +1448,12 @@ int qwn_decoder_open_with_config(QwnDecoder *d,const char *path,
             goto fail;
         }
     }
-    for (int l = 0; l < d->cfg.layers; l++) {
+    for (int l = 0; l < (d->cfg.total_layers > d->cfg.layers ? d->cfg.total_layers : d->cfg.layers); l++) {
         const QwnLayerTensors *lt = &d->layer_cache[l];
         if (lt->q_out  > max_q_out)  max_q_out  = lt->q_out;
         if (lt->k_out > max_kv_out) max_kv_out = lt->k_out;
         if (lt->ffn_out > max_ffn_out) max_ffn_out = lt->ffn_out;
+        if (lt->moe_intermediate > max_ffn_out) max_ffn_out = lt->moe_intermediate;
     }
 for (int l = 0; l < d->cfg.layers; l++) {
         const QwnLayerTensors *lt = &d->layer_cache[l];
@@ -1356,17 +1474,20 @@ for (int l = 0; l < d->cfg.layers; l++) {
     if (max_kv_out == 0) max_kv_out = d->cfg.kv_heads * Hd;
     if (max_ffn_out == 0) max_ffn_out = d->cfg.intermediate;
     D=d->cfg.hidden; I=max_ffn_out;
+    if (I < max_q_out * 2) I = max_q_out * 2;
+    if (I < 2 * D) I = 2 * D;
     Q=max_q_out; KV=max_kv_out; V=d->cfg.vocab;
     max_dim=D>I?D:I;if(Q>max_dim)max_dim=Q;if(V>max_dim)max_dim=V;
     if(qwn_scratch_init(&d->scratch,1,max_dim)!=0){if(error)*error=ERR_MEMORY;goto fail;}
-    floats=(size_t)D*3+(size_t)Q*2+(size_t)KV*2+(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx+
-           (size_t)I*3+(size_t)V+(size_t)(2*d->cfg.layers+1)*D;
+    floats=(size_t)D*4+(size_t)Q*2+(size_t)KV*2+(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx+
+           (size_t)I*3+(size_t)V+(size_t)QWN_MOE_MAX_EXPERTS+(size_t)(2*d->cfg.layers+1)*D;
     d->arena_bytes=up64(floats*sizeof(float));d->arena=alloc64(d->arena_bytes);
     if(!d->arena){if(error)*error=ERR_MEMORY;goto fail;}
     p=(float*)d->arena;
     d->x=p;p+=D;d->xb=p;p+=D;d->q=p;p+=Q;d->k=p;p+=KV;d->v=p;p+=KV;
     d->ctx=p;p+=Q;d->att=p;p+=(size_t)d->cfg.heads*(size_t)d->cfg.max_ctx;d->gate=p;p+=I;
-    d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->norm_weights=p;
+    d->up=p;p+=I;d->hidden=p;p+=I;d->logits=p;p+=V;d->moe_router=p;p+=QWN_MOE_MAX_EXPERTS;
+    d->moe_out=p;p+=D;d->norm_weights=p;
     if (d->cfg.is_qwen35) {
         if (d->cfg.ssm_inner <= 0 || d->cfg.ssm_state <= 0 ||
             d->cfg.ssm_groups <= 0 || d->cfg.ssm_conv_kernel < 2 ||
@@ -1394,7 +1515,8 @@ for (int l = 0; l < d->cfg.layers; l++) {
     }
     quantized_kv_mode = strcmp(d->runtime_config.kv_cache_mode, "q8") == 0 ||
                         strcmp(d->runtime_config.kv_cache_mode, "turboquant-q4") == 0 ||
-                        strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0;
+                        strcmp(d->runtime_config.kv_cache_mode, "qwn-q4-kv") == 0 ||
+                        strcmp(d->runtime_config.kv_cache_mode, "turboquant-paper") == 0;
     kv_started = qwn_decode_wall_seconds();
     kv_elems=(size_t)d->cfg.layers*d->cfg.max_ctx*max_kv_out;
     int kv_head_dim = d->cfg.kv_heads ? max_kv_out / d->cfg.kv_heads : 0;
@@ -1422,6 +1544,25 @@ for (int l = 0; l < d->cfg.layers; l++) {
         d->key_cache=(uint16_t*)d->kv_allocation;
         d->value_cache=(uint16_t*)((uint8_t*)d->kv_allocation+kv_bytes);
         memset(d->kv_allocation,0,kv_bytes*2);
+    }
+    if (d->cfg.mtp_layers == 1 && d->cfg.mtp_layer_start >= 0 &&
+        d->cfg.mtp_layer_start < d->cfg.total_layers) {
+        const QwnLayerTensors *mtp = &d->layer_cache[d->cfg.mtp_layer_start];
+        const int mtp_kv = mtp->k_out;
+        if (mtp_kv <= 0) { if (error) *error = ERR_SHAPE; goto fail; }
+        d->mtp_last_hidden = (float *)alloc64((size_t)D * sizeof(float));
+        d->mtp_state_hidden = (float *)alloc64((size_t)D * sizeof(float));
+        d->mtp_concat = (float *)alloc64((size_t)(2 * D) * sizeof(float));
+        kv_bytes = up64((size_t)d->cfg.max_ctx * (size_t)mtp_kv * sizeof(uint16_t));
+        d->mtp_kv_allocation = alloc64(kv_bytes * 2);
+        if (!d->mtp_last_hidden || !d->mtp_state_hidden || !d->mtp_concat ||
+            !d->mtp_kv_allocation) {
+            if (error) *error = ERR_MEMORY;
+            goto fail;
+        }
+        d->mtp_key_cache = (uint16_t *)d->mtp_kv_allocation;
+        d->mtp_value_cache = (uint16_t *)((uint8_t *)d->mtp_kv_allocation + kv_bytes);
+        memset(d->mtp_kv_allocation, 0, kv_bytes * 2);
     }
     d->startup_metrics.kv_cache_alloc_ms =
         (qwn_decode_wall_seconds() - kv_started) * 1000.0;
@@ -1499,6 +1640,21 @@ for (int l = 0; l < d->cfg.layers; l++) {
                 goto fail;
             }
         }
+    } else if (strcmp(d->runtime_config.kv_cache_mode, "turboquant-paper") == 0) {
+        d->use_turboquant_paper = 1;
+        d->turboquant_paper_layers = (QwnTurboQuantPaperCache *)calloc(
+            (size_t)d->cfg.layers, sizeof(QwnTurboQuantPaperCache));
+        if (!d->turboquant_paper_layers) { if (error) *error = ERR_MEMORY; goto fail; }
+        for (int l = 0; l < d->cfg.layers; l++) {
+            int layer_kv_out = d->layer_cache[l].k_out > 0 ? d->layer_cache[l].k_out : max_kv_out;
+            int kv_hd = d->cfg.kv_heads ? layer_kv_out / d->cfg.kv_heads : 0;
+            if (qwn_turboquant_paper_cache_init(&d->turboquant_paper_layers[l],
+                                                d->cfg.max_ctx, d->cfg.kv_heads, kv_hd,
+                                                4, d->rng_state + (uint64_t)l) != 0) {
+                if (error) *error = ERR_MEMORY;
+                goto fail;
+            }
+        }
     }
     if (d->q8_layers) {
         for (int l = 0; l < d->cfg.layers; l++)
@@ -1508,11 +1664,16 @@ for (int l = 0; l < d->cfg.layers; l++) {
         for (int l = 0; l < d->cfg.layers; l++)
             d->runtime_metrics.kv_cache_allocated_bytes +=
                 (uint64_t)d->turboquant_layers[l].total_bytes;
+    } else if (d->turboquant_paper_layers) {
+        for (int l = 0; l < d->cfg.layers; l++)
+            d->runtime_metrics.kv_cache_allocated_bytes +=
+                (uint64_t)d->turboquant_paper_layers[l].total_bytes;
     }
     snprintf(d->runtime_metrics.kv_cache_kernel,
              sizeof(d->runtime_metrics.kv_cache_kernel), "Unavailable");
     snprintf(d->runtime_metrics.kv_cache_algorithm,
              sizeof(d->runtime_metrics.kv_cache_algorithm),
+                     d->use_turboquant_paper ? "TurboQuant-paper-QJL-reference" :
                      d->use_turboquant ? "QWN-Q4-KV-scalar" :
              d->use_q8_kv ? "Q8-symmetric" : "FP16");
     snprintf(d->runtime_metrics.kv_cache_mode_actual,
@@ -1676,6 +1837,15 @@ void qwn_decoder_reset(QwnDecoder *d){
                                        &d->qwn_cuda.kv_caches[i]);
     }
     d->position = 0;
+    d->mtp_position = 0;
+    d->mtp_chain_active = 0;
+    if (d->mtp_last_hidden) memset(d->mtp_last_hidden, 0, (size_t)d->cfg.hidden * sizeof(float));
+    if (d->mtp_state_hidden) memset(d->mtp_state_hidden, 0, (size_t)d->cfg.hidden * sizeof(float));
+    if (d->mtp_kv_allocation && d->cfg.mtp_layers == 1) {
+        const QwnLayerTensors *mtp = &d->layer_cache[d->cfg.mtp_layer_start];
+        size_t bytes = up64((size_t)d->cfg.max_ctx * (size_t)mtp->k_out * sizeof(uint16_t)) * 2;
+        memset(d->mtp_kv_allocation, 0, bytes);
+    }
     memset(&d->generation_metrics, 0, sizeof(d->generation_metrics));
     d->runtime_metrics.final_lm_head_calls = 0;
     d->runtime_metrics.intermediate_lm_head_calls = 0;
@@ -1706,6 +1876,9 @@ void qwn_decoder_reset(QwnDecoder *d){
             d->turboquant_layers[l].n_tokens = 0;
         }
     }
+    if (d->use_turboquant_paper && d->turboquant_paper_layers) {
+        for (int l = 0; l < d->cfg.layers; l++) qwn_turboquant_paper_cache_reset(&d->turboquant_paper_layers[l]);
+    }
     if (d->use_q8_kv && d->q8_layers) {
         for (int l = 0; l < d->cfg.layers; l++) qwn_q8_cache_reset(&d->q8_layers[l]);
     }
@@ -1733,6 +1906,11 @@ void qwn_decoder_close(QwnDecoder *d){
         free(d->turboquant_layers);
         d->turboquant_layers = NULL;
     }
+    if (d->turboquant_paper_layers) {
+        for (int l = 0; l < d->cfg.layers; l++) qwn_turboquant_paper_cache_free(&d->turboquant_paper_layers[l]);
+        free(d->turboquant_paper_layers);
+        d->turboquant_paper_layers = NULL;
+    }
     if (d->q8_layers) {
         for (int l = 0; l < d->cfg.layers; l++) qwn_q8_cache_free(&d->q8_layers[l]);
         free(d->q8_layers);
@@ -1740,6 +1918,10 @@ void qwn_decoder_close(QwnDecoder *d){
     }
     free64(d->ssm_states);
     free64(d->ssm_conv_states);
+    free64(d->mtp_last_hidden);
+    free64(d->mtp_state_hidden);
+    free64(d->mtp_concat);
+    free64(d->mtp_kv_allocation);
     free64(d->kv_allocation);qwn_close(&d->model);memset(d,0,sizeof(*d));
 }
 
@@ -1964,6 +2146,41 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
                     vec_add(d->x, d->xb, D);
                 }
                 }
+            } else if (d->use_turboquant_paper && d->turboquant_paper_layers) {
+                const double kv_start = qwn_decode_wall_seconds();
+                QwnTurboQuantPaperCache *paper = &d->turboquant_paper_layers[l];
+                if (qwn_turboquant_paper_cache_append(paper, d->k, d->v, KV) != 0) return -1;
+                d->runtime_metrics.kv_cache_append_count++;
+                d->runtime_metrics.kv_cache_active = 1;
+                snprintf(d->runtime_metrics.kv_cache_mode_actual,
+                         sizeof(d->runtime_metrics.kv_cache_mode_actual), "turboquant-paper");
+                snprintf(d->runtime_metrics.kv_cache_kernel,
+                         sizeof(d->runtime_metrics.kv_cache_kernel), "paper-qjl-reference");
+                memset(d->ctx, 0, (size_t)Q * sizeof(float));
+                float scale = 1.0f / sqrtf((float)hd_this);
+                float ratio = (HK > 0) ? ((float)H / HK) : 1.0f;
+                d->scratch.logical_kv_bytes += (uint64_t)paper->token_stride * 2u;
+                d->runtime_metrics.kv_cache_attention_reads += (uint64_t)(pos + 1) * (uint64_t)H;
+#if defined(_OPENMP)
+                #pragma omp parallel for schedule(static) if(H > 1)
+#endif
+                for (int h = 0; h < H; h++) {
+                    int kh = (int)((float)h / ratio);
+                    float *scores = d->att + (size_t)h * c->max_ctx;
+                    float *context = d->ctx + h * hd_this;
+                    for (int t = 0; t <= pos; t++)
+                        scores[t] = qwn_turboquant_paper_dot_key(paper, t, kh, d->q + h * hd_this) * scale;
+                    softmax(scores, pos + 1);
+                    for (int t = 0; t <= pos; t++)
+                        qwn_turboquant_paper_accum_value(paper, t, kh, scores[t], context);
+                }
+                d->runtime_metrics.kv_cache_kernel_count += (uint64_t)H + 1u;
+                d->runtime_metrics.kv_cache_kernel_ms += (qwn_decode_wall_seconds() - kv_start) * 1000.0;
+                apply_attention_gate(d, lt, d->ctx, Q, hd_this);
+                if (lt->o_proj && matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) == 0) {
+                    add_bias(d, lt->o_bias, d->xb, D);
+                    vec_add(d->x, d->xb, D);
+                }
             } else if (d->use_turboquant && d->turboquant_layers) {
                 const double kv_start = qwn_decode_wall_seconds();
                 qwn_turboquant_quantize_token(d->k, d->turboquant_layers[l].packed_k + (size_t)pos * d->turboquant_layers[l].token_stride_k, KV);
@@ -2139,10 +2356,8 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
         } else {
             rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*l+1)*D,D,c->rms_eps);
         }
-        /* MoE: skip the dense FFN path, no routed-expert dispatcher
-         * yet.  The decoder still updates the residual so a downstream
-         * layer can run. */
         if (lt->is_moe) {
+            if (forward_moe(d, lt, D) != 0) return -1;
             continue;
         }
         if(lt->gate_proj && lt->up_proj && lt->down_proj && I) {
@@ -2209,6 +2424,7 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
     } else {
         rmsnorm(d->xb,d->x,d->norm_weights+(size_t)(2*c->layers)*D,D,c->rms_eps);
     }
+    if (d->mtp_last_hidden) memcpy(d->mtp_last_hidden, d->xb, (size_t)D * sizeof(float));
     double final_lm_head_started = qwn_decode_wall_seconds();
     int final_lm_head_rc = matmul(d,d->lm_head_weight,d->xb,D,c->vocab,d->logits);
     d->runtime_metrics.final_lm_head_calls++;
@@ -2239,6 +2455,133 @@ int qwn_decoder_forward_thinking(QwnDecoder *d,int token,const float **out_logit
 
 int qwn_decoder_forward(QwnDecoder *d,int token,const float **out_logits){
     return qwn_decoder_forward_thinking(d, token, out_logits, NULL);
+}
+
+int qwn_decoder_has_native_mtp(const QwnDecoder *d) {
+    if (!d || d->cfg.mtp_layers != 1 || d->cfg.mtp_layer_start < 0 ||
+        d->cfg.mtp_layer_start >= d->cfg.total_layers || !d->layer_cache)
+        return 0;
+    const QwnLayerTensors *lt = &d->layer_cache[d->cfg.mtp_layer_start];
+    return d->mtp_last_hidden && d->mtp_concat && d->mtp_key_cache &&
+           d->mtp_value_cache && d->mtp_state_hidden && lt->mtp_eh_proj && lt->mtp_enorm &&
+           lt->mtp_hnorm && lt->mtp_shared_head_norm && lt->q_proj &&
+           lt->k_proj && lt->v_proj && lt->o_proj;
+}
+
+static int qwn_decoder_mtp_forward_impl(QwnDecoder *d, int token,
+                                        int use_chain, const float **out_logits) {
+    if (!qwn_decoder_has_native_mtp(d) || (use_chain && !d->mtp_chain_active) ||
+        token < 0 || token >= d->cfg.vocab ||
+        d->position <= 0 || d->mtp_position >= d->cfg.max_ctx)
+        return -1;
+    const QwnConfig *c = &d->cfg;
+    const QwnLayerTensors *lt = &d->layer_cache[c->mtp_layer_start];
+    const int D = c->hidden, H = c->heads, HK = c->kv_heads;
+    const int Q = lt->q_out, KV = lt->k_out;
+    const int q_projection_width = lt->q_proj_out ? lt->q_proj_out : Q;
+    const int O_IN = (int)lt->o_proj->shape[0];
+    const int I = lt->ffn_out;
+    const int hd = H > 0 ? Q / H : 0;
+    const int pos = d->mtp_position;
+    const QwnTensorDesc *embed = lt->mtp_embed ? lt->mtp_embed : d->embed_weight;
+    const QwnTensorDesc *head = lt->mtp_head ? lt->mtp_head : d->lm_head_weight;
+    if (!embed || !head || !lt->post_norm || !lt->gate_proj || !lt->up_proj ||
+        !lt->down_proj || D <= 0 || H <= 0 || HK <= 0 || Q <= 0 || KV <= 0 ||
+        hd <= 0 || KV % HK != 0 || I <= 0 || O_IN != Q || q_projection_width > I)
+        return -1;
+
+    if (qwn_row_f32(&d->model, embed, token, d->x, D) != 0 ||
+        vector_f32(&d->model, lt->mtp_enorm, d->scratch.row_f32, D) != 0)
+        return -1;
+    rmsnorm(d->mtp_concat, d->x, d->scratch.row_f32, D, c->rms_eps);
+    if (vector_f32(&d->model, lt->mtp_hnorm, d->scratch.row_f32, D) != 0)
+        return -1;
+    rmsnorm(d->mtp_concat + D,
+            use_chain ? d->mtp_state_hidden : d->mtp_last_hidden,
+            d->scratch.row_f32, D, c->rms_eps);
+    if (matmul(d, lt->mtp_eh_proj, d->mtp_concat, 2 * D, D, d->x) != 0)
+        return -1;
+    memcpy(d->mtp_concat, d->x, (size_t)D * sizeof(float));
+
+    if (vector_f32(&d->model, lt->input_norm, d->scratch.row_f32, D) != 0)
+        return -1;
+    rmsnorm(d->xb, d->x, d->scratch.row_f32, D, c->rms_eps);
+    if (matmul(d, lt->q_proj, d->xb, D, q_projection_width, d->hidden) != 0 ||
+        matmul(d, lt->k_proj, d->xb, D, KV, d->k) != 0 ||
+        matmul(d, lt->v_proj, d->xb, D, KV, d->v) != 0)
+        return -1;
+    add_bias(d, lt->q_bias, d->hidden, q_projection_width);
+    memcpy(d->q, d->hidden, (size_t)Q * sizeof(float));
+    if (lt->q_gate_out == Q) memcpy(d->gate, d->hidden + Q, (size_t)Q * sizeof(float));
+    add_bias(d, lt->k_bias, d->k, KV);
+    add_bias(d, lt->v_bias, d->v, KV);
+    if (lt->q_norm && vector_f32(&d->model, lt->q_norm, d->scratch.row_f32, hd) == 0)
+        head_rmsnorm(d->q, H, hd, d->scratch.row_f32, c->rms_eps);
+    if (lt->k_norm && vector_f32(&d->model, lt->k_norm, d->scratch.row_f32, hd) == 0)
+        head_rmsnorm(d->k, HK, hd, d->scratch.row_f32, c->rms_eps);
+    rope(d, d->q, H, hd, pos, c->rope_theta);
+    rope(d, d->k, HK, hd, pos, c->rope_theta);
+
+    const size_t offset = (size_t)pos * (size_t)KV;
+    for (int i = 0; i < KV; i++) {
+        d->mtp_key_cache[offset + i] = float_to_half(d->k[i]);
+        d->mtp_value_cache[offset + i] = float_to_half(d->v[i]);
+    }
+    memset(d->ctx, 0, (size_t)Q * sizeof(float));
+    const float scale = 1.0f / sqrtf((float)hd);
+    for (int h = 0; h < H; h++) {
+        const int kh = (h * HK) / H;
+        float *scores = d->att + (size_t)h * c->max_ctx;
+        float *context = d->ctx + h * hd;
+        for (int t = 0; t <= pos; t++) {
+            const uint16_t *key = d->mtp_key_cache + (size_t)t * KV + kh * hd;
+            float dot = 0.0f;
+            for (int j = 0; j < hd; j++) dot += d->q[h * hd + j] * half_to_float(key[j]);
+            scores[t] = dot * scale;
+        }
+        softmax(scores, pos + 1);
+        for (int t = 0; t <= pos; t++) {
+            const uint16_t *value = d->mtp_value_cache + (size_t)t * KV + kh * hd;
+            for (int j = 0; j < hd; j++) context[j] += scores[t] * half_to_float(value[j]);
+        }
+    }
+    apply_attention_gate(d, lt, d->ctx, Q, hd);
+    if (matmul(d, lt->o_proj, d->ctx, O_IN, D, d->xb) != 0) return -1;
+    add_bias(d, lt->o_bias, d->xb, D);
+    memcpy(d->x, d->mtp_concat, (size_t)D * sizeof(float));
+    vec_add(d->x, d->xb, D);
+    if (vector_f32(&d->model, lt->post_norm, d->scratch.row_f32, D) != 0)
+        return -1;
+    rmsnorm(d->xb, d->x, d->scratch.row_f32, D, c->rms_eps);
+    if (lt->is_moe) {
+        if (forward_moe(d, lt, D) != 0) return -1;
+    } else {
+        if (matmul(d, lt->gate_proj, d->xb, D, I, d->gate) != 0 ||
+            matmul(d, lt->up_proj, d->xb, D, I, d->up) != 0)
+            return -1;
+        for (int i = 0; i < I; i++) d->hidden[i] =
+            (d->gate[i] / (1.0f + expf(-d->gate[i]))) * d->up[i];
+        if (matmul(d, lt->down_proj, d->hidden, I, D, d->xb) != 0) return -1;
+        vec_add(d->x, d->xb, D);
+    }
+    if (vector_f32(&d->model, lt->mtp_shared_head_norm, d->scratch.row_f32, D) != 0)
+        return -1;
+    rmsnorm(d->xb, d->x, d->scratch.row_f32, D, c->rms_eps);
+    if (matmul(d, head, d->xb, D, c->vocab, d->logits) != 0) return -1;
+    memcpy(d->mtp_state_hidden, d->xb, (size_t)D * sizeof(float));
+    d->mtp_chain_active = 1;
+    d->mtp_position++;
+    if (out_logits) *out_logits = d->logits;
+    return 0;
+}
+
+int qwn_decoder_mtp_forward(QwnDecoder *d, int token, const float **out_logits) {
+    return qwn_decoder_mtp_forward_impl(d, token, 0, out_logits);
+}
+
+int qwn_decoder_mtp_forward_chain(QwnDecoder *d, int token,
+                                  const float **out_logits) {
+    return qwn_decoder_mtp_forward_impl(d, token, 1, out_logits);
 }
 
 static float random01(uint64_t *state){

@@ -398,7 +398,7 @@ export interface RuntimeConfig {
   context_size?: number
   max_tokens?: number
   seed?: number
-  kv_cache_mode?: "fp16" | "q8" | "turboquant-q4" | "auto"
+  kv_cache_mode?: "fp16" | "q8" | "turboquant-q4" | "turboquant-paper" | "auto"
   quantization?: "auto" | "q4_0" | "hyper_vsq2" | "fp16" | "fp32"
   kernel?: "auto" | "scalar" | "avx2" | "vnni"
   speculative_decoding?: boolean
@@ -802,6 +802,26 @@ export async function cancelConversion(baseUrl: string, apiKey = "") {
   })
   if (!response.ok) throw new Error(await responseError(response))
   return (await response.json()) as { status: string; message: string }
+}
+
+export interface GitHubIssueResult {
+  status: "created"
+  url: string
+  number: number | null
+}
+
+export async function createGitHubIssue(
+  baseUrl: string,
+  apiKey: string,
+  issue: { title: string; body: string; category: "Bug" | "Feature request" | "Performance" | "Privacy"; consent: true }
+): Promise<GitHubIssueResult> {
+  const response = await fetch(endpoint(baseUrl, "qwanto/github/issues"), {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify(issue),
+  })
+  if (!response.ok) throw new Error(await responseError(response))
+  return (await response.json()) as GitHubIssueResult
 }
 
 export interface QwnVerificationReport {

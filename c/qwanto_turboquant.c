@@ -21,6 +21,7 @@ const char *qwn_kv_cache_mode_name(QwnKvCacheMode mode) {
     switch (mode) {
         case QWN_KV_CACHE_Q8: return "q8";
         case QWN_KV_CACHE_TURBOQUANT_Q4: return "turboquant-q4";
+        case QWN_KV_CACHE_TURBOQUANT_PAPER: return "turboquant-paper";
         case QWN_KV_CACHE_AUTO: return "auto";
         default: return "fp16";
     }
@@ -32,6 +33,7 @@ int qwn_kv_cache_mode_parse(const char *text, QwnKvCacheMode *mode) {
     else if (strcmp(text, "q8") == 0) *mode = QWN_KV_CACHE_Q8;
     else if (strcmp(text, "turboquant-q4") == 0 ||
              strcmp(text, "qwn-q4-kv") == 0) *mode = QWN_KV_CACHE_TURBOQUANT_Q4;
+    else if (strcmp(text, "turboquant-paper") == 0) *mode = QWN_KV_CACHE_TURBOQUANT_PAPER;
     else if (strcmp(text, "auto") == 0) *mode = QWN_KV_CACHE_AUTO;
     else return -1;
     return 0;
@@ -46,7 +48,8 @@ void qwn_kv_cache_contract_init(QwnKvCacheContract *contract,
     contract->abi_version = QWN_KV_CACHE_ABI_VERSION;
     contract->cache_dtype = (uint32_t)mode;
     contract->block_size = mode == QWN_KV_CACHE_Q8 ? 64u :
-                           mode == QWN_KV_CACHE_TURBOQUANT_Q4 ? 64u : 1u;
+                           mode == QWN_KV_CACHE_TURBOQUANT_Q4 ? 64u :
+                           mode == QWN_KV_CACHE_TURBOQUANT_PAPER ? 1u : 1u;
     contract->scale_bytes = mode == QWN_KV_CACHE_FP16 ? 0u :
                             mode == QWN_KV_CACHE_Q8 ? 4u : 2u;
     contract->zero_point_bytes = mode == QWN_KV_CACHE_Q8 ? 0u :
@@ -787,5 +790,205 @@ void qwn_turboquant_matmul_avx512(
 
         float dot = qwn_turboquant_dot_key_avx512(q_h, k_ptr, head_dim);
         out_h[0] = dot;
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Paper TurboQuant reference: Algorithm 1 + Algorithm 2 (arXiv:2504.19874).
+ * Setup is intentionally expensive and happens once; append/read paths make
+ * no allocations and retain the paper's dense Gaussian QJL transform exactly.
+ * ------------------------------------------------------------------------- */
+static uint64_t tq_paper_next(uint64_t *state) {
+    uint64_t x = *state ? *state : 0x9e3779b97f4a7c15ULL;
+    x ^= x >> 12; x ^= x << 25; x ^= x >> 27; *state = x;
+    return x * 2685821657736338717ULL;
+}
+
+static float tq_paper_uniform(uint64_t *state) {
+    return (float)((tq_paper_next(state) >> 40) + 1) * (1.0f / 16777217.0f);
+}
+
+static float tq_paper_gaussian(uint64_t *state) {
+    float u = tq_paper_uniform(state), v = tq_paper_uniform(state);
+    return sqrtf(-2.0f * logf(u)) * cosf(6.2831853071795864769f * v);
+}
+
+static void tq_paper_set_bits(uint8_t *data, int bit_offset, int width, unsigned value) {
+    for (int bit = 0; bit < width; bit++) {
+        int at = bit_offset + bit;
+        uint8_t mask = (uint8_t)(1u << (at & 7));
+        if (value & (1u << bit)) data[at >> 3] |= mask;
+        else data[at >> 3] &= (uint8_t)~mask;
+    }
+}
+
+static unsigned tq_paper_get_bits(const uint8_t *data, int bit_offset, int width) {
+    unsigned value = 0;
+    for (int bit = 0; bit < width; bit++)
+        value |= (unsigned)((data[(bit_offset + bit) >> 3] >> ((bit_offset + bit) & 7)) & 1u) << bit;
+    return value;
+}
+
+static float tq_paper_norm(const float *x, int d) {
+    float sum = 0.0f;
+    for (int i = 0; i < d; i++) sum += x[i] * x[i];
+    return sqrtf(sum);
+}
+
+static void tq_paper_matvec(const float *matrix, const float *x, float *out, int d) {
+    for (int row = 0; row < d; row++) {
+        float sum = 0.0f;
+        for (int col = 0; col < d; col++) sum += matrix[(size_t)row * d + col] * x[col];
+        out[row] = sum;
+    }
+}
+
+static void tq_paper_mat_t_vec(const float *matrix, const float *x, float *out, int d) {
+    for (int col = 0; col < d; col++) {
+        float sum = 0.0f;
+        for (int row = 0; row < d; row++) sum += matrix[(size_t)row * d + col] * x[row];
+        out[col] = sum;
+    }
+}
+
+static int tq_paper_make_codebook(QwnTurboQuantPaper *q) {
+    const int samples = 4096, d = q->dimension, n = q->codebook_size;
+    float *means = (float *)malloc((size_t)n * sizeof(float));
+    float *masses = (float *)malloc((size_t)n * sizeof(float));
+    if (!means || !masses) { free(means); free(masses); return -1; }
+    for (int code = 0; code < n; code++) q->codebook[code] = -0.9f + 1.8f * (float)code / (float)(n - 1);
+    const float log_norm = lgammaf((float)d * 0.5f) - 0.5723649429247000871f - lgammaf((float)(d - 1) * 0.5f);
+    for (int iteration = 0; iteration < 80; iteration++) {
+        memset(means, 0, (size_t)n * sizeof(float)); memset(masses, 0, (size_t)n * sizeof(float));
+        for (int sample = 0; sample < samples; sample++) {
+            float x = -1.0f + 2.0f * ((float)sample + 0.5f) / (float)samples;
+            float log_weight = log_norm + ((float)(d - 3) * 0.5f) * logf(fmaxf(1e-20f, 1.0f - x * x));
+            float weight = expf(log_weight);
+            int best = 0; float distance = fabsf(x - q->codebook[0]);
+            for (int code = 1; code < n; code++) {
+                float candidate = fabsf(x - q->codebook[code]);
+                if (candidate < distance) { best = code; distance = candidate; }
+            }
+            means[best] += weight * x; masses[best] += weight;
+        }
+        for (int code = 0; code < n; code++) if (masses[code] > 0.0f) q->codebook[code] = means[code] / masses[code];
+    }
+    free(means); free(masses); return 0;
+}
+
+int qwn_turboquant_paper_init(QwnTurboQuantPaper *q, int d, int bits, uint64_t seed) {
+    if (!q || d < 3 || d > 512 || bits < 2 || bits > 5) return -1;
+    memset(q, 0, sizeof(*q)); q->dimension = d; q->bits_per_coordinate = bits;
+    q->mse_bits = bits - 1; q->codebook_size = 1 << q->mse_bits; q->seed = seed ? seed : 0x4d595df4d0f33173ULL;
+    q->rotation = (float *)tq_alloc64((size_t)d * d * sizeof(float));
+    q->qjl_matrix = (float *)tq_alloc64((size_t)d * d * sizeof(float));
+    q->codebook = (float *)malloc((size_t)q->codebook_size * sizeof(float));
+    if (!q->rotation || !q->qjl_matrix || !q->codebook) { qwn_turboquant_paper_free(q); return -1; }
+    uint64_t state = q->seed;
+    for (int row = 0; row < d; row++) {
+        float *basis = q->rotation + (size_t)row * d;
+        for (int col = 0; col < d; col++) basis[col] = tq_paper_gaussian(&state);
+        for (int previous = 0; previous < row; previous++) {
+            const float *other = q->rotation + (size_t)previous * d; float dot = 0.0f;
+            for (int col = 0; col < d; col++) dot += basis[col] * other[col];
+            for (int col = 0; col < d; col++) basis[col] -= dot * other[col];
+        }
+        float length = tq_paper_norm(basis, d); if (length < 1e-8f) { qwn_turboquant_paper_free(q); return -1; }
+        for (int col = 0; col < d; col++) basis[col] /= length;
+    }
+    for (int i = 0; i < d * d; i++) q->qjl_matrix[i] = tq_paper_gaussian(&state);
+    if (tq_paper_make_codebook(q) != 0) { qwn_turboquant_paper_free(q); return -1; }
+    return 0;
+}
+
+void qwn_turboquant_paper_free(QwnTurboQuantPaper *q) {
+    if (!q) return; tq_free64(q->rotation); tq_free64(q->qjl_matrix); free(q->codebook); memset(q, 0, sizeof(*q));
+}
+
+int qwn_turboquant_paper_quantize(const QwnTurboQuantPaper *q, const float *src, uint8_t *dst) {
+    if (!q || !src || !dst) return -1;
+    int d = q->dimension; size_t mse_bytes = ((size_t)d * q->mse_bits + 7) / 8, qjl_bytes = ((size_t)d + 7) / 8;
+    memset(dst, 0, mse_bytes + qjl_bytes + 2 * sizeof(float));
+    float norm = tq_paper_norm(src, d); memcpy(dst + mse_bytes + qjl_bytes, &norm, sizeof(float));
+    if (norm == 0.0f) return 0;
+    float unit[512], rotated[512], reconstructed_rotated[512], reconstructed[512], residual[512], projected[512];
+    for (int i = 0; i < d; i++) unit[i] = src[i] / norm;
+    tq_paper_matvec(q->rotation, unit, rotated, d);
+    for (int i = 0; i < d; i++) {
+        int best = 0; float distance = fabsf(rotated[i] - q->codebook[0]);
+        for (int code = 1; code < q->codebook_size; code++) { float candidate = fabsf(rotated[i] - q->codebook[code]); if (candidate < distance) { best = code; distance = candidate; } }
+        tq_paper_set_bits(dst, i * q->mse_bits, q->mse_bits, (unsigned)best); reconstructed_rotated[i] = q->codebook[best];
+    }
+    tq_paper_mat_t_vec(q->rotation, reconstructed_rotated, reconstructed, d);
+    for (int i = 0; i < d; i++) residual[i] = unit[i] - reconstructed[i];
+    float gamma = tq_paper_norm(residual, d); memcpy(dst + mse_bytes + qjl_bytes + sizeof(float), &gamma, sizeof(float));
+    if (gamma == 0.0f) return 0;
+    for (int i = 0; i < d; i++) residual[i] /= gamma;
+    tq_paper_matvec(q->qjl_matrix, residual, projected, d);
+    for (int i = 0; i < d; i++) if (projected[i] >= 0.0f) dst[mse_bytes + (i >> 3)] |= (uint8_t)(1u << (i & 7));
+    return 0;
+}
+
+int qwn_turboquant_paper_dequantize(const QwnTurboQuantPaper *q, const uint8_t *src, float *dst) {
+    if (!q || !src || !dst) return -1;
+    int d = q->dimension; size_t mse_bytes = ((size_t)d * q->mse_bits + 7) / 8, qjl_bytes = ((size_t)d + 7) / 8;
+    float norm, gamma; memcpy(&norm, src + mse_bytes + qjl_bytes, sizeof(float)); memcpy(&gamma, src + mse_bytes + qjl_bytes + sizeof(float), sizeof(float));
+    float rotated[512], signs[512], mse[512], residual[512];
+    for (int i = 0; i < d; i++) { rotated[i] = q->codebook[tq_paper_get_bits(src, i * q->mse_bits, q->mse_bits)]; signs[i] = (src[mse_bytes + (i >> 3)] & (uint8_t)(1u << (i & 7))) ? 1.0f : -1.0f; }
+    tq_paper_mat_t_vec(q->rotation, rotated, mse, d); tq_paper_mat_t_vec(q->qjl_matrix, signs, residual, d);
+    float factor = gamma * sqrtf(1.5707963267948966192f) / (float)d;
+    for (int i = 0; i < d; i++) dst[i] = norm * (mse[i] + factor * residual[i]);
+    return 0;
+}
+
+int qwn_turboquant_paper_cache_init(QwnTurboQuantPaperCache *cache, int max_tokens, int heads, int dim, int bits, uint64_t seed) {
+    if (!cache || max_tokens < 1 || heads < 1 || dim < 3) return -1; memset(cache, 0, sizeof(*cache));
+    if (qwn_turboquant_paper_init(&cache->quantizer, dim, bits, seed) != 0) return -1;
+    cache->max_tokens = max_tokens; cache->n_heads = heads; cache->head_dim = dim; cache->n_channels = heads * dim;
+    cache->mse_bytes = ((size_t)dim * cache->quantizer.mse_bits + 7) / 8; cache->qjl_bytes = ((size_t)dim + 7) / 8;
+    cache->vector_bytes = cache->mse_bytes + cache->qjl_bytes + 2 * sizeof(float); cache->token_stride = (size_t)heads * cache->vector_bytes;
+    cache->total_bytes = 2 * (size_t)max_tokens * cache->token_stride +
+                         2 * (size_t)dim * dim * sizeof(float) +
+                         (size_t)cache->quantizer.codebook_size * sizeof(float);
+    cache->packed_k = (uint8_t *)tq_alloc64((size_t)max_tokens * cache->token_stride); cache->packed_v = (uint8_t *)tq_alloc64((size_t)max_tokens * cache->token_stride);
+    if (!cache->packed_k || !cache->packed_v) { qwn_turboquant_paper_cache_free(cache); return -1; }
+    return 0;
+}
+
+void qwn_turboquant_paper_cache_free(QwnTurboQuantPaperCache *cache) { if (!cache) return; tq_free64(cache->packed_k); tq_free64(cache->packed_v); qwn_turboquant_paper_free(&cache->quantizer); memset(cache, 0, sizeof(*cache)); }
+void qwn_turboquant_paper_cache_reset(QwnTurboQuantPaperCache *cache) { if (cache) cache->n_tokens = 0; }
+
+int qwn_turboquant_paper_cache_append(QwnTurboQuantPaperCache *cache, const float *key, const float *value, int channels) {
+    if (!cache || !key || !value || channels != cache->n_channels || cache->n_tokens >= cache->max_tokens) return -1;
+    size_t base = (size_t)cache->n_tokens * cache->token_stride;
+    for (int head = 0; head < cache->n_heads; head++) {
+        if (qwn_turboquant_paper_quantize(&cache->quantizer, key + head * cache->head_dim, cache->packed_k + base + (size_t)head * cache->vector_bytes) ||
+            qwn_turboquant_paper_quantize(&cache->quantizer, value + head * cache->head_dim, cache->packed_v + base + (size_t)head * cache->vector_bytes)) return -1;
+    }
+    cache->n_tokens++; return 0;
+}
+
+float qwn_turboquant_paper_dot_key(const QwnTurboQuantPaperCache *cache, int token, int head, const float *query) {
+    if (!cache || !query || token < 0 || token >= cache->n_tokens || head < 0 || head >= cache->n_heads) return NAN;
+    const QwnTurboQuantPaper *q = &cache->quantizer; const uint8_t *src = cache->packed_k + (size_t)token * cache->token_stride + (size_t)head * cache->vector_bytes;
+    float norm, gamma; memcpy(&norm, src + cache->mse_bytes + cache->qjl_bytes, sizeof(float)); memcpy(&gamma, src + cache->mse_bytes + cache->qjl_bytes + sizeof(float), sizeof(float));
+    float total = 0.0f, factor = norm * gamma * sqrtf(1.5707963267948966192f) / (float)q->dimension;
+    for (int row = 0; row < q->dimension; row++) {
+        float rotated_query = 0.0f, qjl_query = 0.0f;
+        for (int col = 0; col < q->dimension; col++) { rotated_query += q->rotation[(size_t)row * q->dimension + col] * query[col]; qjl_query += q->qjl_matrix[(size_t)row * q->dimension + col] * query[col]; }
+        float sign = (src[cache->mse_bytes + (row >> 3)] & (uint8_t)(1u << (row & 7))) ? 1.0f : -1.0f;
+        total += norm * q->codebook[tq_paper_get_bits(src, row * q->mse_bits, q->mse_bits)] * rotated_query + factor * sign * qjl_query;
+    }
+    return total;
+}
+
+void qwn_turboquant_paper_accum_value(const QwnTurboQuantPaperCache *cache, int token, int head, float score, float *ctx) {
+    if (!cache || !ctx || token < 0 || token >= cache->n_tokens || head < 0 || head >= cache->n_heads) return;
+    const QwnTurboQuantPaper *q = &cache->quantizer; const uint8_t *src = cache->packed_v + (size_t)token * cache->token_stride + (size_t)head * cache->vector_bytes;
+    float norm, gamma; memcpy(&norm, src + cache->mse_bytes + cache->qjl_bytes, sizeof(float)); memcpy(&gamma, src + cache->mse_bytes + cache->qjl_bytes + sizeof(float), sizeof(float));
+    float factor = score * norm * gamma * sqrtf(1.5707963267948966192f) / (float)q->dimension;
+    for (int col = 0; col < q->dimension; col++) for (int row = 0; row < q->dimension; row++) {
+        float sign = (src[cache->mse_bytes + (row >> 3)] & (uint8_t)(1u << (row & 7))) ? 1.0f : -1.0f;
+        ctx[col] += score * norm * q->rotation[(size_t)row * q->dimension + col] * q->codebook[tq_paper_get_bits(src, row * q->mse_bits, q->mse_bits)] + factor * q->qjl_matrix[(size_t)row * q->dimension + col] * sign;
     }
 }

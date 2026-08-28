@@ -8,8 +8,9 @@ for the same local source artifact:
 `models/Qwen3.8-27B-UD-IQ2_M.gguf`
 
 The source remains an offline conversion input. The current local QWN artifact
-is `models/Qwen3.8-27B-Q4_0.qwn`; it is an ignored local diagnostic artifact,
-not benchmark evidence or a release asset.
+is `models/Qwen3.8-27B-Q4_0-mtp-fixed.qwn`; it is an ignored local diagnostic
+artifact, not benchmark evidence or a release asset. The earlier un-suffixed
+artifact truncated the `nextn.` suffix during conversion and must not be used.
 
 ## Decision
 
@@ -20,14 +21,22 @@ Q4_0 conversion and one-token native CPU run execute the main transformer path,
 including full attention and Gated DeltaNet recurrent layers. Independent
 blockers remain:
 
-1. MTP tensors are preserved by conversion but the native decoder does not yet
-   execute the MTP prediction head or speculative MTP transaction path.
+1. The native decoder executes the one-layer NextN/MTP prediction head through
+   an independent MTP FP16 KV cache after a base forward. `--speculative`
+   uses it as a transactional draft path, preserving target distributions
+   before the shared logits buffer is reused and checkpointing MTP state before
+   each proposal. A synthetic forced-rejection greedy case exactly matches the
+   ordinary target output. The target verifier is still sequential, therefore
+   this is not a speed or model-quality claim. The fixed real Qwen3.8 artifact
+   completed one rejection/correction and emitted the same greedy token as the
+   target-only path; broader quality and acceptance qualification remains unrun.
 2. The local artifact is Q4_0; native QWN IQ2/IQ3/IQ4 payload preservation and
    row decoding are now verified independently, but they are not yet integrated
    into this full hybrid model path. Q2_K/Q3_K/Q8_K have native scalar QWN
    payload support.
-3. MoE dispatch, hybrid CUDA execution, independent quality/reference-oracle
-   validation, and benchmark evidence remain unavailable.
+3. Hybrid CUDA execution, independent model-quality/reference-oracle
+   validation, and benchmark evidence remain unavailable. The 27B artifact is
+   dense; its separate MoE dispatcher status is not evidence for Flash-Next.
 
 Therefore this is not a full Qwen3.8 support or performance claim.
 
@@ -80,7 +89,7 @@ source tensor table. Current conversion uses the expanded tensor mapping in
 ## Conversion and native integration
 
 The converter was exercised against the real source with `--quant q4_0` and
-produced `models/Qwen3.8-27B-Q4_0.qwn`. Structural inspection confirmed the
+produced `models/Qwen3.8-27B-Q4_0-mtp-fixed.qwn`. Structural inspection confirmed the
 4 KiB header/alignment contract, 868 QWN tensors including configuration and
 tokenizer metadata, and `ssm_inner=10240`.
 
@@ -91,6 +100,12 @@ backend=cpu kernel=avx2-fma-f16c-forced kv_cache_mode=fp16
 
 This is a single local integration diagnostic. It is not a benchmark row; no
 performance evidence file was changed and no throughput claim is made.
+
+The current source build also ran prompt `Hi` with greedy sampling,
+`--draft-length 1`, and `top_p=1`. Native MTP completed one proposal with one
+rejection and emitted token `2`; target-only greedy generation emitted token
+`2` as well. The separate cold CPU runs took 67.016 s and 51.704 s, so this is
+correctness evidence only and explicitly not a speed comparison.
 
 - source quantization support: IQ2/IQ3/IQ4 source decoding is available;
 - target conversion state: `CONVERTED_Q4_0_LOCAL`;
@@ -152,7 +167,10 @@ gates; 262K is outside this qualification phase.
 ## Validation boundary
 
 The local qualification tests cover source tensor/header contracts, native K
-dequantization, real-source conversion metadata, and the native CPU decoder
-integration. Full MTP, MoE, CUDA hybrid, model-quality, Rust/Tauri,
-and hosted CI validation remain separate gates. No README performance values,
-benchmark evidence, tag, or release were changed by this integration work.
+dequantization, real-source conversion metadata, the native CPU decoder
+integration, and a synthetic NextN/MTP transaction fixture with an actual
+rejection/correction. A real Qwen3.8 MTP quality oracle, real-model MTP
+execution, CUDA hybrid path, Flash-Next model, Rust/Tauri, and hosted CI
+validation remain separate gates. No README
+performance values, benchmark evidence, tag, or release were changed by this
+integration work.

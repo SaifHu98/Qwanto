@@ -59,21 +59,32 @@ and NVMe mmap.
   native IQ selection remains an inspected/CLI capability, not a Flash-Next
   activation claim.
 - Qwen3.8-27B now has a real converted local artifact at
-  `models/Qwen3.8-27B-Q4_0.qwn`. Its CPU main path is integration-verified
+  `models/Qwen3.8-27B-Q4_0-mtp-fixed.qwn`. Its CPU main path is integration-verified
   against the local source: full-attention layers, Gated DeltaNet recurrent
   state, causal convolution, gated RMSNorm, and the FFN execute through
   `qwnrun` for one generated token. This is a correctness/integration gate,
-  not a benchmark row. MTP execution, MoE dispatch, QSA/ngram/gated-residual
-  Flash-Next coverage, and hybrid CUDA coverage remain pending.
+  not a benchmark row. A native pointer-resolved separated-expert MoE top-k
+  dispatcher is covered by a synthetic equivalence fixture. Qwen NextN/MTP
+  now has a separate FP16 state/KV path, `MTP_FORWARD`, and a native
+  `--speculative` transaction that checkpoints and restores MTP state.
+  Synthetic greedy testing covers a forced draft rejection and matches target
+  output exactly. It is correctness evidence only: target verification remains
+  sequential, so no speedup is claimed. The real fixed 27B artifact completed
+  one greedy proposal with `drafted=1`, `rejected=1`, and the same emitted
+  token (`2`) as ordinary target generation. Flash-Next
+  QSA/ngram/gated-residual coverage, packed-expert layouts, real Flash-Next
+  quality/oracle evidence, and hybrid CUDA coverage remain pending.
 - Developer validation tools now exist at `c/tools/qwn_quality_oracle.py` and
   `c/tools/qwn_benchmark.py`. They require a real native artifact and pinned
   fixture/command; they emit `MEASURED_PASS`, `MEASURED`, or an explicit
   incomplete result and never create projected performance claims. `qwnrun`
   serving also has a deterministic `RESET` protocol command for oracle cases.
 - Qwanto Code records redacted UI errors in a bounded local
-  `.qwanto/diagnostics/errors.jsonl` stream. GitHub issue creation remains an
-  explicit, user-approved browser action with a local diagnostic ZIP; no token
-  or silent repository write is used.
+  `.qwanto/diagnostics/errors.jsonl` stream. Feedback can create a GitHub issue
+  only after explicit consent and a local diagnostic ZIP. The gateway reads an
+  ephemeral `QWANTO_GITHUB_TOKEN` environment variable, never accepts or
+  persists it in the UI, and sends only the typed issue description; the ZIP
+  stays local.
 - Official Qwen3.8 acquisition presets are exposed by the local gateway and
   Qwanto Code model settings: Flash-Next UD-Q4_K_XL from the official Unsloth
   four-shard repository (~111 GB), and Qwen3.8-27B Q4_K_M from the official
@@ -85,11 +96,17 @@ and NVMe mmap.
   The current HyperVSQ-2 ABI synthetic test passed on device 0 with one GPU
   matmul and zero reported fallbacks. This is correctness evidence only; it
   is not a general all-format or performance claim.
-- TurboQuant remains intentionally unclaimed as paper-equivalent. The current
-  `turboquant-q4` mode is the separately named `QWN-Q4-KV` compatibility
-  representation; enabling the cited algorithm requires a distinct format,
-  rotation/codebook contract, QJL residual path, and model-level quality
-  evidence.
+- `turboquant-q4` remains the separately named `QWN-Q4-KV` compatibility
+  representation. A distinct CPU `turboquant-paper` reference mode now
+  implements deterministic random rotation, scalar Lloyd-Max codebooks, and
+  normalized one-bit Gaussian QJL residual reconstruction; its multi-seed
+  mathematical-path test passes. The current reference is O(d²), has no CUDA
+  kernel, and is not a speed, quality, or model-level TurboQuant claim.
+- Current validation after the MTP/TurboQuant work: Python `270 passed,
+  4 skipped, 17 subtests`; all 18 native C binaries; 62 web tests; and the
+  production web build passed.
+  Benchmark evidence, model-quality reports, tags, releases, and model files
+  were not changed.
 - The existing `benchmark_evidence.json` claim remains unchanged. CPU Phase 3
   local evidence from commit `cb3ca35` uses the 4B HyperVSQ-2 model SHA-256
   `43c128cdbf164e5aee8a192075961a514f87eda1c7c97c5d897d02eda2d29e36`.
@@ -168,16 +185,19 @@ and NVMe mmap.
   and formats must fail explicitly.
 - GGUF, Safetensors, and PyTorch files are source artifacts only. They cannot be
   activated by qwnrun; only validated, architecture-compatible QWN conversions
-  can become native runtime models. The Qwen3.8 Q4 CPU main path is now
-  integration-verified, while MTP, MoE, and hybrid CUDA remain explicitly
-  gated. Native IQ2/IQ3/IQ4 row decoding and source-preserving conversion are
+  can become native runtime models. The Qwen3.8 Q4 CPU main path and a
+  synthetic isolated MTP-head fixture and native MTP transaction are
+  integration-verified, while real Qwen3.8 MTP qualification, Flash-Next
+  packed-expert/QSA/GR paths, and hybrid CUDA remain explicitly gated. Native
+  IQ2/IQ3/IQ4 row decoding and source-preserving conversion are
   verified independently; this does not imply complete Flash-Next support.
 - Qwen3.8-27B qualification is `CPU_MAIN_PATH_INTEGRATION_VERIFIED` for the
   local Q4_0 conversion only: the source has 65 total layers, 48 Gated
   DeltaNet/SSM layers, 17 full-attention layers, one MTP prediction layer, and
   mixed IQ/K source tensors. The converted artifact is not full architecture
-  support because MTP execution, MoE, quality oracle, and benchmark evidence
-  are still absent. Native IQ2/IQ3/IQ4 tensor-row execution is verified, but
+  support because real-model MTP qualification, Flash-Next-specific MoE, quality
+  oracle, and benchmark evidence are still absent. Native IQ2/IQ3/IQ4
+  tensor-row execution is verified, but
   it is not yet integrated into the full hybrid model path. Historical fail-closed evidence
   remains under `docs/qwen38-27b-evidence/`.
 - The gateway has explicit Hugging Face, allowlisted Direct HTTPS, and local
@@ -218,9 +238,11 @@ and NVMe mmap.
 - Third-party plugin execution remains unavailable by design until a native
   sandbox/supervisor and publisher trust store are configured; manifest
   validation and disabled-by-default app-data storage are implemented.
-- Speculative decoding and JetSpec remain disabled while compatible native
-  draft-model and tree-aware transaction prerequisites are unavailable; their
-  counters do not start with fabricated acceptance or speedup values.
+- External-draft speculative decoding and JetSpec remain disabled while their
+  compatibility and tree-aware transaction prerequisites are unavailable.
+  Native MTP speculation is enabled only for QWN models that expose the MTP
+  head, rejects external draft paths, rejects top-p truncation, and reports
+  measured counters without claiming speedup.
 - Phase 2 now uses `qwn_speculative.c` in the qwnrun build, with typed
   compatibility checks, draft/target probability correction, bonus-token
   handling, and fail-closed CLI/gateway behavior. No compatible native draft

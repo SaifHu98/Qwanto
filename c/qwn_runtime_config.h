@@ -18,7 +18,8 @@ typedef enum {
     QWN_RUNTIME_KV_FP16 = 0,
     QWN_RUNTIME_KV_Q8 = 1,
     QWN_RUNTIME_KV_TURBOQUANT_Q4 = 2,
-    QWN_RUNTIME_KV_AUTO = 3
+    QWN_RUNTIME_KV_TURBOQUANT_PAPER = 3,
+    QWN_RUNTIME_KV_AUTO = 4
 } QwnRuntimeKvCacheMode;
 
 typedef struct {
@@ -29,7 +30,7 @@ typedef struct {
     int context_size;
     int max_tokens;
     int seed;
-    char kv_cache_mode[16];
+    char kv_cache_mode[24];
     QwnRuntimeKvCacheMode kv_cache_mode_typed;
     char quantization[32];
     char kernel[32];

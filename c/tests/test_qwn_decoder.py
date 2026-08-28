@@ -23,7 +23,7 @@ def matrix(rows, cols, seed):
             for r in range(rows) for c in range(cols)]
 
 
-def build_fixture(path):
+def build_fixture(path, moe=False, mtp=False, mtp_reject=False):
     d, inter, vocab = 4, 8, 6
     cfg = {"hidden_size": d, "intermediate_size": inter,
            "num_hidden_layers": 1, "num_attention_heads": 1,
@@ -31,6 +31,10 @@ def build_fixture(path):
            "max_position_embeddings": 8, "rms_norm_eps": 1e-5,
            "rope_theta": 10000.0, "bos_token_id": -1, "eos_token_id": 5,
            "tie_word_embeddings": False}
+    if moe:
+        cfg.update({"n_routed_experts": 2, "num_experts_per_tok": 1, "norm_topk_prob": 1})
+    if mtp:
+        cfg.update({"total_layers": 2, "mtp_layers": 1, "mtp_layer_start": 1})
     tok = {"model": {"type": "BPE", "vocab": {chr(97+i): i for i in range(vocab)},
                      "merges": []}, "added_tokens": []}
     tensors = [
@@ -49,6 +53,44 @@ def build_fixture(path):
         {"name": "model.norm.weight", "dtype": DT_F32, "shape": (d,), "payload": f32([1.0,.95,1.1,.9])},
         {"name": "lm_head.weight", "dtype": DT_F32, "shape": (d,vocab), "payload": f32(matrix(vocab,d,9))},
     ]
+    if moe:
+        dense = tensors[9:12]
+        tensors[9:12] = [
+            {"name": "model.layers.0.mlp.gate.weight", "dtype": DT_F32, "shape": (d,2), "payload": f32([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0])},
+            {"name": "model.layers.0.mlp.experts.0.gate_proj.weight", "dtype": DT_F32, "shape": dense[0]["shape"], "payload": dense[0]["payload"]},
+            {"name": "model.layers.0.mlp.experts.0.up_proj.weight", "dtype": DT_F32, "shape": dense[1]["shape"], "payload": dense[1]["payload"]},
+            {"name": "model.layers.0.mlp.experts.0.down_proj.weight", "dtype": DT_F32, "shape": dense[2]["shape"], "payload": dense[2]["payload"]},
+            {"name": "model.layers.0.mlp.experts.1.gate_proj.weight", "dtype": DT_F32, "shape": dense[0]["shape"], "payload": dense[0]["payload"]},
+            {"name": "model.layers.0.mlp.experts.1.up_proj.weight", "dtype": DT_F32, "shape": dense[1]["shape"], "payload": dense[1]["payload"]},
+            {"name": "model.layers.0.mlp.experts.1.down_proj.weight", "dtype": DT_F32, "shape": dense[2]["shape"], "payload": dense[2]["payload"]},
+        ]
+    if mtp:
+        if mtp_reject:
+            head = tensors[-1]
+            values = list(struct.unpack(f"<{d*vocab}f", head["payload"]))
+            values[:d], values[d:2*d] = values[d:2*d], values[:d]
+            head["payload"] = f32(values)
+        mtp_layer = []
+        for tensor in tensors[3:12]:
+            clone = dict(tensor)
+            clone["name"] = clone["name"].replace("model.layers.0.", "model.layers.1.")
+            mtp_layer.append(clone)
+        mtp_layer.extend([
+            {"name": "model.layers.1.mtp.eh_proj.weight", "dtype": DT_F32,
+             "shape": (2*d, d), "payload": f32(matrix(d, 2*d, 10))},
+            {"name": "model.layers.1.mtp.enorm.weight", "dtype": DT_F32,
+             "shape": (d,), "payload": f32([1.0, .9, 1.1, 1.0])},
+            {"name": "model.layers.1.mtp.hnorm.weight", "dtype": DT_F32,
+             "shape": (d,), "payload": f32([.95, 1.0, 1.05, 1.0])},
+            {"name": "model.layers.1.mtp.shared_head_norm.weight", "dtype": DT_F32,
+             "shape": (d,), "payload": f32([1.0, 1.0, .95, 1.05])},
+        ])
+        if mtp_reject:
+            mtp_layer.append(
+                {"name": "model.layers.1.mtp.shared_head_head.weight", "dtype": DT_F32,
+                 "shape": (d, vocab), "payload": f32([0.0] * (d * vocab))}
+            )
+        tensors.extend(mtp_layer)
     write_qwn(path,tensors,arch_dims=(d,inter,1,1,d,1,vocab,8))
     return tensors
 
@@ -136,6 +178,17 @@ class NativeDecoderTest(unittest.TestCase):
                 self.assertTrue(math.isfinite(a))
                 self.assertAlmostEqual(a,b,places=2)
 
+    def test_routed_moe_dispatch_matches_the_selected_expert(self):
+        clang=shutil.which("clang")
+        if not clang:self.skipTest("clang not installed")
+        with tempfile.TemporaryDirectory() as td:
+            model=os.path.join(td,"tiny-moe.qwn");exe=os.path.join(td,"decode.exe" if os.name=="nt" else "decode")
+            build_fixture(model, moe=True)
+            self.compile(clang,exe,HERE/"tests"/"test_qwanto_decode.c")
+            logits=[float(v) for v in self.run_native([exe,model]).split()]
+            for actual, expected in zip(logits, python_reference()):
+                self.assertAlmostEqual(actual, expected, places=2)
+
     def test_persistent_openai_engine_protocol(self):
         clang=shutil.which("clang")
         if not clang:self.skipTest("clang not installed")
@@ -144,7 +197,7 @@ class NativeDecoderTest(unittest.TestCase):
             build_fixture(model)
             self.compile(clang, exe, HERE/"qwnrun.c")
             try:
-                proc=subprocess.Popen([exe,model,"--serve"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                proc=subprocess.Popen([exe,model,"--serve","--kv-cache","turboquant-paper"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             except OSError as error:
                 if getattr(error, "winerror", None) == 4551:
                     self.skipTest("Windows Application Control blocked the temporary test executable")
@@ -167,6 +220,65 @@ class NativeDecoderTest(unittest.TestCase):
                     self.assertAlmostEqual(a,b,places=2)
             finally:
                 proc.terminate();proc.wait()
+
+    def test_native_mtp_head_runs_in_its_own_kv_state(self):
+        clang=shutil.which("clang")
+        if not clang:self.skipTest("clang not installed")
+        with tempfile.TemporaryDirectory() as td:
+            model=os.path.join(td,"tiny-mtp.qwn");exe=os.path.join(td,"qwnrun.exe" if os.name=="nt" else "qwnrun")
+            build_fixture(model, mtp=True)
+            self.compile(clang, exe, HERE/"qwnrun.c")
+            proc=subprocess.Popen([exe,model,"--serve"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            try:
+                proc.stdin.write("FORWARD 1\nMTP_FORWARD 2\n");proc.stdin.flush()
+                self.assertEqual(proc.stdout.readline().strip(),"LOGITS 6")
+                for _ in range(6): self.assertTrue(math.isfinite(float(proc.stdout.readline().strip())))
+                self.assertEqual(proc.stdout.readline().strip(),"LOGITS 6")
+                for _ in range(6): self.assertTrue(math.isfinite(float(proc.stdout.readline().strip())))
+            finally:
+                proc.terminate();proc.wait()
+
+    def test_native_mtp_speculative_greedy_matches_target_and_records_rejection(self):
+        clang=shutil.which("clang")
+        if not clang:self.skipTest("clang not installed")
+        with tempfile.TemporaryDirectory() as td:
+            model=os.path.join(td,"tiny-mtp-reject.qwn");exe=os.path.join(td,"qwnrun.exe" if os.name=="nt" else "qwnrun")
+            build_fixture(model, mtp=True, mtp_reject=True)
+            self.compile(clang, exe, HERE/"qwnrun.c")
+
+            def submit(extra_args, request_id):
+                proc=subprocess.Popen([exe,model,"--serve",*extra_args],stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                try:
+                    payload=b"ab"
+                    proc.stdin.write(f"SUBMIT {request_id} 0 {len(payload)} 4 0 1\n".encode()+payload+b"\n")
+                    proc.stdin.flush()
+                    output=[]; done=""
+                    while True:
+                        line=proc.stdout.readline().decode("utf-8", "replace").strip()
+                        if not line:
+                            self.fail(proc.stderr.read().decode("utf-8", "replace") or
+                                      "qwnrun closed its protocol stream")
+                        if line.startswith("DATA "):
+                            size=int(line.split()[2])
+                            output.append(proc.stdout.read(size))
+                            self.assertEqual(proc.stdout.read(1), b"\n")
+                        elif line.startswith("DONE "):
+                            done=line
+                            break
+                        elif line.startswith("ERROR "):
+                            self.fail(line)
+                    return b"".join(output), done
+                finally:
+                    proc.terminate();proc.wait()
+
+            baseline, _ = submit(["--thinking", "none"], "baseline")
+            speculative, done = submit(["--speculative", "--draft-length", "2"], "mtp")
+            self.assertEqual(speculative, baseline)
+            self.assertIn("speculative_status=NATIVE_MTP_COMPLETED", done)
+            self.assertIn("speculative_rejected=", done)
+            rejected=int(done.split("speculative_rejected=", 1)[1].split()[0])
+            self.assertGreater(rejected, 0, done)
 
 
 if __name__=="__main__":

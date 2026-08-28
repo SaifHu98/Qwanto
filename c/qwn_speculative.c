@@ -237,15 +237,13 @@ int qwn_speculative_check_compatibility(const QwnDecoder *target,
            QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL;
 }
 
-int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
-                         QwnDecoder *draft, int gamma) {
-    char reason[160];
-    if (!ctx || !target || !draft) return QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL;
-    if (qwn_speculative_check_compatibility(target, draft, reason, sizeof(reason)) != QWN_SPEC_OK)
-        return QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL;
+static int spec_context_alloc(QwnSpecContext *ctx, QwnDecoder *target,
+                              QwnDecoder *draft, int gamma, int native_mtp) {
+    if (!ctx || !target) return QWN_SPEC_INVALID_ARGUMENT;
     memset(ctx, 0, sizeof(*ctx));
     ctx->target = target;
     ctx->draft = draft;
+    ctx->native_mtp = native_mtp;
     ctx->gamma = gamma > 0 && gamma <= QWN_SPEC_MAX_GAMMA ? gamma : 4;
     ctx->top_p = 1.0f;
     ctx->rng_state = 0x853c49e6748fea9bULL;
@@ -268,7 +266,32 @@ int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
         return QWN_SPEC_INVALID_ARGUMENT;
     }
     snprintf(ctx->counters.status, sizeof(ctx->counters.status),
-             "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL");
+             native_mtp ? "NATIVE_MTP_READY" : "IMPLEMENTED_REQUIRES_COMPATIBLE_DRAFT_MODEL");
+    return QWN_SPEC_OK;
+}
+
+int qwn_speculative_init(QwnSpecContext *ctx, QwnDecoder *target,
+                         QwnDecoder *draft, int gamma) {
+    char reason[160];
+    if (!ctx || !target || !draft) return QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL;
+    if (qwn_speculative_check_compatibility(target, draft, reason, sizeof(reason)) != QWN_SPEC_OK)
+        return QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL;
+    return spec_context_alloc(ctx, target, draft, gamma, 0);
+}
+
+int qwn_speculative_mtp_init(QwnSpecContext *ctx, QwnDecoder *target, int gamma) {
+    int rc;
+    if (!ctx || !target || !qwn_decoder_has_native_mtp(target))
+        return QWN_SPEC_REQUIRES_COMPATIBLE_DRAFT_MODEL;
+    rc = spec_context_alloc(ctx, target, NULL, gamma, 1);
+    if (rc != QWN_SPEC_OK) return rc;
+    ctx->mtp_snapshot_capacity = (size_t)(ctx->gamma + 1) *
+                                 (size_t)target->cfg.hidden;
+    ctx->mtp_state_snapshots = (float *)malloc(ctx->mtp_snapshot_capacity * sizeof(float));
+    if (!ctx->mtp_state_snapshots) {
+        qwn_speculative_free(ctx);
+        return QWN_SPEC_INVALID_ARGUMENT;
+    }
     return QWN_SPEC_OK;
 }
 
@@ -278,6 +301,7 @@ void qwn_speculative_free(QwnSpecContext *ctx) {
     free(ctx->draft_all);
     free(ctx->draft_probs);
     free(ctx->target_probs);
+    free(ctx->mtp_state_snapshots);
     memset(ctx, 0, sizeof(*ctx));
 }
 
@@ -310,6 +334,12 @@ static void spec_softmax(const float *logits, float *probabilities, int vocab,
 }
 
 static int spec_sample(QwnSpecContext *ctx, const float *probabilities, int vocab) {
+    if (ctx && ctx->temperature <= 0.0f) {
+        int best = 0;
+        for (int i = 1; i < vocab; i++)
+            if (probabilities[i] > probabilities[best]) best = i;
+        return best;
+    }
     float draw = spec_random(ctx), cumulative = 0.0f;
     for (int i = 0; i < vocab; i++) {
         cumulative += probabilities[i];
@@ -341,11 +371,175 @@ static void spec_emit(const QwnDecoder *decoder, int token,
     }
 }
 
+static void spec_mtp_snapshot(const QwnSpecContext *ctx, int index,
+                              int *position) {
+    QwnDecoder *target = ctx->target;
+    if (position) *position = target->mtp_position;
+    memcpy(ctx->mtp_state_snapshots + (size_t)index * (size_t)target->cfg.hidden,
+           target->mtp_state_hidden, (size_t)target->cfg.hidden * sizeof(float));
+}
+
+static void spec_mtp_restore(const QwnSpecContext *ctx, int index, int position) {
+    QwnDecoder *target = ctx->target;
+    target->mtp_position = position;
+    target->mtp_chain_active = 1;
+    memcpy(target->mtp_state_hidden,
+           ctx->mtp_state_snapshots + (size_t)index * (size_t)target->cfg.hidden,
+           (size_t)target->cfg.hidden * sizeof(float));
+}
+
+static int spec_mtp_generate(QwnSpecContext *ctx, const int *prompt,
+                             int prompt_count, int max_new_tokens,
+                             float temperature, float top_p,
+                             void (*callback)(const char *, int, void *),
+                             void *opaque) {
+    const int vocab = ctx->target->cfg.vocab;
+    const float *target_logits = NULL, *draft_logits = NULL;
+    int generated = 0;
+    int draft_tokens[QWN_SPEC_MAX_GAMMA];
+    int emitted[QWN_SPEC_MAX_GAMMA + 1];
+    if (!ctx->native_mtp || !qwn_decoder_has_native_mtp(ctx->target) ||
+        !prompt || prompt_count <= 0 || max_new_tokens <= 0 ||
+        top_p < 0.999999f || prompt_count > ctx->history_capacity)
+        return QWN_SPEC_INVALID_ARGUMENT;
+
+    qwn_decoder_reset(ctx->target);
+    ctx->history_count = 0;
+    ctx->temperature = temperature;
+    ctx->top_p = top_p;
+    memset(&ctx->counters, 0, sizeof(ctx->counters));
+    snprintf(ctx->counters.status, sizeof(ctx->counters.status), "NATIVE_MTP_RUNNING");
+    for (int i = 0; i < prompt_count; i++) {
+        if (spec_append_history(ctx, prompt[i]) != QWN_SPEC_OK ||
+            qwn_decoder_forward(ctx->target, prompt[i], &target_logits) != 0)
+            return QWN_SPEC_CONTEXT_LIMIT;
+        /* The MTP head reuses decoder->logits. Preserve the target
+         * distribution before producing the MTP draft for this position. */
+        spec_softmax(target_logits, ctx->target_probs, vocab, temperature);
+        if (
+            qwn_decoder_mtp_forward(ctx->target, prompt[i], &draft_logits) != 0)
+            return QWN_SPEC_CONTEXT_LIMIT;
+    }
+
+    while (generated < max_new_tokens) {
+        const int lookahead = ctx->gamma < max_new_tokens - generated ?
+                              ctx->gamma : max_new_tokens - generated;
+        int snapshot_positions[QWN_SPEC_MAX_GAMMA + 1];
+        int accepted = 0, rejected = 0, emitted_count = 0;
+        double draft_start = spec_now();
+        spec_mtp_snapshot(ctx, 0, &snapshot_positions[0]);
+        for (int k = 0; k < lookahead; k++) {
+            spec_softmax(draft_logits, ctx->draft_all + (size_t)k * (size_t)vocab,
+                         vocab, temperature);
+            draft_tokens[k] = spec_sample(ctx,
+                                          ctx->draft_all + (size_t)k * (size_t)vocab,
+                                          vocab);
+            ctx->counters.proposed_tokens++;
+            if (qwn_decoder_mtp_forward_chain(ctx->target, draft_tokens[k],
+                                                &draft_logits) != 0)
+                return -1;
+            spec_mtp_snapshot(ctx, k + 1, &snapshot_positions[k + 1]);
+        }
+        ctx->counters.draft_ms += (spec_now() - draft_start) * 1000.0;
+
+        double verify_start = spec_now();
+        for (int k = 0; k < lookahead; k++) {
+            float *target_probs = ctx->target_probs;
+            const float *draft_probs = ctx->draft_all + (size_t)k * (size_t)vocab;
+            const int target_argmax = spec_sample(ctx, target_probs, vocab);
+            const float p = target_probs[draft_tokens[k]];
+            const float q = draft_probs[draft_tokens[k]];
+            const int accepted_here = temperature <= 0.0f
+                ? draft_tokens[k] == target_argmax
+                : spec_random(ctx) <= (q > 0.0f ? fminf(1.0f, p / q) :
+                                        (p > 0.0f ? 1.0f : 0.0f));
+            if (accepted_here) {
+                emitted[emitted_count++] = draft_tokens[k];
+                accepted++;
+                ctx->counters.accepted_tokens++;
+                ctx->counters.committed_tokens++;
+                if (spec_append_history(ctx, draft_tokens[k]) != QWN_SPEC_OK ||
+                    qwn_decoder_forward(ctx->target, draft_tokens[k], &target_logits) != 0)
+                    return -1;
+                spec_softmax(target_logits, target_probs, vocab, temperature);
+                ctx->counters.target_passes++;
+                continue;
+            }
+
+            rejected = 1;
+            ctx->counters.rejected_tokens++;
+            double correction_start = spec_now();
+            int correction;
+            if (temperature <= 0.0f) {
+                correction = target_argmax;
+            } else {
+                float residual_sum = 0.0f;
+                for (int v = 0; v < vocab; v++) {
+                    target_probs[v] = fmaxf(0.0f, target_probs[v] - draft_probs[v]);
+                    residual_sum += target_probs[v];
+                }
+                if (residual_sum <= 0.0f) {
+                    memcpy(target_probs, draft_probs, (size_t)vocab * sizeof(float));
+                } else {
+                    for (int v = 0; v < vocab; v++) target_probs[v] /= residual_sum;
+                }
+                correction = spec_sample(ctx, target_probs, vocab);
+            }
+            ctx->counters.correction_sampling_ms +=
+                (spec_now() - correction_start) * 1000.0;
+            spec_mtp_restore(ctx, accepted, snapshot_positions[accepted]);
+            emitted[emitted_count++] = correction;
+            ctx->counters.bonus_tokens++;
+            ctx->counters.committed_tokens++;
+            if (spec_append_history(ctx, correction) != QWN_SPEC_OK ||
+                qwn_decoder_forward(ctx->target, correction, &target_logits) != 0)
+                return -1;
+            spec_softmax(target_logits, target_probs, vocab, temperature);
+            if (qwn_decoder_mtp_forward_chain(ctx->target, correction, &draft_logits) != 0)
+                return -1;
+            ctx->counters.target_passes++;
+            break;
+        }
+        ctx->counters.verification_ms += (spec_now() - verify_start) * 1000.0;
+        if (!rejected && accepted == lookahead && generated + accepted < max_new_tokens) {
+            const int bonus = spec_sample(ctx, ctx->target_probs, vocab);
+            emitted[emitted_count++] = bonus;
+            ctx->counters.bonus_tokens++;
+            ctx->counters.committed_tokens++;
+            if (spec_append_history(ctx, bonus) != QWN_SPEC_OK ||
+                qwn_decoder_forward(ctx->target, bonus, &target_logits) != 0)
+                return -1;
+            spec_softmax(target_logits, ctx->target_probs, vocab, temperature);
+            if (qwn_decoder_mtp_forward_chain(ctx->target, bonus, &draft_logits) != 0)
+                return -1;
+            ctx->counters.target_passes++;
+        }
+        for (int i = 0; i < emitted_count && generated < max_new_tokens; i++) {
+            const int token = emitted[i];
+            generated++;
+            if (token == ctx->target->cfg.eos_id) goto done;
+            spec_emit(ctx->target, token, callback, opaque);
+        }
+    }
+done:
+    ctx->total_drafted = (int)ctx->counters.proposed_tokens;
+    ctx->total_accepted = (int)ctx->counters.accepted_tokens;
+    ctx->counters.acceptance_rate = ctx->counters.proposed_tokens > 0
+        ? (double)ctx->counters.accepted_tokens / (double)ctx->counters.proposed_tokens : 0.0;
+    ctx->counters.effective_tokens_per_target_pass = ctx->counters.target_passes > 0
+        ? (double)ctx->counters.committed_tokens / (double)ctx->counters.target_passes : 0.0;
+    snprintf(ctx->counters.status, sizeof(ctx->counters.status), "NATIVE_MTP_COMPLETED");
+    return generated;
+}
+
 int qwn_speculative_generate(QwnSpecContext *ctx, const int *prompt,
                              int prompt_count, int max_new_tokens,
                              float temperature, float top_p,
                              void (*callback)(const char *, int, void *),
                              void *opaque) {
+    if (ctx && ctx->native_mtp)
+        return spec_mtp_generate(ctx, prompt, prompt_count, max_new_tokens,
+                                 temperature, top_p, callback, opaque);
     if (!ctx || !ctx->target || !ctx->draft || !prompt || prompt_count <= 0 ||
         max_new_tokens <= 0 || top_p <= 0.0f || top_p > 1.0f)
         return QWN_SPEC_INVALID_ARGUMENT;

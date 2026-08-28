@@ -24,9 +24,9 @@ gateway, Qwanto Web, and Qwanto Code.
   payload padding, and a tail-block offset recorded by the converter.
 - **Native execution paths:** target-specific SIMD kernels are compiled for
   supported CPU targets. HyperVSQ-2 and Q4_0 paths are exercised by native
-  tests; TWLA, LittleBit-2, TurboQuant, JetSpec, SlimInfer, and BitDecoding
-  remain reference or experimental work without published end-to-end model
-  evidence.
+  tests. Native NextN/MTP speculation now has checkpoint/restore and factual
+  acceptance counters, while target verification remains sequential and is not
+  presented as a speedup.
 - **Memory-aware runtime:** the QWN loader uses memory mapping and layer-ahead
   prefetching. CPU/RAM/NVMe residency planning is implemented; CUDA execution
   is reported only when a compatible `qwn_cuda.dll` completes a supported
@@ -63,6 +63,48 @@ the 1.5B Q4_0 fixture converted from a DeepSeek-R1-Distill-Qwen GGUF source:
 Each row is valid only for the recorded executable hash, model hash, prompt,
 context, seed, token limit, threads, and host. They are not universal
 throughput claims.
+
+### 2026-08-28 local model audit
+
+The following audit used the current source tree and a temporary Windows Clang
+`qwnrun` binary (`SHA-256 c6e0f2d781b6b374bac0398e569bccf6145e3046f34cd6a5019643d0bd965ba2`).
+It used CPU, `top_p=1`, temperature `0`, context `2048`, and one cold process
+per row. These are diagnostic measurements, not release-quality benchmark
+rows: the temporary binary was not built with OpenMP or release ISA flags.
+
+| Local artifact tested | Format | File size | Prompt tokens | Generated | Prefill tok/s | Decode tok/s | Actual backend/kernel | Result |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| DeepSeek-R1-Distill-Qwen 1.5B | QWN Q4_0 | 1,006,483,816 B | 6 | 16 | 0.915259 | 0.924933 | CPU / scalar | `status=ok` |
+| DeepSeek-V4-Pro-Qwen3.5 4B | QWN BF16 (baseline) | 8,655,205,784 B | 12 | 8 | 0.305899 | 0.299913 | CPU / scalar | `status=ok` |
+| DeepSeek-V4-Pro-Qwen3.5 4B | QWN HyperVSQ-2 | 1,266,202,104 B | 12 | 8 | 0.472111 | 0.430528 | CPU / scalar | `status=ok` |
+
+The factual timing values are retained here only to make the local run
+reproducible; no cross-model or hardware-general speed claim follows from them.
+
+The corresponding runtime resource plan reported planned NVMe-backed bytes of
+`1,006,082,432` for the 1.5B Q4_0 artifact, `8,654,655,040` for the 4B BF16
+baseline, and `1,265,610,304` for 4B HyperVSQ-2. These are runtime telemetry
+values for those processes, not peak-RSS measurements.
+
+| Source → QWN conversion | Source size | QWN size | Size change | Conversion throughput |
+| --- | ---: | ---: | ---: | ---: |
+| DeepSeek-R1 1.5B Q4_K_M → Q4_0 | 1,117,320,800 B | 1,006,483,816 B | -9.92% | 1,264.792 MB/s |
+| DeepSeek-V4-Pro 4B BF16 → baseline | 8,665,621,152 B | 8,655,205,784 B | -0.12% | 542.507 MB/s |
+| DeepSeek-V4-Pro 4B BF16 → HyperVSQ-2 | 8,665,621,152 B | 1,266,202,104 B | -85.38% | 63.157 MB/s |
+
+The model-directory audit found that only the 4B artifact is a genuine
+HyperVSQ-2 QWN model. The 1.5B files labelled `none` and `hyper_vsq2` have
+the same hash/size and contain Q4-compatible payloads, so they are not counted
+as HyperVSQ-2. The `15B_none.qwn` file has the same 1.5B parameter metadata and
+is not counted as a third model. Qwen3.8/Flash-Next sources remain separate
+conversion gates because of mixed IQ/K layouts, MTP/DeltaNet coverage, and
+Flash-Next multi-shard handling; no fabricated HyperVSQ-2 row is added for
+them.
+
+The current real Qwen3.8 fixed QWN artifact also passed a one-token native MTP
+speculative check: `NATIVE_MTP_COMPLETED`, one proposal, one rejection, and
+greedy output `2`, matching ordinary target-only generation. This is a
+correctness check, not a speed or quality benchmark.
 
 On RTX 5070 Ti Laptop with the current `qwn_cuda.dll` ABI 1 (74-byte
 HyperVSQ-2 reference path), the CUDA execution reports

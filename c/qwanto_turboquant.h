@@ -30,7 +30,8 @@ typedef enum {
     QWN_KV_CACHE_FP16 = 0,
     QWN_KV_CACHE_Q8 = 1,
     QWN_KV_CACHE_TURBOQUANT_Q4 = 2,
-    QWN_KV_CACHE_AUTO = 3
+    QWN_KV_CACHE_TURBOQUANT_PAPER = 3,
+    QWN_KV_CACHE_AUTO = 4
 } QwnKvCacheMode;
 
 typedef struct {
@@ -74,6 +75,27 @@ typedef struct {
     size_t token_stride_v;   /* Bytes per token for Value cache */
     size_t total_bytes;      /* Total allocation size in bytes */
 } TurboQuantCache;
+
+/* Paper TurboQuant (arXiv:2504.19874): random orthogonal rotation, numerical
+ * Lloyd-Max scalar codebook, and Gaussian 1-bit QJL residual. This is a
+ * distinct cache representation from the legacy QWN-Q4-KV compatibility mode. */
+typedef struct {
+    int dimension;
+    int bits_per_coordinate;
+    int mse_bits;
+    int codebook_size;
+    uint64_t seed;
+    float *rotation;       /* row-major orthogonal Pi [d,d] */
+    float *qjl_matrix;     /* row-major Gaussian S [d,d] */
+    float *codebook;       /* Lloyd-Max centroids [2^(b-1)] */
+} QwnTurboQuantPaper;
+
+typedef struct {
+    QwnTurboQuantPaper quantizer;
+    uint8_t *packed_k, *packed_v;
+    int n_channels, n_tokens, max_tokens, n_heads, head_dim;
+    size_t mse_bytes, qjl_bytes, vector_bytes, token_stride, total_bytes;
+} QwnTurboQuantPaperCache;
 
 /* Deterministic symmetric Q8 cache.  Scales are stored per 64-value block;
  * keys and values use the same logical token/head-major layout as FP16 KV. */
@@ -154,6 +176,27 @@ void qwn_turboquant_matmul_avx512(
     int n_heads,
     int head_dim
 );
+
+int qwn_turboquant_paper_init(QwnTurboQuantPaper *quantizer, int dimension,
+                              int bits_per_coordinate, uint64_t seed);
+void qwn_turboquant_paper_free(QwnTurboQuantPaper *quantizer);
+int qwn_turboquant_paper_quantize(const QwnTurboQuantPaper *quantizer,
+                                  const float *src, uint8_t *dst);
+int qwn_turboquant_paper_dequantize(const QwnTurboQuantPaper *quantizer,
+                                    const uint8_t *src, float *dst);
+int qwn_turboquant_paper_cache_init(QwnTurboQuantPaperCache *cache,
+                                    int max_tokens, int n_heads, int head_dim,
+                                    int bits_per_coordinate, uint64_t seed);
+void qwn_turboquant_paper_cache_free(QwnTurboQuantPaperCache *cache);
+void qwn_turboquant_paper_cache_reset(QwnTurboQuantPaperCache *cache);
+int qwn_turboquant_paper_cache_append(QwnTurboQuantPaperCache *cache,
+                                      const float *key, const float *value,
+                                      int n_channels);
+float qwn_turboquant_paper_dot_key(const QwnTurboQuantPaperCache *cache,
+                                   int token, int head, const float *query);
+void qwn_turboquant_paper_accum_value(const QwnTurboQuantPaperCache *cache,
+                                      int token, int head, float score,
+                                      float *ctx);
 
 #ifdef __cplusplus
 }

@@ -25,6 +25,7 @@ import {
   getDoctorReport,
   getBenchmarks,
   getSecurityReport,
+  createGitHubIssue,
   startConversion,
   getConversionStatus,
   extractSSE,
@@ -128,6 +129,23 @@ describe("Model Ingestion & Conversion API", () => {
     const status = await getConversionStatus("http://localhost:8000/v1", "")
     expect(status.progress).toBe(65)
     expect(status.speed_mb_s).toBe(480.5)
+  })
+})
+
+describe("GitHub Issue API", () => {
+  it("creates an explicitly-consented issue through the local gateway", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      status: "created", url: "https://github.com/SaifHu98/Qwanto/issues/42", number: 42
+    }))))
+
+    const result = await createGitHubIssue("http://localhost:8000/v1", "local-key", {
+      title: "Qwanto Code feedback", body: "A reproducible error.", category: "Bug", consent: true
+    })
+
+    expect(result.number).toBe(42)
+    expect(fetch).toHaveBeenCalledWith("http://localhost:8000/v1/qwanto/github/issues", expect.objectContaining({
+      method: "POST", headers: expect.objectContaining({ Authorization: "Bearer local-key" })
+    }))
   })
 })
 
