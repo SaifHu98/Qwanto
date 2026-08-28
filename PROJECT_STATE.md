@@ -33,10 +33,10 @@ and NVMe mmap.
   real `/v1/qwanto/models/verify` endpoint testing verifying 4KiB container
   invariants (header, payload alignment, 64-byte padding, tail block) and live
   `qwnrun` smoke test execution.
-- Release candidate: annotated tag `v0.1.0-beta.7` is published at fixed commit
-  `6b973e2`, and `main` contains the same release fix plus later state notes.
-  Packaging run `33114350361` is currently `in_progress` on Windows, macOS,
-  and Ubuntu; no Release assets are claimed until it completes.
+- Release candidate: annotated tag `v0.1.0-beta.8` is published at commit
+  `6458031` and `main` contains the same source. CI run `3318329` and Package
+  run `3318330` are currently `in_progress`; no Release assets are claimed
+  until the workflows complete.
 - Web validation: production build passed (`tsc -b && vite build`) and Vitest
   passed (`61 tests`). Qwanto Code desktop UI now uses the Qwanto Studio visual
   system with a fixed bottom input bar that mirrors modern chat surfaces
